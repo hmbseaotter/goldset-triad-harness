@@ -1,0 +1,169 @@
+# Build prompt — goldset-triad-harness, PHASE 1 (credibility core)
+
+Hand this file to a building agent (a fresh Claude Code session, Cursor, Aider, or equivalent) together
+with the spec. It targets **phase 1 only**.
+
+## Read first
+
+1. `specs/goldset-triad-harness.md` — the complete specification. Read it fully before writing any code.
+2. `DECISIONS.md` (repo root) — the decision record D0–D12: every fork, the options, the choice, and why.
+   Do not relitigate these; if one looks unsafe or wrong, say so before building.
+
+## Recommended build-time settings
+
+**Model: Claude Opus 5. Reasoning effort: Extra (xhigh).** Phase 1 carries a heavy subtle-correctness load
+— 1:1 matching with a deterministic tie-break, byte-identical reproducibility, and answer-key authoring
+where an error invalidates every score built on it. These settings were reviewed and accepted by the author.
+Do not silently downgrade.
+
+## Work in this order
+
+1. **Restate the outcome in one sentence.**
+2. **Review the spec's assumptions block.** All eight were confirmed on 2026-07-25. Flag anything that now
+   looks wrong or risky and confirm with the author BEFORE building.
+3. **List any remaining ambiguities or missing information.**
+4. **PLAN GATE — enter plan mode (or your tool's equivalent), present an implementation plan for phase 1,
+   and get human approval BEFORE writing code.** Do not skip this.
+5. Build **only** phase 1.
+6. Verify every phase-1 acceptance criterion **by running it**.
+
+## Build ONLY phase 1
+
+Phase 1 is the nine floor items, all retained:
+
+1. **Findings payload schema v1** — the stable port. Closed category enumeration
+   (`PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`, `TAX_VARIANCE`), composite `TargetLine`
+   identifier (document id + line id), `Status` (`MATCH` | `DISCREPANCY`), `Confidence`, free-text
+   reasoning. Confidence and reasoning are carried but **never scored**.
+2. **Scoring engine** — strict match key (`Status` + `Category` + `TargetLine`), 1:1 matching, deterministic
+   tie-break, per-category precision and recall, false-positive count and rate.
+3. **Scorecard emission** — JSON plus human-readable summary; embedded SHA-256 fingerprints of the findings
+   artifact and the answer key; a `run_metadata` envelope holding exactly the non-deterministic fields.
+4. **A small, newly-authored 3-way dataset** including goods-receipt discrepancies (under-shipment and
+   over-shipment) and a **zero-defect control case**. Existing `reconciliation-fixtures` inform the *schema
+   only* — do not copy their content.
+5. **The initial category set** as enumerated above, including arithmetic `TAX_VARIANCE`.
+6. **Dataset selection by identifier or path**, across a public dev split and a private held-out split.
+7. **Answer-key isolation** — placement outside the repository tree plus deny-guards — and a **canary
+   probe** proving the key directory is unreachable from an agent context.
+8. **Type discipline** — pyright with zero errors, `Decimal` for money, frozen dataclasses, `typing.Final`
+   constants.
+9. **Test suite** covering every `[P1]` acceptance criterion.
+
+**Higher phases are documented-but-not-yet. Do NOT build them, and do NOT make architectural choices that
+block them.** Specifically out of this push: `--verify` mode, the JSONL ledger, README/methodology, CI,
+cross-platform verification (all `[P2]`); dataset expansion, performance budget, lenient match mode
+(`[P3]`); compliance categories (`[P4]`); packaging, runner adapter, confidence calibration (`[P5]`).
+
+Note the forward-compatibility obligations even though those items are not built now: fingerprints must be
+embedded in phase 1 so `[P2]` verify mode works later; duration must be recorded in `run_metadata` in phase
+1 so the `[P2]` ledger has something to aggregate; and the match key must be structured so `[P3]` lenient
+mode can drop `TargetLine` without redesign.
+
+## Non-negotiable constraints
+
+**Determinism boundary — the spine of this project.**
+- The harness makes **no LLM call and no network call, ever, at runtime.** Every operation is plain
+  deterministic code: loading, schema validation, matching, tie-breaking, precision/recall arithmetic,
+  fingerprinting, timestamp handling, serialization.
+- There are **no runtime judgment tasks** and therefore no model tier to select. This is deliberate: a
+  non-deterministic scorer cannot produce the byte-reproducible verdict that makes the tool credible.
+- AI assistance is permitted only at **design time** for the discrepancy plan, whose output is audited and
+  frozen into seeded generator code. No design model is invoked by any pipeline.
+
+**Type & value discipline.**
+- Type hints throughout; **pyright must report zero errors** — this is an acceptance criterion, not advice.
+- `Decimal` for every monetary value; **never `float`** on a monetary path.
+- Frozen dataclasses for records; `typing.Final` for constants.
+
+**Stack.**
+- Python 3.11+. The **scoring engine imports standard library only** (`json`, `decimal`, `dataclasses`,
+  `typing`, `hashlib`, `pathlib`). No third-party dependency in the scoring core.
+- **No new packages without flagging for approval first.**
+- Windows and Linux both first-class: use `pathlib`, assume no shell-specific behaviour, and document every
+  command for **both** PowerShell and bash.
+
+**Timestamps.** UTC ISO-8601 with a `Z` suffix at second precision, everywhere. Dataset timestamps are
+seeded and fixed, never wall-clock. Only the scorecard run stamp reads the real clock.
+
+**Clean-room terminology.** The strings "reconciliation agent" and "iTradeNetwork" must not appear anywhere
+in this repository. Reuse *patterns* from `practice--reconciliation-agent-manual-from-scratch-app`
+(Decimal discipline, deterministic finding identifiers, append-never-insert for positionally-indexed
+records) but do not import from it or copy its terminology.
+
+## NEVER do unattended — human checkpoint required
+
+- **Never modify, move, or delete any dataset, answer-key, or fixture file.** All inputs are strictly
+  read-only; a run that mutates them invalidates every prior comparison.
+- **Never delete or overwrite a prior scorecard.** They are the durable record.
+- **Never commit or push** without the author's explicit approval of the commit message.
+- **Never route around a denied answer-key read.** If a deny-guard refuses access, the refusal is correct and
+  is the mechanism working — not an obstacle to solve. Do not attempt it via Bash, a helper script, or a
+  subagent.
+- **Never place an answer key inside the repository tree.**
+
+## Phase-1 acceptance gate
+
+Do not mark this phase complete until every criterion below **passes by execution**, not by inspection.
+
+**Happy path**
+- [ ] Findings artifact containing exactly the expected findings scores recall 1.0 and precision 1.0 in every
+  category.
+- [ ] Scorecard emitted both as parseable JSON and as a human-readable summary.
+- [ ] Scorecard records dataset identifier and version.
+- [ ] Scorecard embeds SHA-256 fingerprints of the findings artifact and the answer key.
+- [ ] Zero-defect control with an empty findings artifact reports false-positive count 0 and rate 0.0, and
+  reports no precision figure.
+- [ ] Seeded tax overcharge on the correct line scores as a true positive under `TAX_VARIANCE`.
+- [ ] Seeded goods-receipt under-shipment on the correct line scores as a true positive.
+- [ ] Seeded goods-receipt over-shipment on the correct line scores as a true positive.
+- [ ] `run_metadata` carries run timestamp, load/score/total durations, and invoice and finding counts.
+- [ ] Every field in `run_metadata` is non-deterministic — excluding it alone suffices to make two runs
+  byte-identical.
+- [ ] The human-readable summary names each missed finding and each false flag individually.
+
+**Edge cases**
+- [ ] Omitting one expected finding records a miss and reduces that category's recall by exactly one over its
+  expectation count.
+- [ ] Adding one spurious finding records a false positive and reduces precision accordingly.
+- [ ] Two findings contending for one expected finding yield exactly one true positive and one false
+  positive, **and the scorecard is identical when the findings artifact order is reversed.**
+- [ ] Correct category with wrong `TargetLine` is not a true positive under strict matching; it counts as
+  both a false negative and a false positive.
+- [ ] A finding referencing a non-existent line is a false positive labelled as referencing a non-existent
+  target.
+- [ ] A finding with status `MATCH` is not counted as a false positive.
+- [ ] A malformed findings artifact halts, exits non-zero, names the offending finding and field, and writes
+  no scorecard.
+- [ ] A category outside the closed enumeration halts as a schema violation.
+- [ ] A missing or unreadable dataset halts, exits non-zero, names the dataset, and writes no partial score.
+- [ ] An unreadable answer key halts and exits non-zero rather than passing by default.
+- [ ] A dataset timestamp lacking the `Z` suffix or second precision is rejected as malformed.
+
+**Constraint validation**
+- [ ] Same dataset version and findings artifact scored twice produce byte-identical scorecards apart from
+  `run_metadata`.
+- [ ] pyright reports zero errors.
+- [ ] Import scan confirms the scoring engine imports only standard-library modules.
+- [ ] Scan confirms no `float` on any monetary path.
+- [ ] Scan confirms no networking or model-client import anywhere in the scoring path.
+- [ ] Canary probe confirms the answer-key directory is unreachable from an agent context; a reachable canary
+  fails loudly and exits non-zero.
+- [ ] Scan confirms zero occurrences of "reconciliation agent" and "iTradeNetwork" in the repository.
+- [ ] No input dataset or answer-key file is modified by any run, verified by comparing file hashes before
+  and after.
+
+## Record-keeping obligations
+
+- Append any architectural call the spec did not cover to the spec's **`## decisions made`** block.
+- If a decision represents a genuine fork (options existed and you chose one), **also append it to
+  `DECISIONS.md`** in the same format as D0–D12: fork, options considered, decision, why. That file is the
+  project's reasoning record and must not go stale.
+- If the spec itself changes, add a **changelog** line and **bump the spec version** in metadata.
+- Do not add features outside the spec's in-scope list. Do not use packages outside the constraints block
+  without flagging first.
+
+## Quality bar — the regeneration test
+
+Could another agent rebuild this phase from the spec alone and produce behaviourally identical output? If
+not, you have found what is missing — say so rather than papering over it.

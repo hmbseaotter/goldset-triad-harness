@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.1.1
+- Spec version: 0.1.2
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -30,10 +30,8 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 **Phase-tag map.** `[P1]` = credibility core (originally "P1a"). `[P2]` = tooling & scaffolding
 (originally "P1b"). `[P3]` = dataset expansion. `[P4]` = compliance categories. `[P5]` = audience
 expansion. Tags were renumbered from the interview's P1a/P1b naming because the linter **at the time**
-(`821fac1`) accepted integer-only tags. Sub-phase tags — a phase number with a lowercase letter suffix,
-P1a-style — became legal in toolkit `b09a99a`, but the renumbering stands: re-tagging every item and the
-build prompt would be pure churn for a mnemonic. (Written without brackets deliberately: the linter scans
-the whole document for tags, so a bracketed tag mentioned in prose is counted as if it were a real one.)
+(`821fac1`) accepted integer-only tags. Sub-phase tags like `[P1a]` became legal in toolkit `b09a99a`, but
+the renumbering stands: re-tagging every item and the build prompt would be pure churn for a mnemonic.
 
 **Companion document.** `DECISIONS.md` at the repo root is the running decision record (D0–D12): every
 fork, the options considered, the choice, and why. This spec states *what*; `DECISIONS.md` preserves *why*.
@@ -414,6 +412,10 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.1.2 (2026-07-25): documentation correction only. Removed a caveat in the phase-tag map warning that a
+  bracketed tag written in prose would be miscounted as a real tag — true when 0.1.1 was written, and fixed
+  upstream in toolkit `4a55439`, which reads tags only from bullet lines in the blocks that carry tagged
+  items. No requirement, criterion, scope item or phase changed.
 - 0.1.1 (2026-07-25): metadata backfill only — added `Produced by`, `Artifacts land in`, `Visibility`,
   `Decision record`, `Reproducibility`, `Timestamp standard` and `Integrity`. These fields were introduced
   to the toolkit template in `b248d15`, after this spec was written at `821fac1`. No requirement,

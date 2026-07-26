@@ -389,6 +389,58 @@ author (2026-07-25)**, since it defines what "over-flagging" means.
 
 ---
 
+## D14 — What exactly lives outside the repository tree ✅
+
+**Fork:** The spec stated that *answer keys* live outside the tree (A8) and named a "private held-out
+split" (D2), but never **enumerated the full set**. Which artifacts are out, exactly?
+
+**Options considered**
+- **(A) Key + generators only** — simplest. But the discrepancy-design artifact describes *where errors
+  were planted*, so leaving it in-repo substantially weakens the held-out claim.
+- **(B) Key + generators + design out; held-out INPUTS published** — the benchmark / Kaggle pattern. Lets
+  anyone run the eval, but published inputs are memorizable by a future model even with no labels
+  attached, and it makes "private held-out split" a misnomer for "private key".
+- **(C) Fully private held-out split** — key, generators, design artifact **and** inputs all outside.
+
+**Decision ✅** — **(C).**
+
+**Why** — published inputs are a contamination vector *on their own*: a model trained on the repo can
+memorize the documents without ever seeing a label, and the labels are **derivable from the inputs** by
+simply doing the task correctly. Keeping the whole split out preserves "contamination structurally
+impossible" as a literal claim, rather than one resting on labels being the only secret. The **dev split**
+ships in full — inputs *and* key — and is what demonstrates the methodology publicly and what CI runs.
+
+### Consequence — two axes that were being conflated
+
+| | in-repo | out-of-repo |
+|---|---|---|
+| **agent-readable** | dev split (inputs + key) | **held-out inputs** |
+| **agent-denied** | — | held-out key, generators, design artifact |
+
+**The held-out inputs are out-of-repo but MUST remain agent-readable** — the agent cannot produce findings
+without reading them. So *"outside the repo"* and *"deny-guarded"* are **not the same set**, and the
+deny-guard must **not** cover the held-out inputs or the agent cannot run at all. This is the trap: a guard
+scoped to "the held-out directory" instead of "the held-out key/generators/design" silently breaks
+evaluation rather than protecting it.
+
+### Resulting three tiers
+
+1. **Repo** (private now, public when ready) — harness code, tests, and the dev split **in full**.
+2. **Out-of-repo, agent-readable** — held-out dataset inputs.
+3. **Out-of-repo, agent-denied** (deny-guards + canary) — held-out answer key, generators, and the
+   discrepancy-design artifact.
+
+### Further consequences
+
+- **CI (`[P2]`) can only exercise the dev split**; the held-out split is unreachable from CI by
+  construction. Every acceptance criterion requiring a dataset is therefore a *dev-split* criterion.
+- **Dataset selection by path (D2) is what makes this work** — an out-of-tree held-out split needs no code
+  change, only a path. That decision is now load-bearing for isolation, not just comparability.
+- **The dev split's answer key is public by design** and is *not* deny-guarded. Guards apply to tier 3 only.
+- Supersedes the narrower wording of **A8**, which named only the answer key.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

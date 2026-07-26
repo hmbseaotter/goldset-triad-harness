@@ -43,9 +43,11 @@ Phase 1 is the nine floor items, all retained:
    over-shipment) and a **zero-defect control case**. Existing `reconciliation-fixtures` inform the *schema
    only* — do not copy their content.
 5. **The initial category set** as enumerated above, including arithmetic `TAX_VARIANCE`.
-6. **Dataset selection by identifier or path**, across a public dev split and a private held-out split.
-7. **Answer-key isolation** — placement outside the repository tree plus deny-guards — and a **canary
-   probe** proving the key directory is unreachable from an agent context.
+6. **Dataset selection by identifier or path** — a dev split shipped in the repo, and a fully private
+   held-out split resident outside the repository tree.
+7. **Held-out split isolation** — placement outside the repo tree, deny-guards, and a **canary probe**
+   proving the guarded area is unreachable from an agent context. **Read the tier table below before
+   implementing this; getting the guard scope wrong breaks evaluation rather than protecting it.**
 8. **Type discipline** — pyright with zero errors, `Decimal` for money, frozen dataclasses, `typing.Final`
    constants.
 9. **Test suite** covering every `[P1]` acceptance criterion.
@@ -83,6 +85,23 @@ mode can drop `TargetLine` without redesign.
 - Windows and Linux both first-class: use `pathlib`, assume no shell-specific behaviour, and document every
   command for **both** PowerShell and bash.
 
+**Isolation tiers — read this before touching the guards (D14).** Two axes are easy to conflate, and
+conflating them produces a harness that cannot evaluate anything:
+
+| | in-repo | out-of-repo |
+|---|---|---|
+| **agent-readable** | dev split — inputs **and** answer key | **held-out inputs** |
+| **agent-denied** | — | held-out answer key, generators, discrepancy-design artifact |
+
+- The **held-out inputs are out-of-repo but MUST stay agent-readable.** The agent-under-test cannot produce
+  findings without reading them. A deny-guard scoped to "the held-out directory" instead of to "the
+  held-out key, generators and design artifact" silently breaks evaluation.
+- The **dev split is public by design** and is NOT deny-guarded. It ships complete, key included, and is
+  the split every automated check and the CI workflow runs against.
+- The **held-out split must be unreachable from CI** by construction. The full acceptance suite therefore
+  has to pass using only the dev split, with no out-of-tree path configured.
+- Dataset selection by path is what makes an out-of-tree split work — no special-casing, just a path.
+
 **Timestamps.** UTC ISO-8601 with a `Z` suffix at second precision, everywhere. Dataset timestamps are
 seeded and fixed, never wall-clock. Only the scorecard run stamp reads the real clock.
 
@@ -100,7 +119,9 @@ records) but do not import from it or copy its terminology.
 - **Never route around a denied answer-key read.** If a deny-guard refuses access, the refusal is correct and
   is the mechanism working — not an obstacle to solve. Do not attempt it via Bash, a helper script, or a
   subagent.
-- **Never place an answer key inside the repository tree.**
+- **Never place any part of the held-out split inside the repository tree** — not the answer key, not the
+  generators, not the discrepancy-design artifact, not the dataset inputs. `.gitignore` is not sufficient:
+  it hides a file from git, not from the filesystem or from a reading agent.
 
 ## Phase-1 acceptance gate
 
@@ -147,8 +168,13 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] Import scan confirms the scoring engine imports only standard-library modules.
 - [ ] Scan confirms no `float` on any monetary path.
 - [ ] Scan confirms no networking or model-client import anywhere in the scoring path.
-- [ ] Canary probe confirms the answer-key directory is unreachable from an agent context; a reachable canary
-  fails loudly and exits non-zero.
+- [ ] Canary probe confirms the guarded area is unreachable from an agent context; a reachable canary fails
+  loudly and exits non-zero.
+- [ ] A repository scan finds no held-out answer key, generator, discrepancy-design artifact, or held-out
+  dataset input at any path, including under ignored directories.
+- [ ] The agent context **can** read held-out dataset inputs while **cannot** read the held-out answer key —
+  assert both halves.
+- [ ] The full acceptance suite passes using only the repo's dev split, with no out-of-tree path configured.
 - [ ] Scan confirms zero occurrences of "reconciliation agent" and "iTradeNetwork" in the repository.
 - [ ] No input dataset or answer-key file is modified by any run, verified by comparing file hashes before
   and after.

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.1.2
+- Spec version: 0.2.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -14,8 +14,9 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Produced by: /specify @ `821fac1` — note this pre-dates `b248d15`, which added the metadata fields
   below; they were backfilled by hand in 0.1.1 from decisions already recorded in `DECISIONS.md`.
 - Artifacts land in: `D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness` (A1)
-- Visibility: private now, public when ready (D11.1). The held-out answer key lives **outside** this
-  repository tree, so publishing never exposes it (A8).
+- Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
+  generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
+  exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
 - Decision record: `DECISIONS.md` at the repository root — permitted in place of
   `specs/<slug>.decisions.md` because this repo holds a single spec, and root placement is more
   discoverable for a portfolio artifact.
@@ -55,9 +56,12 @@ surfaces immediately instead of by eyeballing output.
 - [P1] A small 3-way golden dataset including goods-receipt discrepancies, plus a zero-defect control case.
 - [P1] Initial scored category set — price variance, quantity under-shipment, quantity over-shipment, tax
   variance (arithmetic self-consistency).
-- [P1] Dataset selection by id or path, with a public dev split and a private held-out split.
-- [P1] Answer-key isolation — directory placement outside the repo tree plus harness deny-guards — and a
-  canary probe that proves the key directory is unreachable.
+- [P1] Dataset selection by id or path, with a public dev split shipped in the repo and a fully private
+  held-out split resident outside the repository tree.
+- [P1] Held-out split isolation — placement outside the repo tree for the whole split, plus harness
+  deny-guards scoped to the answer key, generators and design artifact **but deliberately not to the
+  held-out inputs**, which the agent must read — and a canary probe proving the guarded area is
+  unreachable.
 - [P1] Type discipline — pyright gate, `Decimal` for money, frozen dataclasses, `typing.Final` constants.
 - [P1] Test suite covering every `[P1]` acceptance criterion.
 - [P2] `--verify` recompute mode — recomputes a scorecard from its embedded fingerprints and diffs it.
@@ -253,6 +257,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - Security: [P1] The answer key SHALL NOT be readable from the agent-under-test's execution context,
   enforced by directory placement outside the repository tree plus harness deny-guards. [P1] The harness
   SHALL ship a canary probe that verifies this unreachability.
+- Security: [P1] The repository SHALL NOT contain, at any path, the held-out split's answer key, its
+  generators, its discrepancy-design artifact, or its dataset inputs. Every one of those SHALL reside
+  outside the repository tree (D14).
+- Security: [P1] The deny-guards SHALL cover the held-out answer key, generators and discrepancy-design
+  artifact, and SHALL NOT cover the held-out dataset inputs — the agent-under-test SHALL retain read access
+  to those inputs, because it cannot produce findings without them.
+- Security: [P1] The dev split SHALL ship complete in the repository, inputs and answer key together, and
+  SHALL NOT be deny-guarded — it is public by design and is the split every automated check runs against.
 - Performance: [P3] The harness SHALL score a dataset of roughly 75 invoices in under 10 seconds on
   commodity hardware, treated as a warning threshold only.
 - Error handling / observability: [P1] Every halt SHALL name its specific cause and exit non-zero. [P1] The
@@ -323,8 +335,16 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [ ] [P1] An automated scan confirms no `float` appears on any monetary code path.
 - [ ] [P1] An automated scan confirms no networking or model-client import exists anywhere in the scoring
   path.
-- [ ] [P1] The canary probe confirms the answer-key directory is unreachable from an agent context; a
-  reachable canary fails the check loudly and exits non-zero.
+- [ ] [P1] The canary probe confirms the guarded area is unreachable from an agent context; a reachable
+  canary fails the check loudly and exits non-zero.
+- [ ] [P1] A scan of the repository finds no held-out answer key, generator, discrepancy-design artifact,
+  or held-out dataset input at any path — including under any ignored directory, since `.gitignore` hides
+  a file from git but not from the filesystem.
+- [ ] [P1] The agent-under-test context **can** read the held-out dataset inputs while **cannot** read the
+  held-out answer key — both halves asserted, because a guard that blocks the inputs breaks evaluation
+  instead of protecting it.
+- [ ] [P1] The full acceptance suite passes using **only** the dev split shipped in the repository, with no
+  out-of-tree path configured — proving CI can verify the harness without access to the held-out split.
 - [ ] [P1] A scan confirms zero occurrences of "reconciliation agent" and "iTradeNetwork" in the repository.
 - [ ] [P1] No input dataset or answer-key file is modified by any run, verified by comparing file hashes
   before and after.
@@ -397,7 +417,8 @@ folded into prior decisions. They are retained here as the record of what was in
 - [x] The zero-defect control comprises at least one fully clean invoice with zero expected findings — risk
   if wrong: the over-flagging measure has no basis. **Confirmed.**
 - [x] Held-out answer keys live outside the repository tree in a project-specific secret directory — risk if
-  wrong: keys inside the repository make the held-out claim false. **Confirmed.**
+  wrong: keys inside the repository make the held-out claim false. **Confirmed** — and **widened by D14**:
+  the whole held-out split is outside the tree, not the key alone.
 
 ---
 
@@ -412,6 +433,13 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.2.0 (2026-07-25): **added requirements** — enumerated exactly what lives outside the repository tree
+  (D14). Previously the spec named only the answer key, leaving the generators (recorded as secret-side in
+  D5 but never stated as a requirement), the discrepancy-design artifact, and the held-out dataset inputs
+  unspecified. The whole held-out split is now outside the tree. Adds the distinction the earlier wording
+  conflated: *outside the repo* and *deny-guarded* are different sets — the held-out inputs are out-of-repo
+  yet must stay agent-readable, or evaluation cannot run at all. Four security requirements and four
+  acceptance criteria added; minor-version bump because this widens scope rather than restating it.
 - 0.1.2 (2026-07-25): documentation correction only. Removed a caveat in the phase-tag map warning that a
   bracketed tag written in prose would be miscounted as a real tag — true when 0.1.1 was written, and fixed
   upstream in toolkit `4a55439`, which reads tags only from bullet lines in the blocks that carry tagged

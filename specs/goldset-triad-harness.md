@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.2.0
+- Spec version: 0.3.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -54,8 +54,8 @@ surfaces immediately instead of by eyeballing output.
 - [P1] Scorecard emission — machine-readable JSON plus a human-readable summary, with embedded input
   fingerprints and a `run_metadata` envelope.
 - [P1] A small 3-way golden dataset including goods-receipt discrepancies, plus a zero-defect control case.
-- [P1] Initial scored category set — price variance, quantity under-shipment, quantity over-shipment, tax
-  variance (arithmetic self-consistency).
+- [P1] Initial scored category set — `PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`,
+  `QTY_INVOICE_INFLATED`, `TAX_VARIANCE` (arithmetic self-consistency). Five categories (D15).
 - [P1] Dataset selection by id or path, with a public dev split shipped in the repo and a fully private
   held-out split resident outside the repository tree.
 - [P1] Held-out split isolation — placement outside the repo tree for the whole split, plus harness
@@ -211,10 +211,32 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] WHEN a run completes, the harness SHALL record in the scorecard the dataset identifier, the dataset
   version, a SHA-256 fingerprint of the findings artifact, and a SHA-256 fingerprint of the answer key.
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
-  load, score, and total durations in milliseconds, together with the invoice count and finding count.
+  load, score and total durations in milliseconds, and nothing else.
+- [P1] WHEN a run completes, the harness SHALL record the invoice count and the finding count in the
+  scorecard's scored body, not in `run_metadata`, because both are deterministic and therefore SHALL fall
+  under the byte-identical comparison (D18).
 - [P1] WHEN an agent finding carries a status of MATCH rather than DISCREPANCY, the harness SHALL treat it
   as an assertion of correctness that is ineligible to be a flag, and SHALL NOT count it as a false
   positive.
+- [P1] WHEN determining a quantity discrepancy on a line, the harness SHALL compute the payable quantity as
+  the lesser of the ordered and received quantities, and SHALL treat the line as overbilled only when the
+  invoiced quantity exceeds that payable quantity (D15).
+- [P1] WHEN a line is overbilled on quantity, the harness SHALL assign the category by which constraint
+  bound the payable quantity: `QTY_UNDER_SHIPMENT` where the received quantity is less than the ordered
+  quantity, `QTY_OVER_SHIPMENT` where the ordered quantity is less than the received quantity, and
+  `QTY_INVOICE_INFLATED` where the ordered and received quantities are equal (D15).
+- [P1] WHEN measuring a price variance on a line, the harness SHALL compute it as the difference between the
+  invoiced and purchase-order unit prices multiplied by the **payable** quantity, so that a quantity error
+  cannot present as a price error and be counted twice (D16).
+- [P1] WHEN deciding whether a monetary variance is material, the harness SHALL apply a single threshold —
+  the greater of five cents and the lesser of two percent of the line's extended amount and twenty-five
+  dollars — and SHALL flag the variance when its absolute value is **equal to or greater than** that
+  threshold (D16).
+- [P1] WHEN assessing a quantity overbill for materiality, the harness SHALL value it as the excess quantity
+  multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances (D16).
+- [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory and the
+  answer-key path separately, so that a split whose inputs and key reside in different locations is loadable
+  without special-casing (D17).
 - [P2] WHEN invoked in verify mode against an existing scorecard, the harness SHALL recompute the score from
   the fingerprinted inputs and SHALL report any difference from the stored scorecard.
 - [P2] WHEN a run completes, the harness SHALL append one record to the JSONL run ledger.
@@ -297,8 +319,25 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   `TAX_VARIANCE`.
 - [ ] [P1] A seeded goods-receipt under-shipment, flagged on the correct line, scores as a true positive.
 - [ ] [P1] A seeded goods-receipt over-shipment, flagged on the correct line, scores as a true positive.
-- [ ] [P1] `run_metadata` carries the run timestamp plus load, score, and total durations, and the invoice
-  and finding counts.
+- [ ] [P1] `run_metadata` carries the run timestamp plus load, score and total durations — and nothing else.
+- [ ] [P1] The invoice count and finding count appear in the scored body, and altering either changes the
+  byte comparison — proving they are protected by it rather than excluded with `run_metadata`.
+- [ ] [P1] A line where the invoice bills more than was received but no more than was ordered scores as
+  `QTY_UNDER_SHIPMENT`; a line where more was received than ordered and the invoice follows the receipt
+  scores as `QTY_OVER_SHIPMENT`; a line where ordered equals received and the invoice exceeds both scores as
+  `QTY_INVOICE_INFLATED`.
+- [ ] [P1] A short shipment that is billed correctly for the received quantity produces **no** finding —
+  a shipment anomaly with no billing impact is not a discrepancy.
+- [ ] [P1] A variance exactly equal to the threshold is flagged, and one a cent below it is not.
+- [ ] [P1] On a $100,000 extended line a $26 variance is flagged, confirming the twenty-five dollar cap
+  governs large lines rather than two percent.
+- [ ] [P1] A line carrying both a wrong unit price and a wrong quantity yields one price finding measured at
+  the payable quantity and one quantity finding, with neither absorbing the other's dollars.
+- [ ] [P1] A one-unit quantity overbill whose dollar value falls below the materiality threshold produces no
+  finding, while the same one-unit overbill on a line priced above the threshold does — confirming quantity
+  overbills pass through the same materiality rule as monetary variances.
+- [ ] [P1] A dataset whose inputs directory and answer-key path lie in different locations loads correctly
+  from its manifest, with neither path hardcoded anywhere in the harness.
 - [ ] [P1] Every field inside `run_metadata` is non-deterministic, and no deterministic field appears there
   — asserted by confirming that excluding `run_metadata` is sufficient to make two runs byte-identical.
 - [ ] [P1] The human-readable summary names each missed finding and each false flag individually rather
@@ -433,6 +472,17 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.3.0 (2026-07-25): resolved four questions raised by the build session — the scoring semantics that decide
+  which lines the answer key marks. **D15:** quantity discrepancies anchor on the payable quantity, the
+  lesser of ordered and received, and the category names which constraint bound it; a third category
+  `QTY_INVOICE_INFLATED` was added because three situations exist and two categories necessarily mislabel
+  one. **D16:** the 2% and $25 thresholds combine as `max($0.05, min(2% × extended, $25))` flagged on `>=`,
+  measured at the payable quantity; the previously-recommended `max(2%, $25)` was rejected for tolerating a
+  $1,999 variance on a $100,000 line. **D17:** the out-of-tree layout uses sibling directories, and a dataset
+  is resolved through a manifest naming inputs and key separately. **D18:** `invoice_count` and
+  `finding_count` move out of `run_metadata` into the scored body — they are deterministic, and leaving them
+  in the excluded envelope made a miscount invisible to the reproducibility check. Minor-version bump: the
+  category enum grew and requirements were added.
 - 0.2.0 (2026-07-25): **added requirements** — enumerated exactly what lives outside the repository tree
   (D14). Previously the spec named only the answer key, leaving the generators (recorded as secret-side in
   D5 but never stated as a requirement), the discrepancy-design artifact, and the held-out dataset inputs

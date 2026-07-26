@@ -31,10 +31,10 @@ Do not silently downgrade.
 
 Phase 1 is the nine floor items, all retained:
 
-1. **Findings payload schema v1** — the stable port. Closed category enumeration
-   (`PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`, `TAX_VARIANCE`), composite `TargetLine`
-   identifier (document id + line id), `Status` (`MATCH` | `DISCREPANCY`), `Confidence`, free-text
-   reasoning. Confidence and reasoning are carried but **never scored**.
+1. **Findings payload schema v1** — the stable port. Closed category enumeration of **five** categories
+   (`PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`, `QTY_INVOICE_INFLATED`, `TAX_VARIANCE`),
+   composite `TargetLine` identifier (document id + line id), `Status` (`MATCH` | `DISCREPANCY`),
+   `Confidence`, free-text reasoning. Confidence and reasoning are carried but **never scored**.
 2. **Scoring engine** — strict match key (`Status` + `Category` + `TargetLine`), 1:1 matching, deterministic
    tie-break, per-category precision and recall, false-positive count and rate.
 3. **Scorecard emission** — JSON plus human-readable summary; embedded SHA-256 fingerprints of the findings
@@ -84,6 +84,56 @@ mode can drop `TargetLine` without redesign.
 - **No new packages without flagging for approval first.**
 - Windows and Linux both first-class: use `pathlib`, assume no shell-specific behaviour, and document every
   command for **both** PowerShell and bash.
+
+**Scoring semantics — these decide which lines the answer key marks (D15, D16).**
+
+```
+payable_qty    = min(qty_ordered, qty_received)
+overbilled     = qty_invoiced > payable_qty
+price_variance = (invoice_unit_price - po_unit_price) * payable_qty
+threshold      = max($0.05, min(0.02 * extended_amount, $25.00))
+flag           = |variance| >= threshold          # >= , not >
+```
+
+- **Quantity category = which constraint bound the payable quantity.** `received < ordered` →
+  `QTY_UNDER_SHIPMENT`. `ordered < received` → `QTY_OVER_SHIPMENT`. `ordered == received` →
+  `QTY_INVOICE_INFLATED` (no shipment anomaly; the invoice is simply wrong).
+- **A short shipment billed correctly for what arrived is NOT a discrepancy.** Shipment anomaly without
+  billing impact produces no finding. Marking it would reward flagging non-issues.
+- **Price variance is measured at the payable quantity**, so a quantity error cannot present as a price error
+  and get counted twice across two categories.
+- **One materiality threshold for all monetary categories**, quantity included — a quantity overbill is
+  valued at `(qty_invoiced - payable_qty) * po_unit_price` and passed through the same formula.
+- **The $25 cap governs large lines; the 2% only ever governs below the $1,250 crossover.** On a $100,000
+  line the threshold is $25, not $2,000 — that asymmetry is deliberate, because a tolerated $1,999 variance
+  would be a disqualifying blind spot for a harness built to catch money leaving.
+- **`>=`, not `>`** — a variance exactly on the threshold flags rather than passes, so a boundary case is
+  never a silent miss.
+- **Publish the rule** in the dataset's matching policy. The agent cannot compete against a threshold it
+  cannot read.
+
+**Out-of-tree layout (D17) — sibling directories, deliberately not a shared parent:**
+
+```
+D:\Claude_Stuff\goldset-triad-holdout\      tier 2: out-of-repo, agent-READABLE
+├─ invoices\
+└─ po_database\
+
+D:\Claude_Stuff\goldset-triad-secret\       tier 3: out-of-repo, agent-DENIED
+├─ ANSWER_KEY.json
+├─ design\discrepancy-plan.md
+├─ _generators\gen_*.py
+├─ _guard-template.settings.json            source of truth for deny rules
+├─ dataset-holdout.manifest.json            names inputs_dir + key_path
+└─ canary\throwaway.json                    unique marker
+```
+
+Siblings, not `holdout/{inputs,secret}`, so that a careless `holdout\**` deny rule cannot silently cover the
+inputs. A **dataset is a pair of locations** — resolve it through a manifest naming `inputs_dir` and
+`key_path`. The dev manifest ships in-repo under `datasets/dev/`; the held-out manifest lives on the secret
+side, readable by the scoring process and unreachable by the agent, which only needs the inputs directory.
+Keep the canary covered by the **directory** rule only, never a filename rule, so it exercises the weakest
+layer.
 
 **Isolation tiers — read this before touching the guards (D14).** Two axes are easy to conflate, and
 conflating them produces a harness that cannot evaluate anything:
@@ -138,9 +188,17 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] Seeded tax overcharge on the correct line scores as a true positive under `TAX_VARIANCE`.
 - [ ] Seeded goods-receipt under-shipment on the correct line scores as a true positive.
 - [ ] Seeded goods-receipt over-shipment on the correct line scores as a true positive.
-- [ ] `run_metadata` carries run timestamp, load/score/total durations, and invoice and finding counts.
+- [ ] `run_metadata` carries the run timestamp and load/score/total durations, and **nothing else**.
+- [ ] Invoice count and finding count live in the **scored body**, and altering either changes the byte
+  comparison — proving they are protected by it rather than excluded (D18).
 - [ ] Every field in `run_metadata` is non-deterministic — excluding it alone suffices to make two runs
   byte-identical.
+- [ ] The three quantity categories each score correctly on a purpose-built line, and a short shipment
+  billed correctly for what arrived produces no finding at all.
+- [ ] A variance exactly equal to the threshold flags; one cent below it does not.
+- [ ] A $26 variance on a $100,000 extended line flags, confirming the $25 cap governs large lines.
+- [ ] A line with both a wrong price and a wrong quantity yields one price finding measured at the payable
+  quantity plus one quantity finding, neither absorbing the other's dollars.
 - [ ] The human-readable summary names each missed finding and each false flag individually.
 
 **Edge cases**

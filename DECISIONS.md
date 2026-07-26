@@ -441,6 +441,166 @@ evaluation rather than protecting it.
 
 ---
 
+## D15 — Quantity categories: three, anchored on the payable quantity ✅
+
+**Fork:** Which lines does the key mark as quantity discrepancies, and on which axis?
+
+**Context — the enum names presuppose the wrong axis.** `QTY_UNDER_SHIPMENT` / `QTY_OVER_SHIPMENT` describe
+the *shipment* (received vs ordered). But a supplier who ships 80 of 100 and bills 80 has a shipment
+anomaly and **no billing problem**; marking that line would train the harness to reward flagging non-issues.
+
+**Options considered**
+- **(A) Shipment axis only** (received vs ordered) — matches the names literally and is symmetric, but flags
+  correctly-billed short shipments and *misses* the invoice-exceeds-receipt overbill that 3-way matching
+  exists to catch (the Pacific case the old 2-way app passed silently).
+- **(B) Two categories, documented mapping** — the payable rule below, with the `ordered == received` case
+  folded into `QTY_OVER_SHIPMENT` and a caveat. Keeps the enum as originally specified, at the cost of a
+  category whose name misdescribes some lines it marks.
+- **(C) Three categories** — add `QTY_INVOICE_INFLATED`.
+
+**Decision ✅** — **(C).** One rule, with the category naming *which constraint bound the payable quantity*:
+
+```
+payable_qty = min(qty_ordered, qty_received)
+overbilled  = qty_invoiced > payable_qty
+```
+
+| Condition | Category |
+|---|---|
+| `qty_received < qty_ordered` | `QTY_UNDER_SHIPMENT` — the receipt bound it |
+| `qty_ordered < qty_received` | `QTY_OVER_SHIPMENT` — the order bound it |
+| `qty_ordered == qty_received` | `QTY_INVOICE_INFLATED` — no shipment anomaly; the invoice is simply wrong |
+
+**Why** — the payable quantity is what an AP agent is actually judged on, and it is what the 2-way
+predecessor structurally could not see. Three situations exist, so two categories necessarily mislabel one
+of them; per-category precision/recall is only meaningful when a category's name matches the lines it marks.
+
+**Consequences** — the P1 enum grows to five categories (three quantity, plus `PRICE_VARIANCE` and
+`TAX_VARIANCE`). Phantom billing (`qty_received == 0`) falls under `QTY_UNDER_SHIPMENT` for now; it gets its
+own category if the taxonomy expands in `[P4]`.
+
+---
+
+## D16 — Price-variance threshold: how 2% and $25 combine ✅
+
+**Fork:** The reference policy carries both a 2% and a $25 threshold without saying how they combine.
+
+**Options considered**
+- **(A) Exceed BOTH — `max(2% × extended, $25)`.** The standard AP "whichever is greater" tolerance;
+  suppresses small-dollar and small-percentage noise. **Rejected:** it tolerates a **$1,999 variance on a
+  $100,000 line**. For a harness built to catch money leaving, that blind spot is disqualifying — a false
+  negative on $2,000 is far worse than a false positive on $3.
+- **(B) Exceed EITHER — `min(2% × extended, $25)`.** The tighter bound always governs.
+- **(C) Percentage only** — immaterial findings pile up on cheap lines.
+- **(D) Flat $25 only** — pure materiality; gives up detection of proportionally large errors on cheap
+  lines that signal a broken contract price.
+
+**Decision ✅** — **(B), with a rounding floor:**
+
+```
+threshold = max($0.05, min(0.02 × extended_amount, $25.00))
+flag iff |variance| >= threshold
+```
+
+**Why — the two thresholds serve different purposes, which is what justifies OR between them:**
+- **$25 is materiality.** At a median US accountant's ~$31.45/hr, $25 ≈ **47 minutes** of chase time: a
+  discrepancy worth more than the time to pin it down is worth the effort. This is the *only* threshold that
+  governs large lines.
+- **2% is a systematic-error signal.** A proportionally large error on a cheap line indicates wrong contract
+  pricing that will **recur** across many lines and invoices — worth catching even at $3, where materiality
+  alone would not justify it.
+- **$0.05 floor** protects the zero-defect control from rounding noise (`min` alone would set a $0.20
+  threshold on a $10 line). Precedented: the prior work used `>= $0.05` for R9 and R11.
+
+**The "equilibrium value" framing.** The thresholds cross at **$1,250** (2% of $1,250 = $25). Under `min`,
+the percentage governs *below* that point and the $25 cap governs *above* — so **the 2% never applies to
+large lines**, and the "2% of $100K = $2,000" objection never arises. `min` delivers value-tiering for free:
+the $25 cap *is* the high-value tier.
+
+**`>=`, not `>`** — a variance sitting exactly on the threshold flags rather than passes, so a boundary case
+is never a silent miss. Matches the prior work's `>= $0.05` on R9/R11.
+
+**Measured on the extended amount at the *payable* quantity:**
+`price_variance = (invoice_unit_price − po_unit_price) × payable_qty`. Isolating the price leg stops a
+quantity error from masquerading as a price error and being counted twice across two categories.
+
+**Published, not hidden** — the rule lives in the dataset's matching policy. The agent cannot compete
+against a threshold it cannot read.
+
+**Derived consequence — flagged for review.** The same materiality formula is applied to **quantity**
+findings, measured as `(qty_invoiced − payable_qty) × po_unit_price`. One materiality rule across all
+monetary categories is simpler than two and keeps the zero-defect control coherent; the alternative is exact
+quantity matching with no tolerance, which would mark 1-unit overbills on trivially cheap items.
+
+**Not claimed as an industry norm.** The methodology write-up publishes *this harness's* thresholds and the
+reasoning above; it does not assert what standard corporate practice is. Percentage tolerances in the low
+single digits are unremarkable, but that was not verified to a citable standard.
+
+---
+
+## D17 — Out-of-tree layout for the held-out split ✅
+
+**Fork:** D14 made the layout load-bearing. What concrete structure satisfies "inputs readable, key /
+generators / design denied"?
+
+**Options considered**
+- **(A) One parent with `inputs/` and `secret/` children** — tidier, keeps the split together. **Rejected:**
+  it invites the exact trap D14 warns about; a careless `holdout\**` deny rule covers the inputs too and
+  evaluation silently returns nothing.
+- **(B) Two sibling directories** — physical separation makes the dangerous rule awkward to write.
+
+**Decision ✅** — **(B), siblings:**
+
+```
+D:\Claude_Stuff\goldset-triad-holdout\      tier 2: out-of-repo, agent-READABLE
+├─ invoices\
+└─ po_database\
+
+D:\Claude_Stuff\goldset-triad-secret\       tier 3: out-of-repo, agent-DENIED
+├─ ANSWER_KEY.json
+├─ design\discrepancy-plan.md
+├─ _generators\gen_*.py
+├─ _guard-template.settings.json            source of truth for deny rules
+├─ dataset-holdout.manifest.json            names inputs_dir + key_path
+└─ canary\throwaway.json                    unique marker
+```
+
+**Why** — choose the layout that makes the wrong guard structurally awkward, not merely documented against.
+
+**Consequences**
+- **A "dataset" is a *pair* of locations** (inputs + key), and for the held-out split they diverge. Resolved
+  by a **manifest** naming `inputs_dir` and `key_path`. The dev manifest ships in-repo under `datasets/dev/`;
+  the held-out manifest lives on the secret side — readable by the scoring process, which legitimately holds
+  key access, and unreachable by the agent, which only ever needs the inputs directory.
+- The **canary is covered by the directory rule only**, never a filename rule, so it exercises the weakest
+  layer — same reasoning as the earlier guard work.
+
+---
+
+## D18 — `run_metadata` holds only non-deterministic fields; the counts move ✅
+
+**Fork:** D10 requires `run_metadata` to contain *exactly* the non-deterministic fields, but D9 placed
+`invoice_count` and `finding_count` inside it — and both are deterministic. A genuine contradiction.
+
+**Options considered**
+- **(A) Weaken the rule** to "run-scoped context, of which only some is excluded from comparison" — messy,
+  and it discards a crisp, load-bearing invariant.
+- **(B) Exclude specific fields** rather than the whole envelope — complicates the byte comparison.
+- **(C) Move the counts into the scored body.**
+
+**Decision ✅** — **(C).** `run_metadata` keeps the run timestamp and `load_ms` / `score_ms` / `total_ms`,
+and nothing else.
+
+**Why — this closes a latent hole, not just a wording inconsistency.** Everything inside `run_metadata` is
+**excluded from the byte-identical comparison**. As written, a regression that silently miscounted invoices
+would have been **invisible to U4**. Moving the counts into the body puts them under that protection.
+
+**Consequence** — D9's intent ("a duration is meaningless without knowing the workload it covered") is
+unaffected: the counts sit in the same file, and the `[P2]` ledger reads them from the body when it
+regenerates from scorecards.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

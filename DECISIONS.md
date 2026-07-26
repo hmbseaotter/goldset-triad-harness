@@ -350,10 +350,14 @@ Three inferred assumptions were surfaced for review and confirmed as decisions.
 - Lenient match mode → P2 (D8). Dataset expansion → P2. Compliance categories (SOX, sanctions, statutory
   tax, currency) → P3. Audience expansion, optional runner/adapter, confidence calibration → P4.
 
-**Phase-tag renumbering.** The spec linter accepts only `[P<integer>]`, so `[P1a]`/`[P1b]` would be rejected
-as malformed. Final mapping: **P1a → `[P1]`** (credibility core), **P1b → `[P2]`** (tooling & scaffolding),
-dataset expansion → `[P3]`, compliance categories → `[P4]`, audience expansion → `[P5]`. Same plan, legal
-tags.
+**Phase-tag renumbering.** The spec linter at the version that produced this spec (`821fac1`) accepted only
+`[P<integer>]`, so `[P1a]`/`[P1b]` were rejected as malformed. Final mapping: **P1a → `[P1]`** (credibility
+core), **P1b → `[P2]`** (tooling & scaffolding), dataset expansion → `[P3]`, compliance categories →
+`[P4]`, audience expansion → `[P5]`. Same plan, legal tags.
+
+> **Update (2026-07-25):** this limitation was itself the first gap fixed upstream — sub-phase tags are
+> legal as of toolkit `b09a99a`, so a future split can use `[P3a]`/`[P3b]` directly. The renumbering above
+> stands, because re-tagging every item plus the build prompt would be churn for a mnemonic.
 
 **Build-readiness (on the record).** Assessed as a heavy phase — subtle-correctness surface in the 1:1
 matching/tie-break, byte-identical reproducibility, and answer-key authoring. Author confirmed **Opus 5 +

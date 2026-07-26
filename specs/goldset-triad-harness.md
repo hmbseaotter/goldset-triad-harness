@@ -4,18 +4,36 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.1.0
+- Spec version: 0.1.1
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
 - Target type: library/service (CLI evaluation harness)
 - Build class: build-required
 - Role: n/a — purely procedural tool; a persona adds nothing to a deterministic scorer.
+- Produced by: /specify @ `821fac1` — note this pre-dates `b248d15`, which added the metadata fields
+  below; they were backfilled by hand in 0.1.1 from decisions already recorded in `DECISIONS.md`.
+- Artifacts land in: `D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness` (A1)
+- Visibility: private now, public when ready (D11.1). The held-out answer key lives **outside** this
+  repository tree, so publishing never exposes it (A8).
+- Decision record: `DECISIONS.md` at the repository root — permitted in place of
+  `specs/<slug>.decisions.md` because this repo holds a single spec, and root placement is more
+  discoverable for a portfolio artifact.
+- Reproducibility: **required, byte-identical** — identical dataset version plus findings artifact yields
+  an identical scorecard, excepting only the `run_metadata` envelope, which holds exactly the
+  non-deterministic fields (U4, D9, D10).
+- Timestamp standard: UTC ISO-8601 with a `Z` suffix, second precision. Dataset timestamps are seeded and
+  fixed; only the scorecard run stamp reads the real clock (D6).
+- Integrity: verify-by-recompute — each scorecard embeds SHA-256 fingerprints of the findings artifact and
+  the answer key, so a doctored score is exposed by re-running rather than by trusting git history (D10).
 
 **Phase-tag map.** `[P1]` = credibility core (originally "P1a"). `[P2]` = tooling & scaffolding
 (originally "P1b"). `[P3]` = dataset expansion. `[P4]` = compliance categories. `[P5]` = audience
-expansion. Tags are renumbered from the interview's P1a/P1b naming because the spec linter accepts only
-`[P<integer>]`.
+expansion. Tags were renumbered from the interview's P1a/P1b naming because the linter **at the time**
+(`821fac1`) accepted integer-only tags. Sub-phase tags — a phase number with a lowercase letter suffix,
+P1a-style — became legal in toolkit `b09a99a`, but the renumbering stands: re-tagging every item and the
+build prompt would be pure churn for a mnemonic. (Written without brackets deliberately: the linter scans
+the whole document for tags, so a bracketed tag mentioned in prose is counted as if it were a real one.)
 
 **Companion document.** `DECISIONS.md` at the repo root is the running decision record (D0–D12): every
 fork, the options considered, the choice, and why. This spec states *what*; `DECISIONS.md` preserves *why*.
@@ -396,6 +414,11 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.1.1 (2026-07-25): metadata backfill only — added `Produced by`, `Artifacts land in`, `Visibility`,
+  `Decision record`, `Reproducibility`, `Timestamp standard` and `Integrity`. These fields were introduced
+  to the toolkit template in `b248d15`, after this spec was written at `821fac1`. No requirement,
+  criterion, scope or phase changed: every value was already decided (A1, A8, D6, D9, D10, D11.1) and is
+  merely now stated where the template expects it.
 - 0.1.0 (2026-07-25): initial specification. Interview-derived; decisions D0–D12 recorded in
   `DECISIONS.md`. Phase tags renumbered from the interview's P1a/P1b to `[P1]`/`[P2]` for linter
   conformance.

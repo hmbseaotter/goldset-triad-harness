@@ -32,9 +32,13 @@ Do not silently downgrade.
 Phase 1 is the nine floor items, all retained:
 
 1. **Findings payload schema v1** — the stable port. Closed category enumeration of **five** categories
-   (`PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`, `QTY_INVOICE_INFLATED`, `TAX_VARIANCE`),
-   composite `TargetLine` identifier (document id + line id), `Status` (`MATCH` | `DISCREPANCY`),
-   `Confidence`, free-text reasoning. Confidence and reasoning are carried but **never scored**.
+   (`PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`, `QTY_INVOICE_INFLATED`, `TAX_VARIANCE`);
+   **`scope`** of `LINE` or `DOCUMENT`; composite `TargetLine` (document id + line id) where the document is
+   **the invoice under evaluation**; `Status` (`MATCH` | `DISCREPANCY`), `Confidence`, free-text reasoning.
+   Confidence and reasoning are carried but **never scored**. `target_line` is required for `LINE` scope and a
+   **reserved sentinel — never empty, never absent** — for `DOCUMENT` scope; a document-scoped finding with a
+   missing line id is **malformed**, not inferred. Line identifiers are assigned explicitly by the dataset,
+   never positional (D20, D22).
 2. **Scoring engine** — strict match key (`Status` + `Category` + `TargetLine`), 1:1 matching, deterministic
    tie-break, per-category precision and recall, false-positive count and rate.
 3. **Scorecard emission** — JSON plus human-readable summary; embedded SHA-256 fingerprints of the findings
@@ -88,12 +92,28 @@ mode can drop `TargetLine` without redesign.
 **Scoring semantics — these decide which lines the answer key marks (D15, D16).**
 
 ```
-payable_qty    = min(qty_ordered, qty_received)
-overbilled     = qty_invoiced > payable_qty
-price_variance = (invoice_unit_price - po_unit_price) * payable_qty
-threshold      = max($0.05, min(0.02 * extended_amount, $25.00))
-flag           = |variance| >= threshold          # >= , not >
+payable_qty      = min(qty_ordered, qty_received)
+overbilled       = qty_invoiced > payable_qty
+price_variance   = (invoice_unit_price - po_unit_price) * payable_qty
+
+basis            = payable_qty * po_unit_price          # LINE scope   (D19)
+basis            = invoice_taxable_subtotal             # DOCUMENT/tax (D21)
+threshold        = max($0.05, min(0.02 * basis, $25.00))
+flag             = |variance| >= threshold              # >= , not >
+
+match_key        = (status, category, scope, target)    # D20
 ```
+
+- **The basis is the PAYABLE extended amount, never the invoiced one.** An inflated invoice would enlarge its
+  own denominator and understate its variance ratio — PO 10 × $10 billed as 10 × $20 reads 100% against the
+  PO basis and only 50% against the invoice basis. Never divide by the disputed value.
+- **Phantom billing falls out of the formula**: `payable_qty = 0` → basis $0 → threshold drops to the $0.05
+  floor → anything billed for goods never received always flags. No special case needed.
+- **`TAX_VARIANCE` is DOCUMENT-scoped** and measured against the invoice's taxable subtotal, not a line
+  amount. Do **not** distribute one tax error across taxable lines — that multiplies a single error into N
+  findings and corrupts per-category precision/recall.
+- **Scope participates in the match key**, so a line-scoped and a document-scoped finding sharing status,
+  category and document id must not match each other.
 
 - **Quantity category = which constraint bound the payable quantity.** `received < ordered` →
   `QTY_UNDER_SHIPMENT`. `ordered < received` → `QTY_OVER_SHIPMENT`. `ordered == received` →
@@ -111,6 +131,15 @@ flag           = |variance| >= threshold          # >= , not >
   never a silent miss.
 - **Publish the rule** in the dataset's matching policy. The agent cannot compete against a threshold it
   cannot read.
+
+**Line correspondence (D22) — the key declares it, the inputs do not.**
+
+The invoice→PO→receipt correspondence is **ground truth in the answer key**, on the secret side, so the key is
+unambiguous and an independent auditor can reproduce it. It is **absent from the agent-readable inputs**:
+resolving correspondence across differing descriptions, part numbers and UOM is the capability under test, and
+publishing the mapping would delete a class of difficulty the taxonomy exists to create. `TargetLine` names
+the invoice line only, so the agent never has to *express* the correspondence in a finding — it only needs it
+to decide what to flag.
 
 **Out-of-tree layout (D17) — sibling directories, deliberately not a shared parent:**
 
@@ -199,6 +228,16 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] A $26 variance on a $100,000 extended line flags, confirming the $25 cap governs large lines.
 - [ ] A line with both a wrong price and a wrong quantity yields one price finding measured at the payable
   quantity plus one quantity finding, neither absorbing the other's dollars.
+- [ ] A `TAX_VARIANCE` scores as one document-scoped finding — not duplicated across taxable lines, not
+  rejected for lacking a line id — and is assessed against the taxable subtotal.
+- [ ] A document-scoped finding with an absent or empty line id is rejected as malformed, not inferred.
+- [ ] A line-scoped and a document-scoped finding sharing status, category and document id do not match each
+  other, proving `scope` is part of the key.
+- [ ] The 2% term uses the payable extended amount: a line short-shipped to a tenth of its ordered quantity
+  flags a variance the ordered-quantity basis would have passed.
+- [ ] The answer key carries invoice→PO→receipt correspondence for every line, and a scan of the
+  agent-readable inputs confirms it is absent there.
+- [ ] Reordering lines within an invoice input file changes no line identifier and no finding.
 - [ ] The human-readable summary names each missed finding and each false flag individually.
 
 **Edge cases**

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.3.0
+- Spec version: 0.4.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -47,8 +47,9 @@ structurally unable to enter the agent's context. The report pinpoints where and
 surfaces immediately instead of by eyeballing output.
 
 ## in scope
-- [P1] Findings payload schema v1 — the stable port: closed category enumeration, composite `TargetLine`
-  identifier, `Status`, `Confidence`, free-text reasoning.
+- [P1] Findings payload schema v1 — the stable port: closed category enumeration, `scope` of `LINE` or
+  `DOCUMENT`, composite `TargetLine` identifier anchored on the invoice, `Status`, `Confidence`, free-text
+  reasoning (D20, D22).
 - [P1] Scoring engine — 1:1 matching under a strict match key, deterministic tie-break, per-category
   precision and recall, false-positive count and rate.
 - [P1] Scorecard emission — machine-readable JSON plus a human-readable summary, with embedded input
@@ -167,7 +168,8 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - D6 — All timestamps are UTC ISO-8601 with a `Z` suffix at second precision; ordering compares absolute
   instants; civil dates only as a documented exception carrying an explicit time zone.
 - D7 — Python 3.11+, pyright, stdlib-only scoring core, two dependency zones.
-- D8 — Match key defaults to strict `Status` + `Category` + `TargetLine`; matching is 1:1 with a
+- D8 — Match key defaults to strict `Status` + `Category` + `TargetLine` — **extended by D20 to
+  `Status` + `Category` + `scope` + target**; matching is 1:1 with a
   deterministic tie-break; over-flagging on the zero-defect control is reported as raw false-positive count
   and false-positives-per-invoice.
 - D9 — Duration is recorded broken down by phase inside `run_metadata`, which the reproducibility comparison
@@ -200,6 +202,19 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   SHALL NOT rely on any hardcoded dataset location.
 - [P1] WHEN matching, the harness SHALL pair each agent finding with at most one expected finding and each
   expected finding with at most one agent finding.
+- [P1] WHEN matching, the harness SHALL compose the strict match key from the finding's status, category,
+  scope, and target — the target being the document identifier alone for a document-scoped finding and the
+  document identifier together with the line identifier for a line-scoped finding (D8, D20).
+- [P1] WHEN a finding is document-scoped, the harness SHALL require a reserved sentinel in place of the line
+  identifier, and SHALL reject as malformed any document-scoped finding whose line identifier is absent or
+  empty rather than treating it as document-level by inference (D20).
+- [P1] WHEN a finding identifies a target, the document identifier SHALL name the invoice under evaluation,
+  and the line identifier SHALL be an identifier the dataset assigns explicitly rather than a position within
+  a list (D22).
+- [P1] The answer key SHALL declare the canonical correspondence from each invoice line to its purchase-order
+  line and its goods-receipt line, so the key is unambiguous and independently reproducible (D22).
+- [P1] The agent-readable inputs SHALL NOT declare that correspondence, because resolving it across differing
+  descriptions, part numbers and units of measure is the capability under evaluation (D22).
 - [P1] WHEN an expected finding has no matching agent finding, the harness SHALL record it as a false
   negative and name the expectation that was missed.
 - [P1] WHEN an agent finding matches no expected finding, the harness SHALL record it as a false positive.
@@ -229,9 +244,16 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   invoiced and purchase-order unit prices multiplied by the **payable** quantity, so that a quantity error
   cannot present as a price error and be counted twice (D16).
 - [P1] WHEN deciding whether a monetary variance is material, the harness SHALL apply a single threshold —
-  the greater of five cents and the lesser of two percent of the line's extended amount and twenty-five
-  dollars — and SHALL flag the variance when its absolute value is **equal to or greater than** that
-  threshold (D16).
+  the greater of five cents and the lesser of two percent of the applicable basis and twenty-five dollars —
+  and SHALL flag the variance when its absolute value is **equal to or greater than** that threshold (D16).
+- [P1] WHERE the finding is line-scoped, the basis for the two-percent term SHALL be the **payable extended
+  amount**, being the payable quantity multiplied by the purchase-order unit price; the invoiced extended
+  amount SHALL NOT be used, because an inflated invoice would enlarge its own denominator and understate the
+  variance ratio (D19).
+- [P1] WHERE the finding is document-scoped and concerns tax, the basis for the two-percent term SHALL be the
+  invoice's taxable subtotal (D21).
+- [P1] A `TAX_VARIANCE` finding SHALL be document-scoped, because tax is charged once per invoice rather than
+  per line, and SHALL NOT be distributed across the invoice's taxable lines (D20, D21).
 - [P1] WHEN assessing a quantity overbill for materiality, the harness SHALL value it as the excess quantity
   multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances (D16).
 - [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory and the
@@ -272,8 +294,10 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 ### optional feature (WHERE — behind a flag / config)
 - [P2] WHERE verify mode is requested, the harness SHALL compare recomputed results against the stored
   scorecard and exit non-zero on any mismatch.
-- [P3] WHERE lenient matching is enabled, the harness SHALL drop `TargetLine` from the match key and SHALL
-  record in the scorecard that lenient matching was used.
+- [P3] WHERE lenient matching is enabled, the harness SHALL drop only the **line** component from the match
+  key, SHALL retain status, category, scope and document identifier, and SHALL record in the scorecard that
+  lenient matching was used — so a document-scoped finding never becomes indistinguishable from a line-scoped
+  one (D20).
 
 ### non-functional
 - Security: [P1] The answer key SHALL NOT be readable from the agent-under-test's execution context,
@@ -338,6 +362,19 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   overbills pass through the same materiality rule as monetary variances.
 - [ ] [P1] A dataset whose inputs directory and answer-key path lie in different locations loads correctly
   from its manifest, with neither path hardcoded anywhere in the harness.
+- [ ] [P1] A `TAX_VARIANCE` finding scores as document-scoped against a single expected finding, and is
+  neither duplicated across taxable lines nor rejected for lacking a line identifier.
+- [ ] [P1] A document-scoped finding whose line identifier is absent or empty is rejected as malformed rather
+  than inferred to be document-level.
+- [ ] [P1] A line-scoped and a document-scoped finding that share status, category and document identifier do
+  **not** match each other, proving `scope` participates in the match key.
+- [ ] [P1] The two-percent term is computed on the payable extended amount: a line short-shipped to a tenth
+  of its ordered quantity flags a variance that the ordered-quantity basis would have passed.
+- [ ] [P1] A tax variance is assessed against the invoice's taxable subtotal, not against a line amount.
+- [ ] [P1] The answer key contains the invoice-to-PO-to-receipt correspondence for every line, and a scan of
+  the agent-readable inputs confirms that correspondence is absent from them.
+- [ ] [P1] Reordering the lines within an invoice input file changes no line identifier and no finding,
+  proving identifiers are explicit rather than positional.
 - [ ] [P1] Every field inside `run_metadata` is non-deterministic, and no deterministic field appears there
   — asserted by confirming that excluding `run_metadata` is sufficient to make two runs byte-identical.
 - [ ] [P1] The human-readable summary names each missed finding and each false flag individually rather
@@ -394,6 +431,9 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   content outside `run_metadata`.
 - [ ] [P3] A roughly 75-invoice dataset scores in under 10 seconds; when the threshold is breached a warning
   appears and the exit code remains zero.
+- [ ] [P3] Under lenient matching, a finding with the right category but the wrong line identifier scores as a
+  true positive, a document-scoped finding still does not match a line-scoped one, and the scorecard records
+  that lenient matching was used.
 
 ---
 
@@ -450,7 +490,9 @@ folded into prior decisions. They are retained here as the record of what was in
 - [x] Discrepancy categories form a closed enumeration owned by the harness — risk if wrong: per-category
   metrics become undefined and near-miss category names silently score as misses. **Confirmed.**
 - [x] `TargetLine` is a composite identifier of document identifier plus line identifier, defined
-  canonically by the dataset — risk if wrong: strict matching cannot work. **Confirmed.**
+  canonically by the dataset — risk if wrong: strict matching cannot work. **Confirmed** — and **extended by
+  D22**: the document is specifically the invoice under evaluation, and line identifiers are explicitly
+  assigned rather than positional.
 - [x] The `[P1]` dataset is newly authored, with the existing fixtures serving as schema reference only —
   risk if wrong: wasted effort or terminology bleed. **Confirmed.**
 - [x] The zero-defect control comprises at least one fully clean invoice with zero expected findings — risk
@@ -472,6 +514,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.4.0 (2026-07-25): second round of build-session semantics questions. **D19:** the two-percent term's basis
+  is the **payable** extended amount (payable quantity × PO unit price); the invoiced extended amount is
+  disqualified because an inflated invoice would enlarge its own denominator and understate the variance
+  ratio. **D20:** findings gain an explicit `scope` of `LINE` or `DOCUMENT`, and the match key becomes status
+  + category + scope + target — a **schema change made now rather than at P4**, because duplicate invoice,
+  invalid PO reference, currency, segregation-of-duties and sanctions are all document-scoped and the payload
+  schema is the port. **D21:** `TAX_VARIANCE` is document-scoped and uses the unified threshold against the
+  taxable subtotal, per D3 scoping P1's tax check as arithmetic rather than compliance. **D22:** `TargetLine`
+  anchors on the invoice; line identifiers are explicit, never positional; the invoice→PO→receipt
+  correspondence is declared in the answer key but withheld from agent-readable inputs, because resolving it
+  is the capability under test. Also promoted the match-key composition from a prior decision to an explicit
+  requirement, where it belonged. Minor-version bump: schema and requirements both widened.
 - 0.3.0 (2026-07-25): resolved four questions raised by the build session — the scoring semantics that decide
   which lines the answer key marks. **D15:** quantity discrepancies anchor on the payable quantity, the
   lesser of ordered and received, and the category names which constraint bound it; a third category

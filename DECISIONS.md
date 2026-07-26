@@ -603,6 +603,131 @@ regenerates from scorecards.
 
 ---
 
+## D19 — Which `extended_amount` is the 2% basis ✅
+
+**Fork:** D16's threshold divides by "the line's extended amount". Which one? The choice only bites *below*
+the $1,250 crossover — above it everything collapses to the $25 cap — but below it, it flips findings.
+
+**Options considered**
+- **(A) Invoice extended** (`qty_invoiced × invoice_unit_price`) — **disqualified.** Self-referentially
+  gameable: an inflated invoice enlarges its own denominator, so the worse the overbill, the *smaller* the
+  variance ratio appears. PO 10 × $10 billed as 10 × $20 reads as 100% against the PO and only 50% against
+  the invoice. A leg that exists to detect proportionally large errors cannot divide by the disputed value.
+- **(B) PO extended** (`qty_ordered × po_unit_price`) — the authorized line value straight off the PO.
+  Simplest to explain and audit, stable regardless of what arrived. But a heavily short-shipped line keeps a
+  large denominator, leaving the threshold loose on what is actually a small invoice.
+- **(C) Payable extended** (`payable_qty × po_unit_price`).
+
+**Decision ✅** — **(C), payable extended.**
+
+**Why**
+- Measures proportion against **the dollars actually in play**. On a PO of 100 @ $10 where 10 arrived, the
+  line is worth ~$100, not $1,000, and a $3 error there is proportionally significant.
+- Uses **authorized pricing**, so it cannot be gamed like (A).
+- **Degrades correctly for phantom billing**: `payable_qty = 0` → basis $0 → `min(0, 25) = 0` →
+  `max($0.05, 0) = $0.05`, so anything billed for goods never received always flags. That falls out of the
+  formula rather than needing a special case.
+- Consistent with D16 already measuring price variance *at the payable quantity*.
+
+---
+
+## D20 — Findings carry an explicit `scope`; the match key extends ✅
+
+**Fork:** Tax is charged once per invoice, but `TargetLine` is document id + line id. How is an
+invoice-level finding anchored?
+
+**Context — this is a schema gap, not a tax question.** Tax is not the only document-level finding coming:
+**duplicate invoice, invalid PO reference, currency mismatch, segregation-of-duties, and
+vendor-master/sanctions** are all document-scoped, and all sit in the `[P3]`/`[P4]` taxonomy. Since the
+payload schema is **the port** (D1), discovering this at P4 means breaking the contract after agents depend
+on it.
+
+**Options considered**
+- **(A) Distribute the tax error across taxable lines** — multiplies one error into N findings, inflates both
+  the key and the agent's required output, and corrupts per-category precision/recall. Rejected.
+- **(B) Anchor to a physical totals/tax line** — a layout artifact; not every invoice has one.
+- **(C) Reserved sentinel line id only** (e.g. `__DOCUMENT__`) — smaller schema, but scope becomes implicit
+  in a magic string and validation cannot distinguish a document-level finding from a malformed line id.
+- **(D) Explicit `scope` field.**
+
+**Decision ✅** — **(D).** A finding carries `scope: LINE | DOCUMENT`. `target_line` is **required** when
+scope is `LINE` and a **reserved sentinel — never empty, never absent** — when scope is `DOCUMENT`.
+
+**The match key becomes `Status + Category + scope + target`** (target being the document id, plus the line
+id only for `LINE` scope). This **extends D8**, which named `Status + Category + TargetLine`.
+
+**Why** — fixes tax anchoring *and* pre-empts every document-scoped category in P3/P4 without a later
+breaking change to the port. Making scope explicit also lets schema validation reject a malformed finding
+instead of silently treating it as document-level.
+
+**Consequence** — `[P3]` lenient matching drops the **line** component only; scope and document id stay in
+the key, so a document-level finding never becomes indistinguishable from a line-level one.
+
+---
+
+## D21 — `TAX_VARIANCE` uses the unified threshold ✅
+
+**Fork:** Does tax use D16's unified materiality threshold, or D3's flat `>= $0.05` floor?
+
+**Options considered**
+- **(A) Flat `>= $0.05`** (the prior work's R9 precedent) — tax is arithmetic, so any deviation beyond
+  rounding is an error, and a wrong *rate* is systematic: it recurs on every invoice. Catches small rate
+  errors the unified rule passes, at the cost of a second materiality rule.
+- **(B) Unified threshold, basis = the invoice's taxable subtotal.**
+
+**Decision ✅** — **(B).**
+
+**Why — D3 already implied it.** D3 scoped P1's tax check as *arithmetic self-consistency* and deferred
+statutory/jurisdiction compliance to `[P4]`. A **materiality** check therefore uses the materiality rule;
+**compliance** semantics — where a small deviation matters *because* it is systematic — belong to the P4
+statutory check. One rule everywhere in P1.
+
+**Accepted cost, stated plainly** — on a $10,000 taxable subtotal a rate error ≥0.25% flags, which is fine.
+But below the $1,250 crossover the 2% leg governs, so only rate errors ≥2 percentage points flag: a **$10 tax
+error on a $1,000 subtotal passes**. D3's flat floor would have caught it. Revisit if the P4 statutory check
+does not adequately cover small-invoice rate errors.
+
+**Scope** — `TAX_VARIANCE` is a `DOCUMENT`-scoped finding (D20).
+
+---
+
+## D22 — Line correspondence: the key declares it, the inputs do not ✅
+
+**Fork:** How is an invoice line matched to its PO line and goods-receipt line? The harness never computes
+this, but the key author and any independent auditor must — and an ambiguous correspondence makes the key
+ambiguous.
+
+**Options considered**
+- **(A) By SKU / part number** — the natural key, but the taxonomy *deliberately* breaks it: "6ft USB-C
+  Cable" / "Charging Cord Type C" / "Part #X792" for one item.
+- **(B) By line number / position** — fragile by construction, and the taxonomy includes swapped lines. Same
+  positional-fragility trap that breaks indexed records.
+- **(C) Declared explicitly as ground truth in the dataset.**
+- **(D) Declared in the key only, not in the agent-readable inputs.**
+
+**Decision ✅** — **(D).**
+
+**The resolution follows from what the target actually names.** `TargetLine` anchors on the **invoice** line —
+document id is the invoice being scored. The agent never has to *express* PO/GR correspondence in a finding;
+resolving it is internal reasoning that decides whether and what to flag, but it never enters the match key.
+That keeps the port stable.
+
+Three things must therefore hold:
+1. **Invoice line ids are explicit and stable in the dataset**, never positional.
+2. **The canonical correspondence (invoice line → PO line → receipt line) is declared in the answer key**, on
+   the secret side — which is what makes the key unambiguous and independently reproducible by an auditor.
+3. It is **absent from the agent-readable inputs**, because resolving correspondence across differing
+   descriptions, part numbers and UOM **is the capability under test**. Publishing the mapping would delete a
+   whole class of difficulty the taxonomy exists to create.
+
+**Why it matters for scoring** — the key recording the *intended* correspondence is what makes a wrong-line
+answer **scoreable as wrong rather than arguable**.
+
+**Extends A5**, which said `TargetLine` is "document id + line id, defined canonically by the dataset"
+without naming *which* document or requiring stable ids.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

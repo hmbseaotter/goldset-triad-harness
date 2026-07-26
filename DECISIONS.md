@@ -1234,6 +1234,23 @@ already carries ReportLab. A reader for a self-check sits on the same side of th
 
 ---
 
+## Open items
+
+- **Structural regrouping of the requirements block (T1/T2 from the 0.10.1 sweep).** Two defects, deferred
+  deliberately so a large reorganisation would not ride along with semantic fixes:
+  - **Misfiled EARS patterns** — the `ubiquitous (always active)` block now holds `WHEN`, `WHERE` and `IF`
+    requirements, everything added by D24, D28, D29, D35 and D36. The categorisation is meaningless there, and
+    `lint_spec.py` checks structure, not placement, so it cannot catch this.
+  - **Scattering by subject** — tax rules sit in two blocks, quantity rules in two, fingerprint rules in three.
+    **This is the root cause of the sweep's findings:** the contradicting lines were hundreds of lines apart, so
+    each round's question only ever touched the half it was about.
+- **The spec has no consistency mechanism.** The linter verifies structure; nothing verifies that a decision
+  applied in one place was applied everywhere. Every contradiction the 0.10.1 sweep found was of exactly that
+  shape. Until the regrouping lands, a periodic whole-document read is the only defence — the audit command
+  (D35) does the equivalent job for the *data*, but has no counterpart for the *spec*.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

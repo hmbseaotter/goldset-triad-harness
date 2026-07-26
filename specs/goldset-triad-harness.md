@@ -4,9 +4,9 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.10.0
+- Spec version: 0.10.1
 - Status: READY-FOR-BUILD
-- Last updated: 2026-07-25
+- Last updated: 2026-07-26
 - Author(s): Saso Gale
 - Target type: library/service (CLI evaluation harness)
 - Build class: build-required
@@ -25,8 +25,9 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
   non-deterministic fields (U4, D9, D10).
 - Timestamp standard: UTC ISO-8601 with a `Z` suffix, second precision. Dataset timestamps are seeded and
   fixed; only the scorecard run stamp reads the real clock (D6).
-- Integrity: verify-by-recompute — each scorecard embeds SHA-256 fingerprints of the findings artifact and
-  the answer key, so a doctored score is exposed by re-running rather than by trusting git history (D10).
+- Integrity: verify-by-recompute — each scorecard embeds **four** SHA-256 fingerprints: the findings artifact,
+  the answer key, the structured invoice index, and an aggregate digest of the dataset inputs. A doctored score
+  is exposed by re-running rather than by trusting git history (D10, D27, D34).
 
 **Phase-tag map.** `[P1]` = credibility core (originally "P1a"). `[P2]` = tooling & scaffolding
 (originally "P1b"). `[P3]` = dataset expansion. `[P4]` = compliance categories. `[P5]` = audience
@@ -34,8 +35,13 @@ expansion. Tags were renumbered from the interview's P1a/P1b naming because the 
 (`821fac1`) accepted integer-only tags. Sub-phase tags like `[P1a]` became legal in toolkit `b09a99a`, but
 the renumbering stands: re-tagging every item and the build prompt would be pure churn for a mnemonic.
 
-**Companion document.** `DECISIONS.md` at the repo root is the running decision record (D0–D12): every
+**Companion document.** `DECISIONS.md` at the repo root is the running decision record (**D0–D36**): every
 fork, the options considered, the choice, and why. This spec states *what*; `DECISIONS.md` preserves *why*.
+
+> **Read decisions as a sequence, not in isolation.** Several early entries were later narrowed or overturned:
+> **A5→D22**, **A8→D14**, **D7→D33**, **D8→D20**, **D10→D27 and D34**, **D28→D29**, and the D35
+> re-attribution, which moved every domain rule off the scoring engine. Superseded entries carry an inline
+> note; the changelog below is the authoritative order.
 
 ## outcome
 
@@ -54,7 +60,8 @@ surfaces immediately instead of by eyeballing output.
   precision and recall, false-positive count and rate.
 - [P1] Scorecard emission — machine-readable JSON plus a human-readable summary, with embedded input
   fingerprints and a `run_metadata` envelope.
-- [P1] A small 3-way golden dataset including goods-receipt discrepancies, plus a zero-defect control case.
+- [P1] A zero-defect control case within the dev split, carrying no expected findings, against which
+  over-flagging is measured. *(The dataset itself is specified below under D32; this item names only the control.)*
 - [P1] Initial scored category set — `PRICE_VARIANCE`, `QTY_UNDER_SHIPMENT`, `QTY_OVER_SHIPMENT`,
   `QTY_INVOICE_INFLATED`, `TAX_VARIANCE` (arithmetic self-consistency). Five categories (D15).
 - [P1] Dataset selection by id or path, with a public dev split shipped in the repo and a fully private
@@ -78,7 +85,8 @@ surfaces immediately instead of by eyeballing output.
 - [P3] Dataset expansion to roughly 100 purchase orders and 75 invoices with goods receipts, additional
   vendors and customers, wider discrepancy taxonomy.
 - [P3] Performance budget — a 10-second target enforced as a warning, never a failure.
-- [P3] Lenient match mode — an optional flag dropping `TargetLine` from the match key.
+- [P3] Lenient match mode — an optional flag dropping only the **line** component from the match key, while
+  retaining status, category, scope and document identifier (D20).
 - [P4] Compliance category set — statutory/jurisdiction tax, segregation-of-duties violations, vendor-master
   and sanctions mismatches, currency mismatches.
 - [P5] Audience expansion — packaging, external-developer documentation, portable (non-harness-specific)
@@ -94,8 +102,10 @@ surfaces immediately instead of by eyeballing output.
 - Any web UI or dashboard — command line and JSON only, deferred indefinitely.
 - Being a general-purpose evaluation framework — deliberately scoped to accounts-payable three-way
   matching rather than "evaluate anything".
-- Optical character recognition and vision extraction — the harness scores emitted findings, so document
-  parsing belongs entirely to the agent-under-test.
+- Optical character recognition and vision extraction **in the scoring engine** — the scorer reads structured
+  data only and never opens a document, so extraction belongs to the agent-under-test. This bars parsing from
+  the *scorer*, not from the key generator, which parses its own output back for round-trip verification (D34,
+  D36).
 - Tamper-proofing via cryptographic signing or notarization — verify-by-recompute (D10) delivers the
   needed integrity property far more cheaply.
 
@@ -108,8 +118,9 @@ n/a (not an agent) — on-demand CLI invocation only. Runs are independent and m
 each writes a distinctly timestamped scorecard and appends to the ledger atomically.
 
 ## tools & permissions
-- Allowed: local filesystem reads of the selected dataset, the answer key, and the findings artifact;
-  filesystem writes confined to the scorecard output directory and the local ledger.
+- Allowed: local filesystem reads of the selected dataset inputs, the answer key, the structured invoice index,
+  the dataset manifest, and the findings artifact; filesystem writes confined to the scorecard output directory
+  and the local ledger.
 - Network access: none. The harness makes no network call at any point.
 - Secrets/credentials: none required. The harness needs no API key because it invokes no model.
 - NEVER do unattended: the harness SHALL NOT write to, move, or delete any dataset or answer-key file; it
@@ -124,11 +135,13 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   deleting it loses nothing.
 
 ## model & cost routing + determinism boundary
-- Deterministic (plain code, NO LLM) — **everything the harness does at runtime**: dataset and key loading,
-  schema validation, finding-to-expectation matching, tie-breaking, precision/recall arithmetic,
-  false-positive counting, tax and price and quantity arithmetic in the key, SHA-256 fingerprinting,
-  timestamp normalization and ordering, scorecard serialization, ledger append and regeneration, canary
-  probing.
+- Deterministic (plain code, NO LLM) — **everything every component does at runtime.** For the **scoring
+  engine**: dataset, key and invoice-index loading, schema validation, finding-to-expectation matching,
+  tie-breaking, precision/recall arithmetic, false-positive counting, SHA-256 fingerprinting, timestamp
+  normalization and ordering, scorecard serialization, ledger append and regeneration, the guard-configuration
+  and placement checks. For the **key generator** (secret side): the tax, price and quantity arithmetic that
+  authors expected findings, and the round-trip parse-back. For the **key-audit command**: deriving expectations
+  and diffing them against the key (D30, D35, D36).
 - Requires judgment (LLM): **none at runtime.** This is deliberate, not an omission — a non-deterministic
   scorer cannot produce the byte-reproducible verdict that makes the tool credible. LLM judgment lives
   entirely inside the agent-under-test, which is out of scope.
@@ -192,15 +205,60 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   fixtures serving as schema reference only; discrepancy categories are a closed enumeration owned by the
   harness.
 - D12 — Phase composition as recorded in the implementation phases block.
+- D13 — A `MATCH`-status entry asserts correctness and is ineligible to be a flag, so it is never a false
+  positive; the missed discrepancy is already counted once as a false negative.
+- D14 — The **entire** held-out split lives outside the repository tree. "Outside the repo" and "deny-guarded"
+  are different sets: the held-out inputs are out-of-tree yet must stay agent-readable.
+- D15 — Quantity discrepancies anchor on `payable = min(ordered, received)`; three categories, named for which
+  constraint bound it.
+- D16 — Materiality is `max($0.05, min(2% × basis, $25))`, flagged on `>=`, applied to quantity overbills too.
+- D17 — Sibling out-of-tree directories; a dataset is a set of locations resolved through a manifest.
+- D18 — `invoice_count` and `finding_count` live in the scored body, not `run_metadata`.
+- D19 — The two-percent basis is the **payable** extended amount; the invoiced amount is disqualified as
+  self-referentially gameable.
+- D20 — Findings carry `scope`; the match key becomes status + category + scope + target.
+- D21 — `TAX_VARIANCE` is document-scoped and uses the unified threshold against the taxable subtotal.
+- D22 — `TargetLine` anchors on the invoice; line ids are explicit, never positional; correspondence is
+  declared in the key and withheld from the inputs.
+- D23 — Compare at full `Decimal` precision; round only for display, `ROUND_HALF_UP`.
+- D24 — Expected tax uses the **invoiced** taxable subtotal, so one root cause yields one finding.
+- D25 — Precision is `null` only where no flags were raised; recall is `null` unconditionally on a
+  zero-expectation case; undefined is emitted as `null`.
+- D26 — Contention resolves by canonical-serialization order, never document position; duplicates are reported
+  as a distinct diagnostic.
+- D27 — The dataset inputs are fingerprinted; `.gitattributes` must disable line-ending conversion.
+- D28 — No division inside a decision; the tax comparison is cross-multiplied; context precision is pinned and
+  reported ratios carry a declared output precision.
+- D29 — Zero taxable subtotal takes an explicit branch (expected tax zero); a non-zero tax against it is
+  malformed; the tax field is always present.
+- D30 — Isolation is verified by guard-configuration and placement checks; enforcement is **attested**, not
+  tested, because a reachability probe cannot work.
+- D31 — Goods receipts are separate documents; received quantity sums across all receipts for a line.
+- D32 — Three data families; only implausible values go synthetic.
+- D33 — ReportLab from `[P1]` for clean text-layer invoices; generated PDFs must be byte-deterministic.
+- D34 — A structured invoice index, key-side and agent-denied, separate from the key and fingerprinted.
+- D35 — The scoring engine loads and matches; every domain rule belongs to the key generator and the published
+  policy; a separate audit command derives and diffs.
+- D36 — Document and index are emitted from one canonical record; a generation-time parse-back closes the
+  rendering-bug residual.
+
+*(Condensed. `DECISIONS.md` carries each fork's rejected options and full reasoning.)*
 
 ## requirements
 
-**Three actors, deliberately separated (D35).** *The key generator* applies the domain rules and authors the
-expected findings; it runs on the secret side and never ships. *The scoring engine* loads those expectations and
-confines itself to matching and counting — **no domain rule executes at scoring time**. *The published matching
-policy* states every rule the generator applied, because an agent cannot compete against rules it cannot read.
-Requirements below name whichever actor they bind; "the harness" means the scoring engine unless stated
-otherwise.
+**Four components, deliberately separated (D35).** Requirements below name whichever they bind.
+
+| Term | What it is | Domain rules? | Ships? |
+|---|---|---|---|
+| **scoring engine** | loads the key and the invoice index, matches, counts, emits the scorecard | **none, ever** | yes |
+| **key generator** | applies the domain rules, authors expected findings, emits documents and index | yes | no — secret side |
+| **key-audit command** | independently derives expectations and diffs them against the key | yes | yes, but **never invoked by a scoring run** |
+| **matching policy** | published statement of every rule the generator applied | documents them | yes |
+
+**"The harness" means the shipped tool as a whole** — scoring engine, audit command and the isolation checks.
+Where a requirement constrains scoring specifically, it names the **scoring engine**. This distinction is
+load-bearing: the audit command deliberately implements domain rules, which the scoring engine must never do,
+and only the scoring engine is bound by the standard-library-only rule.
 
 ### ubiquitous (always active)
 - [P1] The harness SHALL perform all scoring in deterministic plain code, making no LLM call and no network
@@ -369,9 +427,9 @@ otherwise.
 - [P1] WHEN assessing a quantity overbill for materiality, the key generator SHALL value it as the excess
   quantity multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances
   (D16).
-- [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory and the
-  answer-key path separately, so that a split whose inputs and key reside in different locations is loadable
-  without special-casing (D17).
+- [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory, the
+  answer-key path and the structured-invoice-index path separately, so that a split whose inputs and
+  ground-truth artifacts reside in different locations is loadable without special-casing (D17, D34).
 - [P2] WHEN invoked in verify mode against an existing scorecard, the harness SHALL recompute the score from
   the fingerprinted inputs and SHALL report any difference from the stored scorecard.
 - [P2] WHEN a run completes, the harness SHALL append one record to the JSONL run ledger.
@@ -497,9 +555,10 @@ otherwise.
 - [ ] [P1] The aggregate inputs digest is identical when computed on Windows and on Linux from the same data,
   confirming path normalization and the absence of any text transformation.
 - [ ] [P1] The zero-defect control scored against an empty findings artifact reports a false-positive count
-  of 0 and a rate of 0.0, and reports no precision figure.
-- [ ] [P1] The seeded tax overcharge, flagged on the correct line, scores as a true positive under
-  `TAX_VARIANCE`.
+  of 0, a rate of 0.0, and precision as `null` — emitted, not omitted (D25).
+- [ ] [P1] The seeded tax overcharge, flagged as a **document-scoped** finding against the correct invoice,
+  scores as a true positive under `TAX_VARIANCE`; the same overcharge flagged as line-scoped does **not** match
+  (D20, D21).
 - [ ] [P1] A seeded goods-receipt under-shipment, flagged on the correct line, scores as a true positive.
 - [ ] [P1] A seeded goods-receipt over-shipment, flagged on the correct line, scores as a true positive.
 - [ ] [P1] `run_metadata` carries the run timestamp plus load, score and total durations — and nothing else.
@@ -723,6 +782,20 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.1 (2026-07-26): **consistency sweep** — the first pass reading the spec as a whole rather than answering
+  a question against it. Found five contradictions and eight stale passages, every one of them a later decision
+  correctly applied in one place and missed in another. **Contradictions:** a criterion suppressed precision on
+  the control while D25 requires `null`; a criterion had the tax overcharge "flagged on the correct line" though
+  D20/D21 made tax document-scoped; the determinism boundary still credited the *harness* with the key's
+  arithmetic and with canary probing, both moved or abolished by D35 and D30; out-of-scope barred document
+  parsing outright although D36 requires the generator to parse its own output; and "harness" versus "scoring
+  engine" had become load-bearing but undefined, making the audit-command requirement self-contradictory — now
+  resolved by a four-component table. **Stale:** two fingerprints named where there are four, a stale date, the
+  decision record cited as D0–D12, the prior-decisions block missing D13–D36 entirely, lenient mode still
+  dropping the whole `TargetLine`, permissions omitting the invoice index, the manifest naming two artifacts
+  instead of three, and two overlapping in-scope dataset items. No behavioural change: every fix aligns the spec
+  with a decision already taken. Structural regrouping (misfiled EARS patterns, scattered subjects) is
+  deliberately left to a separate change.
 - 0.10.0 (2026-07-26): **corrects a misattribution running through the whole requirements block.** **D35:** the
   spec phrased scoring semantics as things "the harness SHALL compute" while also treating the answer key as
   indispensable ground truth — saying both. The scorer in fact needs **no domain rule at all**: it needs the

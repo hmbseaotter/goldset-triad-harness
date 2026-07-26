@@ -527,10 +527,12 @@ quantity error from masquerading as a price error and being counted twice across
 **Published, not hidden** — the rule lives in the dataset's matching policy. The agent cannot compete
 against a threshold it cannot read.
 
-**Derived consequence — flagged for review.** The same materiality formula is applied to **quantity**
-findings, measured as `(qty_invoiced − payable_qty) × po_unit_price`. One materiality rule across all
-monetary categories is simpler than two and keeps the zero-defect control coherent; the alternative is exact
-quantity matching with no tolerance, which would mark 1-unit overbills on trivially cheap items.
+**Quantity overbills use the same materiality threshold ✅ (confirmed by the author, 2026-07-25).** A
+quantity overbill is valued as `(qty_invoiced − payable_qty) × po_unit_price` and passed through the
+threshold above. One materiality rule across all monetary categories is simpler than two and keeps the
+zero-defect control coherent. The rejected alternative was exact quantity matching with no tolerance, which
+would mark 1-unit overbills on trivially cheap items — findings that cost more to chase than they are worth,
+by the same accountant-time reasoning that sets the $25 floor.
 
 **Not claimed as an industry norm.** The methodology write-up publishes *this harness's* thresholds and the
 reasoning above; it does not assert what standard corporate practice is. Percentage tolerances in the low

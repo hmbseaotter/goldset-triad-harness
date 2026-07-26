@@ -10,7 +10,10 @@ and cannot run inside the in-repo dev-split suite by construction.
 from __future__ import annotations
 
 import importlib
+import inspect
+import re
 import unittest
+from pathlib import Path
 
 # (criterion id, short description, coverage). Coverage is a dotted test path under
 # the ``tests`` package, or a string beginning "MANUAL:" with the reason.
@@ -201,13 +204,138 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_repo_shipping.RepositoryShippingTests.test_no_secret_artifact_is_tracked"),
     ("C18", "the shipping check provably fires on the historical bad pattern",
      "test_repo_shipping.RepositoryShippingTests.test_the_check_actually_fires_on_a_known_bad_pattern"),
+    # Sweep fixes (D49-D54). Every entry below answers a criterion added in spec 0.12.0.
+    ("C19", "same-second runs each leave their own scorecard",
+     "test_cli_end_to_end.CliEndToEndTests.test_same_second_runs_do_not_overwrite_each_other"),
+    ("C20", "overwriting a scorecard is refused by the OS, not merely avoided",
+     "test_cli_end_to_end.CliEndToEndTests.test_writing_over_an_existing_scorecard_is_refused_by_the_os"),
+    ("C21", "both scorecard files are written with pinned LF endings",
+     "test_cli_end_to_end.CliEndToEndTests.test_scorecard_files_are_written_with_lf_endings"),
+    ("C22", "an expected finding naming an unknown line is rejected at load",
+     "test_cross_artifact_validation.ExpectedFindingTargetTests.test_expected_finding_with_unknown_line_is_rejected"),
+    ("C23", "an expected finding naming an unknown document is rejected",
+     "test_cross_artifact_validation.ExpectedFindingTargetTests.test_expected_finding_with_unknown_document_is_rejected"),
+    ("C24", "a phantom purchase order is named, not misdiagnosed as a rate difference",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_phantom_purchase_order_is_named_not_misdiagnosed"),
+    ("C25", "a phantom purchase-order line is rejected",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_phantom_purchase_order_line_is_rejected"),
+    ("C26", "an orphan correspondence row is rejected",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_orphan_correspondence_row_is_rejected"),
+    ("C27", "a correspondence row missing a required field is rejected",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_correspondence_row_missing_a_field_is_rejected"),
+    ("C28", "an empty correspondence list is rejected, not exempted",
+     "test_cross_artifact_validation.CorrespondenceCompletenessTests.test_empty_correspondence_is_not_an_exemption"),
+    ("C29", "a missing correspondence entry is rejected naming the line",
+     "test_cross_artifact_validation.CorrespondenceCompletenessTests.test_missing_correspondence_entry_is_rejected"),
+    ("C30", "differing tax rates across POs on one invoice are rejected",
+     "test_cross_artifact_validation.MultiPoTaxRateTests.test_differing_rates_across_pos_is_rejected"),
+    ("C31", "an unresolved reference in the audit names its cause, not a key error",
+     "test_key_audit.KeyAuditTests.test_unresolved_reference_names_its_cause_not_a_keyerror"),
+    ("C32", "the published policy states the thresholds the shipped code applies",
+     "test_ground_truth.PolicyTests.test_policy_numbers_match_the_shipping_rule_implementation"),
+    ("C33", "shipped keys target only real lines (positive control on D50)",
+     "test_cross_artifact_validation.ExpectedFindingTargetTests.test_shipped_keys_target_only_real_lines"),
+    ("C34", "a malformed finding names both the finding and the field",
+     "test_port_schema.SchemaTests.test_malformed_finding_names_finding_and_field"),
+    ("C35", "reported ratios emit at the declared precision",
+     "test_scorecard_repro.ScorecardTests.test_ratios_emitted_at_declared_places"),
 ]
+
+
+# Tests that support the suite without standing for an acceptance criterion of their
+# own: positive controls, self-verifications of another guard, and internal invariants.
+# Listing one here is a deliberate act, which is the point — see
+# ``test_every_test_method_is_mapped_or_explicitly_exempt``.
+EXEMPT_TESTS: frozenset[str] = frozenset({
+    # Positive controls: the converse of a criterion, proving a guard does not over-fire.
+    "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
+    "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",
+    "test_cross_artifact_validation.CorrespondenceCompletenessTests.test_every_shipped_dataset_is_complete",
+    "test_isolation.IsolationTests.test_placement_passes_on_clean_tree",
+    "test_key_audit.KeyAuditTests.test_shipped_dev_key_is_consistent",
+    "test_dataset_loading.DatasetLoadingTests.test_inputs_digest_stable_on_recompute",
+    "test_dataset_loading.DatasetLoadingTests.test_no_input_file_modified_by_a_load",
+    "test_dataset_loading.DatasetLoadingTests.test_resolves_by_identifier_and_by_path",
+    "test_key_and_arithmetic.KeyContentTests.test_exempt_po_correct_zero_tax_has_no_finding",
+    "test_key_and_arithmetic.KeyContentTests.test_dev_has_exempt_po_and_the_two_boundary_bases_plausibly",
+    "test_key_and_arithmetic.ShippedTaxRuleTests.test_threshold_shape",
+    "test_port_schema.SchemaTests.test_empty_findings_artifact_is_valid",
+    "test_port_schema.SchemaTests.test_valid_match_status_parses_and_is_carried",
+    "test_port_schema.SchemaTests.test_confidence_must_be_number_in_unit_interval",
+    "test_port_schema.SchemaTests.test_document_scope_nonsentinel_line_id_is_malformed",
+    "test_port_schema.SchemaTests.test_line_scope_using_sentinel_is_malformed",
+    "test_scoring_engine.ScoringTests.test_zero_defect_empty_artifact_precision_and_recall_null",
+    "test_cli_end_to_end.CliEndToEndTests.test_happy_path_emits_scorecard_and_exits_zero",
+    "test_cli_end_to_end.CliEndToEndTests.test_missing_dataset_halts_nonzero",
+    "test_ground_truth.SuiteHygieneTests.test_suite_data_root_is_in_repo",
+    "test_ground_truth.TruthSourceTests.test_index_absent_from_agent_readable_inputs",
+    "test_ground_truth.RoundingTests.test_ratio_rounds_half_up_not_banker",
+    "test_isolation.IsolationTests.test_no_shipped_check_claims_to_test_enforcement_by_code",
+    "test_constraints_scan.ConstraintScanTests.test_loader_reads_no_invoice_pdf",
+    # Guards that verify another guard rather than a criterion.
+    "test_repo_shipping.RepositoryShippingTests.test_required_files_are_tracked_and_not_ignored",
+    "test_repo_shipping.RepositoryShippingTests.test_the_secret_vocabulary_is_not_duplicated_here",
+    "test_traceability.TraceabilityTests.test_every_criterion_has_coverage",
+    "test_traceability.TraceabilityTests.test_every_named_test_resolves",
+    "test_traceability.TraceabilityTests.test_coverage_summary",
+    "test_traceability.TraceabilityTests.test_every_test_method_is_mapped_or_explicitly_exempt",
+    "test_traceability.TraceabilityTests.test_spec_p1_criterion_count_is_unchanged",
+})
+
+# Checksum over the spec's [P1] acceptance criteria, in the tradition the 0.10.2 sweep
+# established when a SHALL count caught nine silently duplicated requirements. The map
+# below is a parallel list, so nothing otherwise notices a criterion added to the spec
+# with no entry here. Raising this number is the deliberate act that forces the entry.
+EXPECTED_SPEC_P1_CRITERIA = 94
+
+
+def _spec_p1_criteria() -> list[str]:
+    spec = (Path(__file__).resolve().parents[1] / "specs" / "goldset-triad-harness.md").read_text(
+        encoding="utf-8"
+    )
+    acceptance = spec.split("## acceptance criteria", 1)[1].split("\n---", 1)[0]
+    return re.findall(r"^- \[ \] \[P1\] (.+)$", acceptance, re.M)
+
+
+def _all_test_methods() -> set[str]:
+    found: set[str] = set()
+    tests_dir = Path(__file__).resolve().parent
+    for path in sorted(tests_dir.glob("test_*.py")):
+        module = importlib.import_module(f"tests.{path.stem}")
+        for name, obj in vars(module).items():
+            if inspect.isclass(obj) and issubclass(obj, unittest.TestCase):
+                for attr in dir(obj):
+                    if attr.startswith("test_"):
+                        found.add(f"{path.stem}.{name}.{attr}")
+    return found
 
 
 class TraceabilityTests(unittest.TestCase):
     def test_every_criterion_has_coverage(self) -> None:
         for cid, desc, coverage in CRITERIA:
             self.assertTrue(coverage, f"{cid} ({desc}) has no coverage")
+
+    def test_spec_p1_criterion_count_is_unchanged(self) -> None:
+        """spec -> map. Without this the map can silently fall behind the spec (D54)."""
+        actual = len(_spec_p1_criteria())
+        self.assertEqual(
+            actual, EXPECTED_SPEC_P1_CRITERIA,
+            f"the spec now has {actual} [P1] acceptance criteria but this map expects "
+            f"{EXPECTED_SPEC_P1_CRITERIA}. Add the missing entries to CRITERIA and raise "
+            f"EXPECTED_SPEC_P1_CRITERIA, so a new criterion cannot arrive uncovered.",
+        )
+
+    def test_every_test_method_is_mapped_or_explicitly_exempt(self) -> None:
+        """test -> map. The map was one-directional: it caught a criterion with no test,
+        never a test with no criterion, so five cross-artifact tests sat unmapped (D54)."""
+        mapped = {c[2] for c in CRITERIA if not c[2].startswith("MANUAL:")}
+        unaccounted = sorted(_all_test_methods() - mapped - EXEMPT_TESTS)
+        self.assertEqual(
+            unaccounted, [],
+            f"{len(unaccounted)} test(s) are neither mapped to a criterion nor exempt: "
+            f"{unaccounted}. Map each to the criterion it verifies, or add it to "
+            f"EXEMPT_TESTS with a reason.",
+        )
 
     def test_every_named_test_resolves(self) -> None:
         unresolved: list[str] = []

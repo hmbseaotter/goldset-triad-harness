@@ -11,7 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal as Dc
 from pathlib import Path
 
 from tests import support
-from goldset_triad.audit_key import _Line, _derive_line
+from goldset_triad.audit_key import _CAP, _FLOOR, _RATE, _Line, _derive_line
 from goldset_triad.dataset import load_dataset, load_invoice_index, resolve_manifest
 from goldset_triad.scoring import score
 
@@ -24,7 +24,7 @@ class TruthSourceTests(unittest.TestCase):
         before = load_invoice_index(m.invoice_index_path).sha256
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
-            ipath = manifest.parent / "invoice_index.json"
+            ipath = manifest.parent / "dev_invoice_index.json"
             ipath.write_bytes(ipath.read_bytes() + b" ")
             after = load_invoice_index(ipath).sha256
         self.assertNotEqual(before, after)
@@ -49,9 +49,16 @@ class TruthSourceTests(unittest.TestCase):
         self.assertNotEqual(base_score.false_positive_count, new_score.false_positive_count)
 
     def test_index_absent_from_agent_readable_inputs(self) -> None:
+        # Matched on a substring rather than one exact filename: pinning the old name
+        # made this pass vacuously the moment the index was renamed (D51), which is the
+        # rot this whole sweep exists to catch. Any *_invoice_index.json under inputs/
+        # is a leak of the extraction answer, whatever it is called.
         for ds in ("dev", "dev-synthetic", "dev-zero-defect"):
             inputs = support.DATASETS / ds / "inputs"
-            self.assertEqual(list(inputs.rglob("invoice_index.json")), [])
+            leaked = [p for p in inputs.rglob("*.json") if "invoice_index" in p.name.lower()]
+            self.assertEqual(leaked, [], f"{ds}: invoice index present in agent-readable inputs")
+        # And the index the loader actually resolves must exist, so this is not vacuous.
+        self.assertTrue(support.index_path("dev").is_file())
 
     def test_correspondence_in_key_absent_from_inputs(self) -> None:
         key = support.read_json(support.key_path("dev"))
@@ -107,6 +114,32 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(set(policy["categories"]),
                          {"PRICE_VARIANCE", "QTY_UNDER_SHIPMENT", "QTY_OVER_SHIPMENT",
                           "QTY_INVOICE_INFLATED", "TAX_VARIANCE"})
+
+    def test_policy_numbers_match_the_shipping_rule_implementation(self) -> None:
+        """The published thresholds must equal the ones the shipped code applies (D53).
+
+        D46 bound the policy to the *generator's* constants, which removed drift at
+        authoring time — but the generator does not ship, so nothing in the repository
+        could detect the published rule diverging from the implementation a reader can
+        actually run. The audit command ships and holds the same three constants, so
+        binding the policy to those closes it in-repo and in CI.
+
+        An agent competes against the published rule; if it disagrees with the rule the
+        harness scores by, the agent is judged against a threshold it was never told."""
+        policy = support.read_json(support.DATASETS / "dev" / "matching_policy.json")
+        stated = str(policy["materiality_threshold"])
+        # Derived from the constants, never restated: floor and cap as dollar amounts,
+        # rate as the percentage the policy renders.
+        floor_token = f"${_FLOOR.normalize():f}"
+        cap_token = f"${_CAP.normalize():f}"
+        rate_pct = (_RATE * 100).normalize()
+        rate_token = f"{rate_pct:f}%"
+        for token, label in ((floor_token, "floor"), (cap_token, "cap"), (rate_token, "rate")):
+            self.assertIn(
+                token, stated,
+                f"published policy does not state the {label} the shipped code uses "
+                f"({token}); policy says: {stated!r}",
+            )
 
 
 class RoundingTests(unittest.TestCase):

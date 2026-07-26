@@ -58,16 +58,16 @@ REQUIRED_TRACKED_FILES = (
 _EXCLUDED_DIR_PARTS = frozenset({"__pycache__", ".pytest_cache", ".venv", "node_modules"})
 _EXCLUDED_SUFFIXES = (".pyc", ".pyo")
 
-# Mirrors the placement check's set, but asserted over the git index rather than the
-# filesystem — a `git add -f` leak is invisible to a filesystem walk of a clean tree.
-_SECRET_NAME_FRAGMENTS = (
-    "holdout_answer_key",
-    "gen_rules.py",
-    "generate.py",
-    "pdf_invoice.py",
-    "discrepancy-plan",
+# The secret-artifact vocabulary is SINGLE-SOURCED from check_isolation (D52). It was
+# duplicated here, and the copy drifted within one commit cycle: it never learned about
+# holdout_invoice_index.json (D45), and because its entries carried a `.py` suffix it
+# could not have caught a tracked gen_rules.cpython-314.pyc — the very bytecode case
+# D45 introduced stem matching for. Importing the canonical set and its matcher means a
+# future artifact is covered on both surfaces at once, filesystem and git index.
+from goldset_triad.check_isolation import (  # noqa: E402
+    SECRET_PATH_SEGMENTS,
+    _is_secret_name,
 )
-_SECRET_PATH_FRAGMENTS = ("goldset-triad-secret", "goldset-triad-holdout", "_generators")
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -198,12 +198,30 @@ class RepositoryShippingTests(unittest.TestCase):
         otherwise clean tree."""
         leaks = []
         for path in sorted(_tracked_files()):
-            lowered = path.lower()
-            if any(frag in lowered for frag in _SECRET_NAME_FRAGMENTS):
+            parts = path.split("/")
+            if _is_secret_name(parts[-1]):
                 leaks.append(path)
-            elif any(frag in lowered for frag in _SECRET_PATH_FRAGMENTS):
+            elif set(parts[:-1]) & SECRET_PATH_SEGMENTS:
                 leaks.append(path)
         self.assertEqual(leaks, [], f"secret artifacts are tracked in git: {leaks}")
+
+    def test_the_secret_vocabulary_is_not_duplicated_here(self) -> None:
+        """Guards the single-sourcing itself (D52).
+
+        The previous local copy of the secret-artifact list drifted from the canonical
+        set within one commit cycle. Asserting the canonical matcher recognises every
+        artifact type means this check cannot silently fall behind again."""
+        for name in ("holdout_answer_key.json", "holdout_invoice_index.json",
+                     "gen_rules.py", "generate.py", "pdf_invoice.py",
+                     "discrepancy-plan.md"):
+            self.assertTrue(_is_secret_name(name), f"canonical matcher missed {name}")
+        # Bytecode and backups too -- the case a suffixed fragment list could not see.
+        self.assertTrue(_is_secret_name("gen_rules.cpython-314.pyc"))
+        self.assertTrue(_is_secret_name("GEN_RULES.PY.BAK"))
+        # And it must NOT claim the public dev artifacts.
+        for public in ("dev_answer_key.json", "dev_invoice_index.json",
+                       "manifest.json", "matching_policy.json"):
+            self.assertFalse(_is_secret_name(public), f"public artifact flagged: {public}")
 
     def test_the_dev_split_ships_complete(self) -> None:
         """The concrete requirement the general rules exist to protect: every dev
@@ -212,7 +230,7 @@ class RepositoryShippingTests(unittest.TestCase):
         for dataset in ("dev", "dev-synthetic", "dev-zero-defect"):
             base = f"datasets/{dataset}"
             for required in ("manifest.json", "dev_answer_key.json",
-                             "invoice_index.json", "matching_policy.json"):
+                             "dev_invoice_index.json", "matching_policy.json"):
                 self.assertIn(
                     f"{base}/{required}", tracked,
                     f"{base}/{required} must ship with the dev split",

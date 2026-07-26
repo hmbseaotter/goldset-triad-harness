@@ -1,13 +1,14 @@
 {
-  "//": "SOURCE OF TRUTH for the answer-key deny-guards (D30). This template lives on the secret side; the repo's .claude/settings.json is stamped from it. Edit HERE and re-stamp; never hand-edit the repo copy. The guards cover the secret TIER (the held-out answer key, invoice index, generators, discrepancy-design artifact) and DELIBERATELY NOT the held-out inputs directory (goldset-triad-holdout), which the agent must read to produce findings (D14). Placement outside the repo tree is the primary control; these rules are the second layer. NOTE the answer-key filename rule is deliberately UNSCOPED ('**/holdout_answer_key.json', not '**/goldset-triad-secret/**/holdout_answer_key.json'): scoped to the secret directory it would merely restate the directory rule above, whereas unscoped it catches a STRAY COPY that escaped the secret tier, which is the only thing a filename rule adds. That is safe only because 'holdout_answer_key.json' is genuinely distinct from the public dev key's 'dev_answer_key.json' -- NOT a case variant of it. Case cannot distinguish names on a case-insensitive filesystem, so it must never be load-bearing (D38).",
+  "//": "SOURCE OF TRUTH for the answer-key deny-guards (D30). This template lives on the secret side; the repo's .claude/settings.json is stamped from it. Edit HERE and re-stamp; never hand-edit the repo copy. The guards cover the secret TIER (the held-out answer key, invoice index, generators, discrepancy-design artifact) and DELIBERATELY NOT the held-out inputs directory (goldset-triad-holdout), which the agent must read to produce findings (D14). Placement outside the repo tree is the primary control; these rules are the second layer. NOTE the answer-key filename rule is deliberately UNSCOPED ('**/holdout_answer_key.json', not '**/goldset-triad-secret/**/holdout_answer_key.json'): scoped to the secret directory it would merely restate the directory rule above, whereas unscoped it catches a STRAY COPY that escaped the secret tier, which is the only thing a filename rule adds. That is safe only because 'holdout_answer_key.json' is genuinely distinct from the public dev key's 'dev_answer_key.json' -- NOT a case variant of it. Case cannot distinguish names on a case-insensitive filesystem, so it must never be load-bearing (D38). The invoice-index rule exists for the same reason (D45): the held-out index is agent-denied ground truth under D34, but while it was named 'invoice_index.json' it collided with the three PUBLIC dev indexes and could therefore get no filename rule at all -- protected by directory placement alone, uniquely weaker than every other secret artifact. Generator rules use a '.*' extension wildcard, not '.py', because __pycache__ bytecode is decompilable and so carries the discrepancy-planting rule just as the source does; a stray .pyc would otherwise evade every filename rule.",
   "permissions": {
     "deny": [
       "Read(D:\\Claude_Stuff\\goldset-triad-secret\\**)",
       "Read(**/goldset-triad-secret/**)",
       "Read(**/holdout_answer_key.json)",
-      "Read(**/gen_rules.py)",
-      "Read(**/generate.py)",
-      "Read(**/pdf_invoice.py)",
+      "Read(**/holdout_invoice_index.json)",
+      "Read(**/gen_rules.*)",
+      "Read(**/generate.*)",
+      "Read(**/pdf_invoice.*)",
       "Read(**/discrepancy-plan.md)",
       "Bash(cat *goldset-triad-secret*)",
       "Bash(type *goldset-triad-secret*)",
@@ -19,8 +20,10 @@
       "Bash(Get-Content *goldset-triad-secret*)",
       "Bash(python -c *goldset-triad-secret*)",
       "Bash(*holdout_answer_key.json*)",
-      "Bash(*gen_rules.py*)",
-      "Bash(*generate.py*)",
+      "Bash(*holdout_invoice_index.json*)",
+      "Bash(*gen_rules.*)",
+      "Bash(*generate.*)",
+      "Bash(*pdf_invoice.*)",
       "Bash(*discrepancy-plan.md*)"
     ]
   }

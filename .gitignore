@@ -10,6 +10,7 @@
 # three PUBLIC dev keys from the repository — the dev split shipped with no keys at
 # all, and a fresh clone could not run a single dev-split test (D38).
 holdout_answer_key.json
+holdout_invoice_index.json
 README.original.md
 answer-keys/
 **/answer-keys/

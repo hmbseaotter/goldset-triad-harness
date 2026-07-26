@@ -1492,6 +1492,131 @@ requirement a future rebuild must satisfy rather than a test someone could quiet
 
 ---
 
+## D45 — Every secret artifact needs a distinct name and extension-agnostic coverage ✅ (sweep)
+
+**Fork:** D42 fixed the answer key's name. Did anything else share the same flaw?
+
+**Two artifacts did.**
+
+**The held-out invoice index.** It is agent-denied ground truth under D34 — the *extraction answer* — but every
+split called it `invoice_index.json`, so the held-out copy shared a name with three **public** dev indexes. It
+could therefore be given **no filename deny rule and no placement-check entry** without flagging the public
+ones. Verified absent from both. It was protected by directory placement alone: **uniquely weaker than every
+other secret artifact**, and for exactly the reason D42 diagnosed.
+
+**Generator bytecode.** `_generators/__pycache__/gen_rules.cpython-314.pyc` exists on disk today. A `.pyc` is
+decompilable, so it carries the discrepancy-planting rule just as the source does — and the rules named
+`gen_rules.py`, so a stray `.pyc` copy would have evaded every filename rule and the placement check alike.
+
+**Decision ✅**
+- The held-out index is renamed **`holdout_invoice_index.json`**, with its own unscoped deny rule, and it joins
+  `SECRET_ARTIFACT_NAMES`.
+- Filename deny rules use an **extension wildcard** — `gen_rules.*`, not `gen_rules.py`.
+- The placement check matches on the **stem** (text before the first dot), case-insensitively, so
+  `gen_rules.cpython-314.pyc` and `gen_rules.py.bak` are both caught.
+- The generator's `.gitignore` excludes bytecode: a `.pyc` adds no recoverability, only churn and a second copy
+  of the rules.
+
+**A trap this exposed, worth remembering.** The rename was first applied *by hand* to the file and manifest —
+and the next `generate.py` run **silently reverted it**, because the generator is the source of truth for both.
+Renaming generated artifacts by hand is always undone. `index_filename` is now a `DatasetSpec` field with a
+held-out override, mirroring how `key_filename` already worked.
+
+**Generalised rule:** *every artifact that exists on both the secret and the public side needs a name that
+differs by more than case or extension.* D42 established it for one artifact; it is a property of the tier
+boundary, not of the answer key.
+
+---
+
+## D46 — The published policy is derived from the rule constants, never hand-written ✅ (sweep)
+
+**Fork:** `matching_policy.json` is what D35 requires the generator to publish so an agent can compete. Was it
+guaranteed to match the rules actually applied?
+
+**No.** The threshold text was a **hand-written string literal** in `generate.py`
+(`"max($0.05, min(2% x basis, $25))"`), while the real constants lived in `gen_rules.py` as `FIVE_CENTS`,
+`TWENTY_FIVE`, `TWO_PERCENT`. Change `TWENTY_FIVE` to 50 and the published policy would still promise $25 —
+and **nothing would catch it**, because the key-audit command never reads the policy. An agent would be
+competing against a rule that is not the rule.
+
+**Decision ✅** — the threshold text is **interpolated from the constants**, following the precedent already set
+by `categories`, which was derived from the `Cat` enum. Divergence is now impossible by construction rather
+than by discipline.
+
+**Also published: the precision rule.** The policy omitted D23's compare-at-full-precision and D28's
+division-free requirement — yet both decide whether an agent flags a **boundary** case. An agent that rounds
+before comparing, or divides to derive a tax rate, can disagree with the key on identical inputs. Scorer-only
+concerns (display places, ratio places) are deliberately *not* published: they cannot change a flag decision.
+
+**Verified** — regeneration changed **only** `matching_policy.json`; every input, key and index stayed
+byte-identical, confirming D33's determinism. The derived text reproduces the previous string exactly, so the
+interpolation is correct rather than merely different.
+
+---
+
+## D47 — Multi-PO tax attribution is UNSPECIFIED and must be rejected until specified 🔶 (sweep)
+
+**Fork:** Which PO's tax rate governs an invoice that references **several** POs?
+
+**Nothing decided this, and code silently chose.** Both the generator and the auditor iterate per
+*(invoice, PO)* pair, so an invoice spanning two POs is tested once per PO and flagged if **either** rate says
+material. That behaviour lives only in code. **D3's own consequence note predicted exactly this:** *"When P2/P3
+add multi-PO invoices with varying rates, the answer key must compute tax per-PO/per-line correctly or the key
+itself will be wrong."*
+
+**Latent, not live — for now.** Verified: **zero multi-PO invoices** across all four splits. It becomes live at
+`[P3]`'s ~75 invoices, where multi-PO invoices are ordinary.
+
+**The intended resolution**, recorded so it is not re-derived: expected tax is the **sum over referenced POs**
+of each PO's rate applied to the invoiced taxable subtotal attributable to *that PO's* lines — available via the
+correspondence. Keeping it division-free (D28) generalises the cross-multiplication: with `D` the product of all
+PO taxable subtotals and `D_p` the product of the others, compare
+`|inv_tax × D − Σ_p (po_tax_p × inv_taxable_p × D_p)| >= threshold × D`. All multiplication, exact.
+
+**Caveat on that formula:** the products grow with the number of POs, so with many POs it could exceed the
+pinned 28-digit context and lose exactness — the one place D28's precision pin becomes a real constraint rather
+than a formality.
+
+**Decision for now ✅** — a multi-PO invoice whose POs have **differing derived rates** SHALL be **rejected by
+dataset validation** as unspecified, rather than silently keyed by whichever PO happens to flag. Same rates on
+all referenced POs is unambiguous and remains allowed.
+
+**⚠️ NOT YET IMPLEMENTED.** No validation enforces this, because no such invoice exists to reject. It must be
+implemented **before** `[P3]` authors multi-PO data, or the first one produces a silently-wrong key — the exact
+failure class nothing downstream can detect.
+
+---
+
+## D48 — The key audit's completeness is bounded by the correspondence it audits 🔶 (sweep)
+
+> **Numbering note.** These four sweep entries were first written as D43–D46 and renumbered to D45–D48: the
+> build session had already committed its own D43 and D44 while this sweep was in progress. Caught by checking
+> the heading list before finalising. The lesson generalises — **read the current maximum before numbering**,
+> because two sessions appending to one record will collide, and a duplicate number silently breaks every
+> reference to it.
+
+**Fork:** How complete is the D35 key audit, actually?
+
+**A structural limit, previously unrecorded.** `_derive_expected` iterates the **correspondence declared in the
+key it is auditing**. So a key that omits *both* a correspondence entry *and* the finding that entry would have
+produced is **self-consistently wrong and passes the audit**. The auditor never looks at that line, so it
+cannot report it missing.
+
+This is inherent to D22 placing the correspondence in the key — the auditor has no other source for it — so it
+cannot be removed, only bounded.
+
+**Decision ✅** — state the limit plainly wherever the audit's guarantee is described: it verifies that
+*declared* correspondence yields *declared* findings, not that the correspondence is complete. Combined with
+D35's existing caveat (generator and auditor share an author), the audit catches arithmetic slips,
+transcription errors and post-regeneration drift — not omissions and not shared misunderstanding.
+
+**Cheap mitigation, verified passing today:** every invoice line in the index must have a correspondence entry.
+All four splits are complete (16/16, 1/1, 2/2, 2/2 — checked during this sweep), so the invariant holds now.
+
+**⚠️ NOT YET IMPLEMENTED as a check.** Worth adding to the audit command, where it costs a set difference.
+
+---
+
 ## Document status
 
 Decisions **D0–D44** recorded (D37–D41 appended by the phase-1 build session; D42–D44 by the follow-up

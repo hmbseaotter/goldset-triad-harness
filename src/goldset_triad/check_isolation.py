@@ -49,18 +49,31 @@ HELDOUT_INPUTS_DIR_NAME = "goldset-triad-holdout"
 SECRET_ARTIFACT_NAMES = frozenset(
     {
         "holdout_answer_key.json",
+        # The held-out invoice index is agent-denied ground truth (D34) -- the extraction
+        # answer. While it was named 'invoice_index.json' it collided with the three PUBLIC
+        # dev indexes, so it could be listed here at all, and was protected by directory
+        # placement alone: uniquely weaker than every other secret artifact (D45).
+        "holdout_invoice_index.json",
         "gen_rules.py",
         "generate.py",
         "pdf_invoice.py",
         "discrepancy-plan.md",
     }
 )
-_SECRET_ARTIFACT_NAMES_LOWER = frozenset(n.lower() for n in SECRET_ARTIFACT_NAMES)
+
+# Matched on the STEM (text before the first dot), so a compiled or backed-up copy is caught
+# too: 'gen_rules.cpython-314.pyc' and 'gen_rules.py.bak' both stem to 'gen_rules'. Bytecode
+# matters because a .pyc is decompilable and therefore carries the discrepancy-planting rule
+# just as the source does -- __pycache__ exists in the generators directory today (D45).
+_SECRET_STEMS = frozenset(n.lower().split(".", 1)[0] for n in SECRET_ARTIFACT_NAMES)
 
 
 def _is_secret_name(name: str) -> bool:
-    """Case-insensitive, so a stray copy under any casing is still caught."""
-    return name.lower() in _SECRET_ARTIFACT_NAMES_LOWER
+    """Case-insensitive and extension-insensitive, so a stray copy under any casing or any
+    extension is still caught."""
+    return name.lower().split(".", 1)[0] in _SECRET_STEMS
+
+
 SECRET_PATH_SEGMENTS = frozenset({SECRET_DIR_NAME, HELDOUT_INPUTS_DIR_NAME, "_generators"})
 
 # Coverage the guard-configuration check requires, expressed as substrings that at
@@ -68,9 +81,10 @@ SECRET_PATH_SEGMENTS = frozenset({SECRET_DIR_NAME, HELDOUT_INPUTS_DIR_NAME, "_ge
 REQUIRED_COVERAGE = {
     "secret directory": SECRET_DIR_NAME,
     "answer-key filename": "holdout_answer_key.json",
-    "generator gen_rules.py": "gen_rules.py",
-    "generator generate.py": "generate.py",
-    "generator pdf_invoice.py": "pdf_invoice.py",
+    "invoice-index filename": "holdout_invoice_index.json",
+    "generator gen_rules": "gen_rules.",
+    "generator generate": "generate.",
+    "generator pdf_invoice": "pdf_invoice.",
     "discrepancy-design artifact": "discrepancy-plan.md",
 }
 

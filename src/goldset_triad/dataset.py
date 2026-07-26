@@ -25,7 +25,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
 
-from .schema import Finding, SchemaError, parse_finding
+from .schema import Finding, SchemaError, Scope, parse_finding
 from .scoring import LineInventory
 
 _TIMESTAMP_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -390,6 +390,108 @@ def _validate_multi_po_tax_rates(answer_key: AnswerKey, inputs_dir: Path) -> Non
                 )
 
 
+def _po_reference_keys(inputs_dir: Path) -> tuple[set[str], set[tuple[str, str]]]:
+    """(po numbers, (po_number, line_no) pairs) present in the inputs (D50)."""
+    numbers: set[str] = set()
+    line_keys: set[tuple[str, str]] = set()
+    for po_path in sorted((inputs_dir / "purchase_orders").glob("*.json")):
+        raw = _read_json(po_path, "purchase order")
+        if not isinstance(raw, dict):
+            continue
+        po_number = str(raw.get("po_number", po_path.name))
+        numbers.add(po_number)
+        lines = raw.get("lines")
+        if isinstance(lines, list):
+            for ln in lines:
+                if isinstance(ln, dict):
+                    line_keys.add((po_number, str(ln.get("line_no"))))
+    return numbers, line_keys
+
+
+def _validate_expected_finding_targets(
+    answer_key: AnswerKey, invoice_index: InvoiceIndex
+) -> None:
+    """Every expected finding must point at a target that exists (D50).
+
+    An expectation naming a line the dataset does not contain can never be matched by
+    any agent, so it becomes a **permanent false negative**: every agent is scored
+    worse than it truly performed, on a dataset that looks entirely healthy. That is
+    the exact failure mode the answer key is the riskiest artifact *for* — a wrong key
+    producing confidently wrong scores — so it is rejected at load rather than left to
+    the audit command, which by design never runs during scoring (D35)."""
+    unknown: list[str] = []
+    for finding in answer_key.expected_findings:
+        if not invoice_index.inventory.contains(finding):
+            if finding.scope is Scope.DOCUMENT:
+                unknown.append(f"{finding.category.value} on document {finding.target.document_id}")
+            else:
+                unknown.append(
+                    f"{finding.category.value} on {finding.target.document_id} "
+                    f"line {finding.target.line_id}"
+                )
+    if unknown:
+        raise DatasetError(
+            f"{len(unknown)} expected finding(s) in the answer key name a target absent "
+            f"from the invoice index: {'; '.join(unknown[:5])}"
+            f"{'' if len(unknown) <= 5 else f' (and {len(unknown) - 5} more)'}. "
+            f"Such an expectation can never be matched, so it would score as a permanent "
+            f"false negative against every agent (D50)."
+        )
+
+
+def _validate_correspondence_references(
+    answer_key: AnswerKey, invoice_index: InvoiceIndex, inputs_dir: Path
+) -> None:
+    """Every correspondence row must resolve on both sides (D50).
+
+    D48 established that every invoice line needs a row. This is the converse and the
+    interior: a row must name a real invoice line, a real purchase order, and a real
+    line on that purchase order. Left unchecked, a phantom purchase-order reference was
+    silently treated as a zero-rated PO by the multi-PO rate check — and where it did
+    surface, it surfaced misdiagnosed as 'tax rates differ… apportionment UNSPECIFIED',
+    sending a reader to implement apportionment when the real fault was a typo."""
+    po_numbers, po_line_keys = _po_reference_keys(inputs_dir)
+    problems: list[str] = []
+    for position, entry in enumerate(answer_key.correspondence):
+        if not isinstance(entry, dict):
+            problems.append(f"row {position} is not an object")
+            continue
+        missing_fields = [
+            field
+            for field in ("invoice_id", "invoice_line_id", "po_number", "po_line_no")
+            if not str(entry.get(field, ""))
+        ]
+        if missing_fields:
+            problems.append(f"row {position} omits {', '.join(missing_fields)}")
+            continue
+        invoice_id = str(entry["invoice_id"])
+        invoice_line_id = str(entry["invoice_line_id"])
+        po_number = str(entry["po_number"])
+        po_line_no = str(entry["po_line_no"])
+        if (invoice_id, invoice_line_id) not in invoice_index.inventory.line_targets:
+            problems.append(
+                f"row {position} names invoice line {invoice_id} line {invoice_line_id}, "
+                f"which the invoice index does not contain"
+            )
+        if po_number not in po_numbers:
+            problems.append(
+                f"row {position} names purchase order {po_number}, which the inputs do "
+                f"not contain"
+            )
+        elif (po_number, po_line_no) not in po_line_keys:
+            problems.append(
+                f"row {position} names line {po_line_no} of purchase order {po_number}, "
+                f"which that purchase order does not contain"
+            )
+    if problems:
+        shown = "; ".join(problems[:5])
+        more = "" if len(problems) <= 5 else f" (and {len(problems) - 5} more)"
+        raise DatasetError(
+            f"the answer key's correspondence has {len(problems)} unresolved "
+            f"reference(s): {shown}{more} (D50)."
+        )
+
+
 def _validate_correspondence_completeness(
     answer_key: AnswerKey, invoice_index: InvoiceIndex
 ) -> None:
@@ -401,9 +503,13 @@ def _validate_correspondence_completeness(
     the auditor never looks at that line. That hole cannot be closed from inside the
     audit, because the correspondence has no other source (D22). It can be closed here:
     if every line is covered, the audit has looked at every line.
+
+    There is deliberately **no exemption for an empty correspondence list** (D50). An
+    earlier early-return meant a key declaring none at all skipped this check entirely,
+    so the rule enforced only "if you declare some, declare all" — while D22 requires
+    correspondence for *every* invoice line. An empty list on a dataset that has lines
+    is the largest possible omission, not a special case.
     """
-    if not answer_key.correspondence:
-        return  # a key may legitimately declare none; nothing to check against
     covered = {
         (str(e.get("invoice_id", "")), str(e.get("invoice_line_id", "")))
         for e in answer_key.correspondence
@@ -475,9 +581,14 @@ def load_dataset(dataset_ref: str, search_root: Path) -> LoadedDataset:
     _validate_purchase_orders(manifest.inputs_dir)
     _validate_goods_receipts(manifest.inputs_dir)
     # Cross-artifact validations: these need the key and the index together, so they
-    # cannot live in the per-artifact validators above (D47, D48).
-    _validate_multi_po_tax_rates(answer_key, manifest.inputs_dir)
+    # cannot live in the per-artifact validators above (D47, D48, D50).
+    # Reference resolution runs BEFORE the rate check, so a phantom purchase-order
+    # reference is reported as the typo it is rather than misdiagnosed as a differing
+    # tax rate (D50).
+    _validate_expected_finding_targets(answer_key, invoice_index)
+    _validate_correspondence_references(answer_key, invoice_index, manifest.inputs_dir)
     _validate_correspondence_completeness(answer_key, invoice_index)
+    _validate_multi_po_tax_rates(answer_key, manifest.inputs_dir)
     inputs_digest = aggregate_inputs_digest(manifest.inputs_dir)
     return LoadedDataset(
         manifest=manifest,

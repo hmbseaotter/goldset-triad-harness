@@ -122,6 +122,108 @@ class CorrespondenceCompletenessTests(unittest.TestCase):
                 f"{name} has invoice lines with no correspondence entry",
             )
 
+    def test_empty_correspondence_is_not_an_exemption(self) -> None:
+        """D50 — an empty list was an escape hatch, not a special case.
+
+        The completeness check used to return early when the correspondence was empty,
+        so the rule enforced only "if you declare some, declare all" while D22 requires
+        one entry per invoice line. An empty list on a dataset with lines is the largest
+        possible omission."""
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "ds")
+            key = _read(manifest.parent / "dev_answer_key.json")
+            key["correspondence"] = []
+            _write(manifest.parent / "dev_answer_key.json", key)
+            with self.assertRaises(DatasetError) as ctx:
+                load_dataset(str(manifest), Path(td))
+            self.assertIn("no correspondence entry", str(ctx.exception))
+
+
+class ExpectedFindingTargetTests(unittest.TestCase):
+    """D50 — an expectation naming a line that does not exist is a permanent miss."""
+
+    def test_expected_finding_with_unknown_line_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "ds")
+            key = _read(manifest.parent / "dev_answer_key.json")
+            key["expected_findings"][0]["target"]["line_id"] = "999-NO-SUCH-LINE"
+            _write(manifest.parent / "dev_answer_key.json", key)
+            with self.assertRaises(DatasetError) as ctx:
+                load_dataset(str(manifest), Path(td))
+            message = str(ctx.exception)
+            self.assertIn("absent from the invoice index", message)
+            self.assertIn("permanent", message)  # names the consequence, not just the fault
+            self.assertIn("D50", message)
+
+    def test_expected_finding_with_unknown_document_is_rejected(self) -> None:
+        """The DOCUMENT-scoped half: a tax expectation against a nonexistent invoice."""
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "ds")
+            key = _read(manifest.parent / "dev_answer_key.json")
+            for finding in key["expected_findings"]:
+                if finding["scope"] == "DOCUMENT":
+                    finding["target"]["document_id"] = "INV-NOPE"
+                    break
+            _write(manifest.parent / "dev_answer_key.json", key)
+            with self.assertRaises(DatasetError) as ctx:
+                load_dataset(str(manifest), Path(td))
+            self.assertIn("INV-NOPE", str(ctx.exception))
+
+    def test_shipped_keys_target_only_real_lines(self) -> None:
+        """Positive control: the rule does not over-fire on the shipped datasets."""
+        for name in ("dev", "dev-synthetic", "dev-zero-defect"):
+            loaded = load_dataset(name, support.DATASETS)
+            for finding in loaded.answer_key.expected_findings:
+                self.assertTrue(
+                    loaded.invoice_index.inventory.contains(finding),
+                    f"{name}: expectation targets a line absent from the index",
+                )
+
+
+class CorrespondenceReferenceTests(unittest.TestCase):
+    """D50 — every correspondence row must resolve on both sides."""
+
+    def _broken(self, mutate) -> str:
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "ds")
+            key = _read(manifest.parent / "dev_answer_key.json")
+            mutate(key)
+            _write(manifest.parent / "dev_answer_key.json", key)
+            with self.assertRaises(DatasetError) as ctx:
+                load_dataset(str(manifest), Path(td))
+            return str(ctx.exception)
+
+    def test_phantom_purchase_order_is_named_not_misdiagnosed(self) -> None:
+        """The misdiagnosis this fixed: a phantom PO reference used to default to a
+        zero-rated PO and surface, if at all, as 'tax rates differ ... apportionment
+        UNSPECIFIED' — sending a reader to implement apportionment over a typo."""
+        message = self._broken(
+            lambda k: k["correspondence"][0].__setitem__("po_number", "PO-GHOST")
+        )
+        self.assertIn("PO-GHOST", message)
+        self.assertIn("do", message)
+        self.assertNotIn("UNSPECIFIED", message)  # not the D47 rate diagnosis
+        self.assertNotIn("apportion", message)
+
+    def test_phantom_purchase_order_line_is_rejected(self) -> None:
+        message = self._broken(
+            lambda k: k["correspondence"][0].__setitem__("po_line_no", "P-GHOST")
+        )
+        self.assertIn("P-GHOST", message)
+
+    def test_orphan_correspondence_row_is_rejected(self) -> None:
+        def add_orphan(key: dict) -> None:
+            row = dict(key["correspondence"][0])
+            row["invoice_line_id"] = "999-ORPHAN"
+            key["correspondence"].append(row)
+
+        self.assertIn("999-ORPHAN", self._broken(add_orphan))
+
+    def test_correspondence_row_missing_a_field_is_rejected(self) -> None:
+        message = self._broken(lambda k: k["correspondence"][0].pop("po_line_no"))
+        self.assertIn("omits", message)
+        self.assertIn("po_line_no", message)
+
 
 if __name__ == "__main__":
     unittest.main()

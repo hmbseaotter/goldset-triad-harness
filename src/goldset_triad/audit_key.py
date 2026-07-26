@@ -197,8 +197,24 @@ def _derive_expected(key: dict[str, object], inputs: _Inputs) -> set[_Key]:
         line_id = str(entry["invoice_line_id"])
         pon = str(entry["po_number"])
         pln = str(entry["po_line_no"])
-        inv_ln = inputs.inv_lines[(iid, line_id)]
-        po_ln = inputs.po_lines[(pon, pln)]
+        # Named causes rather than a bare KeyError. `audit()` resolves the manifest
+        # directly and does NOT run the loader's validation, so it can still meet an
+        # unresolved reference; reporting it as "audit error: KeyError ('PO-X','P1')"
+        # would name a tuple instead of the fault (D50).
+        try:
+            inv_ln = inputs.inv_lines[(iid, line_id)]
+        except KeyError:
+            raise DatasetError(
+                f"the answer key's correspondence names invoice line {iid} line "
+                f"{line_id}, which the structured invoice index does not contain"
+            ) from None
+        try:
+            po_ln = inputs.po_lines[(pon, pln)]
+        except KeyError:
+            raise DatasetError(
+                f"the answer key's correspondence names line {pln} of purchase order "
+                f"{pon}, which the inputs do not contain"
+            ) from None
         line = _Line(
             ordered=_dec(po_ln["qty_ordered"], "ordered"),
             received=inputs.received.get((pon, pln), Decimal(0)),

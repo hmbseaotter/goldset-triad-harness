@@ -846,6 +846,85 @@ metrics, but the scorecard reports duplicate contention **distinctly** — the s
 
 ---
 
+## D27 — The dataset inputs are fingerprinted too ✅ (completes D10)
+
+**Fork:** D10 fingerprinted the findings artifact and the answer key, but **not the dataset inputs** — yet the
+inputs move the score.
+
+**Why this defeated D10's whole premise.** D10 exists so a scorecard need not be *trusted* because it can be
+*recomputed*. Recomputation is only pinned if every score-determining input is pinned. The inputs set the
+FP-rate denominator (invoice count) and drive target validation (which lines exist, per I6), so **an edited
+input with an unchanged key and version scores differently while the provenance block looks identical** —
+precisely the tampering D10 was meant to expose.
+
+**Options considered**
+- **(A) Store the full per-file digest list in every scorecard** — a mismatch is diagnosable straight from the
+  stored record with nothing to recompute, at a cost of ~75–150 entries per scorecard at P3 scale, in files
+  that are the durable committed record.
+- **(B) Aggregate digest stored; per-file recomputed on mismatch.**
+
+**Decision ✅** — **(B).** One aggregate digest per scorecard; `--verify` recomputes per-file **only** when the
+aggregate diverges, and reports which file changed. Diagnostic depth computed when needed rather than stored
+always.
+
+**The algorithm must be specified precisely, or it is not reproducible either:**
+1. Include every file under `inputs_dir`, recursively.
+2. Normalize each path **relative to `inputs_dir`, with forward slashes** — a Windows backslash would
+   otherwise digest differently from a Linux checkout of identical data.
+3. Sort by normalized path, byte-wise.
+4. Digest each file's **raw bytes**. No text transformation of any kind: the invoices are PDFs.
+5. Hash the concatenation of `path + file_digest` pairs in that order.
+
+**Hazard this exposes — git line-ending conversion.** If `autocrlf` normalizes the JSON inputs, a Windows and
+a Linux checkout hold **different bytes**, so the digest differs and the cross-platform identical-output
+requirement (N3) fails in a way that looks like a harness bug. Dataset files require `.gitattributes` marking
+them binary / `-text`.
+
+**The manifest is deliberately not fingerprinted** — it only *points* at the inputs and key, so any redirection
+already surfaces as a changed inputs or key digest.
+
+---
+
+## D28 — No division inside a decision; pinned precision for everything else ✅
+
+**Fork:** D23 says compare at full `Decimal` precision, never rounding before a comparison. But the tax rate is
+`po_tax ÷ po_taxable_subtotal`, generally non-terminating — and `Decimal` division rounds to the **ambient
+context precision**. That is the one place "exact" cannot be taken literally, and an auditor recomputing at a
+different precision could diverge.
+
+**Options considered**
+- **(A) Pin the context precision only** — declare a fixed precision so the derived rate rounds identically
+  everywhere, keeping the straightforward divide-then-compare form. Reproducible in practice, but "exact"
+  degrades to "exact to N significant digits" and a rounding step stays in the decision path.
+- **(B) Cross-multiply the decision, and pin precision as well.**
+
+**Decision ✅** — **(B).**
+
+**Remove the division from the decision.** Since `po_taxable_subtotal > 0`:
+
+```
+LHS = | inv_tax × po_taxable − po_tax × inv_taxable |
+RHS = threshold × po_taxable
+flag iff LHS >= RHS
+```
+
+Algebraically identical to comparing the variance against the threshold, but **multiplication and subtraction
+only** — genuinely exact, with zero precision dependence. The dollar variance still needs a division to
+*display*, which is harmless because display rounding never feeds a comparison (D23).
+
+**It degrades correctly:** with `inv_taxable = 0` and tax charged anyway, the inequality reduces to
+`inv_tax >= $0.05` — tax billed on nothing always flags.
+
+**Second precision hole this exposed.** Precision, recall and FP-per-invoice are **also divisions**, and unlike
+the tax rate they are *reported values under the byte-identical comparison*. Left at the ambient context
+precision, two runs on differently-configured interpreters could emit different scorecard bytes — making **U4
+quietly unenforceable**. So:
+- Pin the `Decimal` context precision as a **declared constant**, covering any incidental division.
+- Give every reported ratio an **explicit output precision and `ROUND_HALF_UP`**, so the emitted bytes are
+  fixed by the spec rather than by the environment.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

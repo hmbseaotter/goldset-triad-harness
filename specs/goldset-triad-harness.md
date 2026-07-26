@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.5.0
+- Spec version: 0.6.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -150,6 +150,10 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   positionally-indexed records).
 - Clean-room terminology: the strings "reconciliation agent" and "iTradeNetwork" SHALL NOT appear anywhere
   in this repository.
+- Dataset input files must be committed with line-ending conversion disabled — `.gitattributes` marking them
+  binary or `-text`. Without it, `autocrlf` gives a Windows checkout different bytes from a Linux one, the
+  aggregate inputs digest diverges, and the cross-platform identical-output requirement fails in a way that
+  presents as a harness bug (D27).
 - No new packages without flagging for approval first.
 
 ## prior decisions
@@ -197,6 +201,19 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] WHEN computing the expected tax for an invoice, the harness SHALL apply the purchase-order-derived rate
   to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
   category rather than additionally producing a tax finding (D24).
+- [P1] WHEN deciding whether a tax variance is material, the harness SHALL evaluate the comparison in
+  cross-multiplied form, comparing the absolute difference between the invoiced tax times the purchase-order
+  taxable subtotal and the purchase-order tax times the invoiced taxable subtotal against the threshold times
+  the purchase-order taxable subtotal — so that the decision uses multiplication and subtraction only and
+  performs **no division**, the tax rate being generally non-terminating (D28).
+- [P1] The harness SHALL NOT perform a division inside any flagging decision, and SHALL confine division to
+  values that are only displayed or only reported (D28).
+- [P1] The harness SHALL pin the decimal context precision to a declared constant rather than relying on the
+  language default, so that any incidental division is reproducible across environments (D28).
+- [P1] The harness SHALL emit every reported ratio — precision, recall, and the false-positives-per-invoice
+  rate — at a declared number of decimal places using `ROUND_HALF_UP`, because these are divisions whose
+  emitted bytes fall under the byte-identical comparison and would otherwise be fixed by the environment
+  rather than by this specification (D28).
 - [P1] The harness SHALL represent every timestamp as UTC ISO-8601 with a `Z` suffix at second precision.
 - [P1] The harness SHALL treat every dataset file, answer-key file, and findings artifact as strictly
   read-only.
@@ -240,7 +257,16 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   field, because zero reads as failure where the result was in fact perfect and an omitted key makes the
   field unstable across runs (D25).
 - [P1] WHEN a run completes, the harness SHALL record in the scorecard the dataset identifier, the dataset
-  version, a SHA-256 fingerprint of the findings artifact, and a SHA-256 fingerprint of the answer key.
+  version, a SHA-256 fingerprint of the findings artifact, a SHA-256 fingerprint of the answer key, and an
+  aggregate SHA-256 digest of the dataset inputs, because the inputs determine the false-positive-rate
+  denominator and target validation and therefore move the score (D27).
+- [P1] WHEN computing the aggregate inputs digest, the harness SHALL include every file beneath the inputs
+  directory recursively, SHALL normalize each path relative to that directory using forward slashes, SHALL
+  sort those paths byte-wise, SHALL digest each file's raw bytes without any text transformation, and SHALL
+  hash the concatenation of path and file-digest pairs in that order (D27).
+- [P1] WHERE verification detects a mismatch in the aggregate inputs digest, the harness SHALL recompute
+  per-file digests and SHALL report which files diverged, so that diagnostic depth is computed on demand rather
+  than stored in every scorecard (D27).
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
   load, score and total durations in milliseconds, and nothing else.
 - [P1] WHEN a run completes, the harness SHALL record the invoice count and the finding count in the
@@ -359,7 +385,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   in every category.
 - [ ] [P1] The scorecard is emitted both as JSON that parses and as a human-readable summary.
 - [ ] [P1] The scorecard records the dataset identifier and version.
-- [ ] [P1] The scorecard embeds a SHA-256 fingerprint of the findings artifact and of the answer key.
+- [ ] [P1] The scorecard embeds a SHA-256 fingerprint of the findings artifact, of the answer key, and an
+  aggregate digest of the dataset inputs.
+- [ ] [P1] Editing one byte of one input file, leaving the answer key and dataset version untouched, changes
+  the aggregate inputs digest — so the altered run cannot masquerade as the original.
+- [ ] [P1] Verification against a scorecard whose inputs have changed reports which specific files diverged,
+  not merely that the aggregate mismatched.
+- [ ] [P1] The aggregate inputs digest is identical when computed on Windows and on Linux from the same data,
+  confirming path normalization and the absence of any text transformation.
 - [ ] [P1] The zero-defect control scored against an empty findings artifact reports a false-positive count
   of 0 and a rate of 0.0, and reports no precision figure.
 - [ ] [P1] The seeded tax overcharge, flagged on the correct line, scores as a true positive under
@@ -417,6 +450,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   are swapped in the input.
 - [ ] [P1] A display-rounded amount appearing in the human summary matches the `ROUND_HALF_UP` result, and a
   value ending in exactly half a cent rounds away from zero rather than to even.
+- [ ] [P1] A tax variance whose derived rate is non-terminating — purchase-order tax over a taxable subtotal
+  that does not divide evenly — produces the same verdict when scored under two different decimal context
+  precisions, confirming the decision performs no division.
+- [ ] [P1] Tax charged on an invoice whose taxable subtotal is zero flags whenever the tax equals or exceeds
+  five cents.
+- [ ] [P1] A scan of the scoring path finds no division operation reachable from a flagging decision.
+- [ ] [P1] Reported precision, recall and false-positive rate are emitted at the declared decimal places, and a
+  run under a different ambient decimal precision produces a byte-identical scorecard.
 - [ ] [P1] Every field inside `run_metadata` is non-deterministic, and no deterministic field appears there
   — asserted by confirming that excluding `run_metadata` is sufficient to make two runs byte-identical.
 - [ ] [P1] The human-readable summary names each missed finding and each false flag individually rather
@@ -556,6 +597,21 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.6.0 (2026-07-25): fourth round of build-session questions — both found holes in earlier decisions rather
+  than unspecified detail. **D27 completes D10:** the dataset inputs are now fingerprinted. D10's premise is
+  that a scorecard is recomputable rather than trustworthy, but recomputation is only pinned if every
+  score-determining input is pinned — and the inputs set the false-positive-rate denominator and drive target
+  validation, so an edited input under an unchanged key and version scored differently while provenance looked
+  identical. Adds a precisely specified aggregate digest (recursive, forward-slash-normalized relative paths,
+  byte-wise sorted, raw file bytes) with per-file digests recomputed on mismatch, plus a `.gitattributes`
+  constraint: without disabling line-ending conversion, a Windows and a Linux checkout digest differently and
+  the cross-platform requirement fails as an apparent harness bug. **D28 removes the one place D23's "exact"
+  was untrue:** the derived tax rate is generally non-terminating, and `Decimal` division rounds to the ambient
+  context precision. The tax decision is now evaluated in cross-multiplied form — multiplication and
+  subtraction only, no division, genuinely exact. That also exposed a second hole: precision, recall and the
+  false-positive rate are divisions whose emitted bytes fall under the byte-identical comparison, so they now
+  carry a declared output precision and `ROUND_HALF_UP`, and the decimal context precision is pinned to a
+  declared constant. Without that, U4 was quietly unenforceable.
 - 0.5.0 (2026-07-25): third round of build-session questions, one of which **corrected an error in this spec**.
   **D23:** rounding policy — compute and compare at full `Decimal` precision, never rounding before a
   comparison; round to 2dp only for display, explicitly `ROUND_HALF_UP` because Python's `Decimal` defaults to

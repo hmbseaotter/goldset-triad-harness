@@ -191,6 +191,34 @@ conflating them produces a harness that cannot evaluate anything:
 - Amounts are **not** part of the match key, so rounding can only affect whether a finding *exists* and how it
   *displays* — never what matches what.
 
+**No division inside a decision (D28).** The derived tax rate `po_tax ÷ po_taxable` is generally
+non-terminating, and `Decimal` division rounds to the ambient context precision — so a divide-then-compare
+formulation is **not** exact and an auditor at a different precision could diverge. Cross-multiply instead:
+
+```
+LHS = | inv_tax * po_taxable - po_tax * inv_taxable |
+RHS = threshold * po_taxable
+flag iff LHS >= RHS
+```
+
+Multiplication and subtraction only. Algebraically identical, genuinely exact. It degrades correctly too: with
+`inv_taxable = 0` and tax charged anyway, it reduces to `inv_tax >= $0.05`.
+
+Also: **pin the `Decimal` context precision** to a declared constant, and give **reported ratios** (precision,
+recall, FP-per-invoice) an explicit output precision with `ROUND_HALF_UP`. Those are divisions whose bytes fall
+under the byte-identical comparison — left at ambient precision, U4 is unenforceable.
+
+**Inputs fingerprint (D27).** The scorecard embeds an **aggregate digest of the dataset inputs**, alongside the
+findings-artifact and answer-key digests. Without it, an edited input under an unchanged key and version scores
+differently while provenance looks identical — which defeats verify-by-recompute entirely. Algorithm, exactly:
+every file under `inputs_dir` recursively → path normalized **relative, forward slashes** → sorted byte-wise →
+each file's **raw bytes** digested (no text transformation; these are PDFs) → hash the concatenated
+`path + digest` pairs. On a verify mismatch, recompute per-file and report which files diverged.
+
+⚠️ **Mark dataset files binary / `-text` in `.gitattributes`.** If `autocrlf` touches the JSON inputs, Windows
+and Linux checkouts hold different bytes, the digest diverges, and the cross-platform requirement fails looking
+like a harness bug.
+
 **Expected tax (D24).** `expected_tax = po_derived_rate × invoice_taxable_subtotal` — the invoice's **own**
 subtotal, not the payable one. Using the payable subtotal would cascade: any price or quantity error changes
 the correct tax base, so one root cause would produce both its own finding *and* a `TAX_VARIANCE`, polluting
@@ -240,7 +268,16 @@ Do not mark this phase complete until every criterion below **passes by executio
   category.
 - [ ] Scorecard emitted both as parseable JSON and as a human-readable summary.
 - [ ] Scorecard records dataset identifier and version.
-- [ ] Scorecard embeds SHA-256 fingerprints of the findings artifact and the answer key.
+- [ ] Scorecard embeds SHA-256 fingerprints of the findings artifact and the answer key, plus an aggregate
+  digest of the dataset inputs.
+- [ ] Editing one byte of one input, with key and version untouched, changes the aggregate inputs digest.
+- [ ] A verify mismatch names which input files diverged, not just that the aggregate differed.
+- [ ] The aggregate inputs digest is identical computed on Windows and on Linux from the same data.
+- [ ] A non-terminating tax rate yields the same verdict under two different `Decimal` context precisions.
+- [ ] Tax charged against a zero taxable subtotal flags at `>= $0.05`.
+- [ ] No division is reachable from any flagging decision — asserted by scanning the scoring path.
+- [ ] Reported ratios emit at the declared precision, and a run under a different ambient decimal precision
+  produces a byte-identical scorecard.
 - [ ] Zero-defect control with an empty findings artifact reports false-positive count 0, rate 0.0, precision
   `null` and recall `null`.
 - [ ] The same control scored against three spurious findings reports precision `0.0` — not `null` — and recall

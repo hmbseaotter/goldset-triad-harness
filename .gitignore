@@ -1,0 +1,35 @@
+# --- Answer keys and generators: defence in depth -------------------------------
+# These live OUTSIDE this repository by design (D11.1, A8) — placement is the
+# primary control. The patterns below are insurance against an accidental copy
+# landing inside the tree, NOT enforcement: `git add -f` still overrides them,
+# and a key committed to public history is permanent.
+ANSWER_KEY*
+README.original.md
+answer-keys/
+**/answer-keys/
+_generators/
+**/_generators/
+
+# --- Run ledger (D9) ------------------------------------------------------------
+# Derived, local-only, and regenerable from the scorecard directory, so losing it
+# costs nothing. The exact filename is fixed in [P2]; adjust if it differs.
+run-ledger.jsonl
+*.ledger.jsonl
+
+# NOTE: scorecards are deliberately NOT ignored. They are the durable,
+# tamper-evident record (D9) and are meant to be committed. Do not add them here.
+
+# --- Python ---------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# --- OS / editor junk -----------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.idea/

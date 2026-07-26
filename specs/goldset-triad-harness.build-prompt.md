@@ -201,8 +201,25 @@ RHS = threshold * po_taxable
 flag iff LHS >= RHS
 ```
 
-Multiplication and subtraction only. Algebraically identical, genuinely exact. It degrades correctly too: with
-`inv_taxable = 0` and tax charged anyway, it reduces to `inv_tax >= $0.05`.
+Multiplication and subtraction only. Algebraically identical, genuinely exact.
+
+⚠️ **This form is valid ONLY where `po_taxable > 0`. At zero it breaks (D29).** Multiplying through by zero
+destroys the inequality: both sides become `0`, so `0 >= 0` flags **every** invoice — and flags identically
+whether the invoice charged `$0` or `$50`, because `inv_tax` is annihilated. Since unprepared food is
+sales-tax-exempt in most US states, a food distributor's POs are commonly fully exempt, so this branch is
+ordinary traffic, not an exotic corner:
+
+```
+if po_taxable == 0:                     # no rate derivable; nothing to divide
+    expected_tax = 0
+    flag iff |inv_tax| >= $0.05         # threshold degenerates via basis = 0
+```
+
+A correct `Tax: 0.00` on an exempt order produces **no finding**; any charge of 5¢ or more flags as
+`TAX_VARIANCE`. Note "no taxable lines" is **not** "no tax line" — real single-template printing always emits
+`Tax: 0.00`, so the field is present and zero. Two supporting validations: a PO with zero taxable subtotal but
+**non-zero** tax is **malformed** — reject at load, naming it — and a PO or invoice with an **absent or null**
+tax field is likewise malformed, since absent must never be confusable with zero.
 
 Also: **pin the `Decimal` context precision** to a declared constant, and give **reported ratios** (precision,
 recall, FP-per-invoice) an explicit output precision with `ROUND_HALF_UP`. Those are divisions whose bytes fall
@@ -275,6 +292,11 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] The aggregate inputs digest is identical computed on Windows and on Linux from the same data.
 - [ ] A non-terminating tax rate yields the same verdict under two different `Decimal` context precisions.
 - [ ] Tax charged against a zero taxable subtotal flags at `>= $0.05`.
+- [ ] An invoice against a fully exempt PO, correctly showing `Tax: 0.00`, produces **no** finding — the case
+  the cross-multiplied form alone would have flagged.
+- [ ] The same invoice charging `$0.05` flags, and charging `$50.00` flags, proving `inv_tax` is not annihilated.
+- [ ] A PO with zero taxable subtotal and non-zero tax is rejected as malformed, naming that PO.
+- [ ] A PO or invoice with an absent or null tax field is rejected as malformed, not treated as zero.
 - [ ] No division is reachable from any flagging decision — asserted by scanning the scoring path.
 - [ ] Reported ratios emit at the declared precision, and a run under a different ambient decimal precision
   produces a byte-identical scorecard.

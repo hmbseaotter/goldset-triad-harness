@@ -925,6 +925,76 @@ quietly unenforceable**. So:
 
 ---
 
+## D29 — Zero taxable subtotal: the degenerate tax branch ✅ (fixes a defect in D28)
+
+**Fork:** What does the tax check do when the purchase order has no taxable lines at all
+(`po_taxable_subtotal = 0`)? No rate is derivable, and D28's cross-multiplied comparison collapses.
+
+**The defect.** Multiplying an inequality through by `po_taxable` is valid **only when it is positive**. At
+zero the transformation destroys the inequality:
+
+```
+LHS = | inv_tax × 0 − po_tax × inv_taxable |  =  0     (po_tax is 0 here)
+RHS = threshold × 0                          =  0
+0 >= 0  →  always flags
+```
+
+Worse, it flags **identically whether the invoice charged $0 or $50** — `inv_tax` is annihilated by the
+multiplication, so all information is lost. D28 stated the precondition `po_taxable > 0` but never specified
+the behaviour when it fails.
+
+**An epistemic correction worth recording.** This was first argued from the reference fixtures, where 36 of 50
+POs carry `tax: 0.0`. The author rightly objected that **those fixtures were AI-generated, so their
+distribution is evidence about a generator, not about the world.** The sound basis is the domain itself:
+unprepared food is sales-tax-exempt in most US states, and the scenario is a food distributor, so
+mostly-exempt POs are plausible on the merits. **And the defect does not depend on frequency at all** — the
+formula is wrong for even one exempt PO. Frequency affected only how loudly it would fail.
+
+**A distinction clarified by the author.** "No taxable lines" is *not* "no tax line". A real PO or invoice
+printing system uses **one template** and prints `Tax: 0.00` — as a grocery receipt does — and the reference
+data agrees: `"tax": 0.0` is present with value zero, never absent. What is missing is a derivable **rate**,
+not a field.
+
+**Decision ✅** — an explicit branch, bypassing cross-multiplication because there is nothing to divide:
+
+```
+if po_taxable_subtotal == 0:
+    expected_tax = 0
+    variance     = inv_tax
+    basis        = 0  →  threshold = max($0.05, min(0, $25)) = $0.05
+    flag iff |inv_tax| >= $0.05        # category TAX_VARIANCE, DOCUMENT scope
+```
+
+Correctly printing `Tax: 0.00` on an exempt order produces **no finding**; charging 5¢ or more **flags**. The
+floor falls out of the existing threshold formula — no new constant. This restores the distinction the
+collapsed form had destroyed.
+
+**Relies on taxability being PO-determined, not invoice-claimed** (the R9 precedent: the derived rate applies
+to invoiced lines whose *PO counterpart* is `taxable: true`). So when no PO line is taxable, the invoiced
+taxable subtotal is zero too.
+
+**Two supporting rules, both confirmed by the author:**
+
+| `po_taxable` | `po_tax` | Status |
+|---|---|---|
+| 0 | 0.00 | **normal and coherent** — the common exempt case; expected tax = 0 |
+| 0 | > 0 | **malformed — reject the dataset at load**, naming the PO |
+| > 0 | ≥ 0 | rate derivable; D28's cross-multiplied comparison applies |
+
+Rejecting row 2 is what makes "expected tax = 0" a **safe convention** for row 1 rather than an assumption
+that could silently contradict the PO's own tax field.
+
+- **The tax field SHALL always be present**, as `0.00`, never absent or null, on both PO and invoice. This
+  matches single-template printing behaviour and removes an entire class of bug where the harness must
+  distinguish *absent* from *zero* — and it stops the key author omitting it by accident.
+
+**Systematic sweep applied to the other multiply-through formulas** — every formula that multiplies by a
+quantity needs its zero behaviour stated. The threshold's `2% × basis` degrades correctly to the `$0.05` floor;
+quantity materiality's `excess × po_unit_price` correctly yields no finding for a zero-priced item, since no
+money moves. **Tax was the only one that broke.**
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

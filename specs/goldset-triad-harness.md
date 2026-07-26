@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.6.0
+- Spec version: 0.7.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -206,6 +206,17 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   taxable subtotal and the purchase-order tax times the invoiced taxable subtotal against the threshold times
   the purchase-order taxable subtotal — so that the decision uses multiplication and subtraction only and
   performs **no division**, the tax rate being generally non-terminating (D28).
+- [P1] WHERE the purchase order has no taxable lines, so that its taxable subtotal is zero and no rate is
+  derivable, the harness SHALL treat the expected tax as zero and SHALL compare the invoiced tax directly
+  against the threshold, which degenerates to five cents — and SHALL NOT apply the cross-multiplied comparison,
+  which at a zero subtotal reduces to zero against zero and would flag every such invoice while annihilating
+  the invoiced tax (D29).
+- [P1] IF the purchase order's taxable subtotal is zero while its tax amount is greater than zero, the harness
+  SHALL reject the dataset as malformed and SHALL name the offending purchase order, because an authorized tax
+  against nothing taxable would let the expected-tax-is-zero rule silently contradict the record (D29).
+- [P1] IF a purchase order or an invoice omits its tax field, or presents it as null, the harness SHALL reject
+  the dataset as malformed — the field SHALL always be present, carrying zero where nothing is taxable, so that
+  absent is never confusable with zero (D29).
 - [P1] The harness SHALL NOT perform a division inside any flagging decision, and SHALL confine division to
   values that are only displayed or only reported (D28).
 - [P1] The harness SHALL pin the decimal context precision to a declared constant rather than relying on the
@@ -455,6 +466,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   precisions, confirming the decision performs no division.
 - [ ] [P1] Tax charged on an invoice whose taxable subtotal is zero flags whenever the tax equals or exceeds
   five cents.
+- [ ] [P1] An invoice against a purchase order with no taxable lines, correctly showing tax of zero, produces
+  **no** finding — the case that the cross-multiplied form alone would have flagged.
+- [ ] [P1] The same invoice charging five cents or more in tax flags as `TAX_VARIANCE`, and charging fifty
+  dollars flags too — confirming the invoiced tax is not annihilated by a zero subtotal.
+- [ ] [P1] A purchase order whose taxable subtotal is zero while its tax exceeds zero is rejected as malformed,
+  naming that purchase order.
+- [ ] [P1] A purchase order or invoice whose tax field is absent or null is rejected as malformed, rather than
+  being treated as zero.
 - [ ] [P1] A scan of the scoring path finds no division operation reachable from a flagging decision.
 - [ ] [P1] Reported precision, recall and false-positive rate are emitted at the declared decimal places, and a
   run under a different ambient decimal precision produces a byte-identical scorecard.
@@ -597,6 +616,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.7.0 (2026-07-25): **fixes a defect in D28.** D28's cross-multiplied tax comparison is valid only where the
+  purchase-order taxable subtotal is positive; at zero the transformation destroys the inequality, reducing to
+  zero against zero so that **every** such invoice flags — and flags identically whether the invoice charged
+  nothing or fifty dollars, the invoiced tax being annihilated by the multiplication. **D29** adds an explicit
+  branch: with no taxable lines, expected tax is zero and the invoiced tax is compared directly against a
+  threshold that degenerates to five cents, so a correct `Tax: 0.00` produces no finding while any real charge
+  flags. Two supporting rules: a purchase order with a zero taxable subtotal but non-zero tax is **malformed**
+  and rejected at load, which is what makes the expected-tax-is-zero convention safe; and the tax field SHALL
+  always be **present** as `0.00` rather than absent, matching single-template printing behaviour and removing
+  the absent-versus-zero ambiguity. Also records that the original frequency argument leaned on AI-generated
+  fixtures — weak evidence, correctly challenged — while the defect itself holds for even one exempt purchase
+  order. A sweep of the other multiply-through formulas confirmed tax was the only one that broke.
 - 0.6.0 (2026-07-25): fourth round of build-session questions — both found holes in earlier decisions rather
   than unspecified detail. **D27 completes D10:** the dataset inputs are now fingerprinted. D10's premise is
   that a scorecard is recomputable rather than trustworthy, but recomputation is only pinned if every

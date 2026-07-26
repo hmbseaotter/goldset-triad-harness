@@ -181,6 +181,35 @@ conflating them produces a harness that cannot evaluate anything:
   has to pass using only the dev split, with no out-of-tree path configured.
 - Dataset selection by path is what makes an out-of-tree split work — no special-casing, just a path.
 
+**Rounding (D23) — compare exact, round only to display.**
+- Compute and compare at **full `Decimal` precision. Never round before a comparison.** Rounding an
+  intermediate is path-dependent (round-then-multiply ≠ multiply-then-round) and would make an auditor's
+  recomputation diverge. On a $333.33 basis the threshold stays $6.6666: a $6.67 variance flags, $6.66 does not.
+- Round to 2dp **only at emission**, and set **`ROUND_HALF_UP` explicitly** — Python's `Decimal` defaults to
+  `ROUND_HALF_EVEN` (banker's), which is not what an accountant expects. A rounded value must never re-enter a
+  comparison.
+- Amounts are **not** part of the match key, so rounding can only affect whether a finding *exists* and how it
+  *displays* — never what matches what.
+
+**Expected tax (D24).** `expected_tax = po_derived_rate × invoice_taxable_subtotal` — the invoice's **own**
+subtotal, not the payable one. Using the payable subtotal would cascade: any price or quantity error changes
+the correct tax base, so one root cause would produce both its own finding *and* a `TAX_VARIANCE`, polluting
+per-category recall. A seeded price error must therefore produce **no** tax finding.
+
+**Zero-expectation cases (D25).** `precision = TP/(TP+FP)`, and on the control `TP = 0`:
+- No flags at all → `0/0`, undefined → emit **`null`**.
+- Flags raised → `0/N = 0.0`, **defined** → emit `0.0`. Do not suppress it; that is the result carrying the signal.
+- **Recall is `null` unconditionally** on a zero-expectation case.
+- Undefined is always `null` — never `0` (reads as failure when the run was perfect), never an omitted key
+  (unstable field breaks byte-identical comparison).
+
+**Duplicate contention (D26).** Two findings contending for one expectation are identical on the match key, so
+the tie-break **cannot change any metric** — one TP and one FP either way. It exists purely for output
+determinism. Order contending findings by a **canonical serialization** of each whole finding and take the
+first; **never by position in the findings artifact**, which would break order-reversal invariance. Report the
+duplicate-contention count as its own diagnostic — duplicates still count as FPs, but an agent emitting them
+has a bug worth surfacing.
+
 **Timestamps.** UTC ISO-8601 with a `Z` suffix at second precision, everywhere. Dataset timestamps are
 seeded and fixed, never wall-clock. Only the scorecard run stamp reads the real clock.
 
@@ -212,8 +241,19 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] Scorecard emitted both as parseable JSON and as a human-readable summary.
 - [ ] Scorecard records dataset identifier and version.
 - [ ] Scorecard embeds SHA-256 fingerprints of the findings artifact and the answer key.
-- [ ] Zero-defect control with an empty findings artifact reports false-positive count 0 and rate 0.0, and
-  reports no precision figure.
+- [ ] Zero-defect control with an empty findings artifact reports false-positive count 0, rate 0.0, precision
+  `null` and recall `null`.
+- [ ] The same control scored against three spurious findings reports precision `0.0` — not `null` — and recall
+  still `null`.
+- [ ] Every undefined metric is emitted as `null`; none is emitted as `0` or omitted.
+- [ ] On a $500 basis (2% = $10.00 exactly) a $10.00 variance flags and $9.99 does not; on a $333.33 basis
+  (2% = $6.6666) a $6.67 variance flags and $6.66 does not.
+- [ ] A seeded price error on a taxable line yields exactly one finding, in `PRICE_VARIANCE`, with no
+  `TAX_VARIANCE`.
+- [ ] Two duplicate findings for one expectation report a duplicate-contention count of 1, distinct from the
+  plain FP total, and the scorecard is byte-identical when the two are swapped in the input.
+- [ ] A value ending in exactly half a cent rounds away from zero, confirming `ROUND_HALF_UP` rather than the
+  `Decimal` default.
 - [ ] Seeded tax overcharge on the correct line scores as a true positive under `TAX_VARIANCE`.
 - [ ] Seeded goods-receipt under-shipment on the correct line scores as a true positive.
 - [ ] Seeded goods-receipt over-shipment on the correct line scores as a true positive.

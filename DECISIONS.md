@@ -728,6 +728,124 @@ without naming *which* document or requiring stable ids.
 
 ---
 
+## D23 — Rounding: compare exact, round only for display ✅
+
+**Fork:** No rounding policy was specified, yet the `>=` boundary depends on one. On a $333.33 basis the 2%
+term is $6.6666 — whether that becomes $6.67, $6.66, or stays exact decides whether a $6.666 variance flags.
+
+**Key realization that collapses the problem** — **dollar amounts are not part of the match key** (which is
+`status + category + scope + target`, D20). So rounding can never change *which* finding matches *what*. It
+decides only (a) whether a finding **exists** — the threshold comparison — and (b) how amounts are
+**displayed**. One rule covers both.
+
+**Options considered**
+- **(A) Quantize the threshold to cents (HALF_UP), then compare** — every threshold sits on a cent boundary,
+  so "one cent below" is well-defined exactly as originally written. But it makes a rounding *mode*
+  load-bearing and shifts the boundary by up to half a cent.
+- **(B) Exact comparison, display-only rounding.**
+
+**Decision ✅** — **(B).** Compute and compare at full `Decimal` precision, **never rounding before a
+comparison**. Round to 2dp **only at emission**, explicitly `ROUND_HALF_UP`, and never feed a rounded value
+back into a comparison.
+
+**Why**
+- Rounding intermediates is **path-dependent** (round-then-multiply ≠ multiply-then-round), which is exactly
+  what makes a key ambiguous and an independent auditor's recomputation diverge.
+- Unit prices in produce and commodity pricing routinely carry 4 decimals, so almost nothing is naturally
+  cent-aligned; a policy that assumes cent alignment would be fighting the data.
+- **`ROUND_HALF_UP` must be stated explicitly**, because Python's `Decimal` defaults to `ROUND_HALF_EVEN`
+  (banker's rounding). Leaving it implicit silently yields something other than what an accountant expects.
+
+**Consequence — the boundary criterion had to be restated.** "One cent below the threshold" presumed cent
+alignment. Replaced by two criteria: one on a deliberately cent-aligned basis ($500 → 2% = $10.00 exactly)
+testing at-threshold and one-cent-below, and one on a **non**-aligned basis ($333.33 → $6.6666) where $6.67
+flags and $6.66 does not — the latter is what actually proves exact comparison.
+
+---
+
+## D24 — Expected tax is computed on the INVOICED taxable subtotal ✅
+
+**Fork:** D21 settled the *threshold basis* for tax. This is the *expected value* computation — and it decides
+whether a price or quantity error **also** generates a tax finding.
+
+**Options considered**
+- **(A) Payable taxable subtotal** (what should have been billed) — truer to the real total overcharge, since
+  an inflated price does inflate the tax actually charged. **Rejected:** it **cascades.** Any price or
+  quantity error changes the correct tax base, so the invoice's tax necessarily differs and one root cause
+  produces **two** findings. `TAX_VARIANCE` recall becomes polluted by price errors, and an agent that
+  correctly identifies the single root cause is penalised for "missing" that finding's own consequence.
+- **(B) PO-authorized taxable subtotal** — same cascade problem, and further from what the invoice asserts.
+- **(C) Invoiced taxable subtotal.**
+
+**Decision ✅** — **(C).** Expected tax = the PO-derived rate × **the invoice's own taxable subtotal**.
+
+**Why** — it isolates the check to what D3 actually scoped: *arithmetic self-consistency of the tax charge*.
+One root cause, one finding. It also matches the prior work's R9, which applied the derived rate to
+**invoiced** lines.
+
+**Accepted cost, stated plainly** — a seeded price error produces **no** tax finding, even though real-world
+tax would also be wrong. Deliberate: the harness tests whether each root cause is detected once. Recovering
+full dollar impact including consequent tax is what a **residual** check does, and residual is not among P1's
+five categories.
+
+---
+
+## D25 — Precision and recall on a zero-expectation case ✅ (corrects the spec)
+
+**Fork:** The spec suppressed precision on the zero-defect control as "mathematically undefined (0/0)". That
+is only true when the agent raised **no flags at all**.
+
+**The error.** Precision is `TP / (TP + FP)`. On the control `TP = 0` always, so:
+
+| Agent behaviour | Precision | Report |
+|---|---|---|
+| No flags raised (`FP = 0`) | `0/0` — genuinely undefined | `null` |
+| Flags raised (`FP = 3`) | `0/3 = 0.0` — **defined** | `0.0` |
+
+Suppressing the second case **discards the signal**, since `0.0` there is the meaningfully bad result. The
+original wording conflated "no expectations" with "no flags".
+
+**Decision ✅**
+- **Precision** on a zero-expectation case: `null` only when the agent raised no flags; otherwise the computed
+  value, which is `0.0`.
+- **Recall** on a zero-expectation case: **always** `null` — with no expectations at all, `TP/(TP+FN)` really
+  is unconditionally `0/0`.
+- Undefined is represented as **`null`** — never `0`, which reads as failure when the result was perfect, and
+  never an omitted key, which makes the field unstable across runs and breaks byte-identical comparison (U4).
+- The primary control measures remain the **false-positive count and rate** (D8), which are always defined.
+
+---
+
+## D26 — Duplicate contention: tie-break, and a distinct diagnostic ✅
+
+**Fork:** Two findings contending for one expectation are by definition **identical on the match key**, so
+they differ only in `Confidence` and reasoning — and confidence is carried but never scored. What breaks the
+tie?
+
+**The reframing that resolves it** — **the tie-break cannot change any metric.** Whichever duplicate is
+chosen, the outcome is one TP and one FP; precision, recall and FP counts are identical. So the tie-break
+exists **purely for output determinism** (U4), not for fairness or scoring.
+
+**Options considered**
+- **(A) Document order — first occurrence wins.** The obvious choice, and **disqualified**: the spec already
+  requires that reversing the findings artifact produce an identical scorecard.
+- **(B) Lowest content hash** — total and order-independent, but opaque to debug.
+- **(C) Canonical serialization order.**
+
+**Decision ✅** — **(C).** Order contending findings by a canonical serialization of the whole finding and
+take the first. Total, order-independent, and **inspectable**, unlike a hash.
+
+**Why using confidence in that ordering is not "scoring" it** — the ordering cannot move any metric. It
+affects only which of two identical-keyed findings is *labelled* the TP in the report. Two byte-identical
+duplicates are symmetric, so any total order resolves them identically.
+
+**Addition — duplicates get their own diagnostic.** An agent emitting duplicate findings has a **defect**, and
+folding that silently into the ordinary FP count hides it. Duplicates still count as false positives in the
+metrics, but the scorecard reports duplicate contention **distinctly** — the same treatment I6 gives
+"references non-existent target".
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.4.0
+- Spec version: 0.5.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -188,6 +188,15 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] The harness SHALL perform all scoring in deterministic plain code, making no LLM call and no network
   call at any point during a run.
 - [P1] The harness SHALL represent every monetary value as `Decimal` and never as `float`.
+- [P1] The harness SHALL compute and compare every monetary value at full `Decimal` precision and SHALL NOT
+  round any value before a comparison, because rounding an intermediate is path-dependent and would make an
+  independent auditor's recomputation diverge (D23).
+- [P1] The harness SHALL round monetary values to two decimal places only when emitting them for display,
+  SHALL use `ROUND_HALF_UP` explicitly rather than the language default, and SHALL NOT admit a rounded value
+  back into any comparison (D23).
+- [P1] WHEN computing the expected tax for an invoice, the harness SHALL apply the purchase-order-derived rate
+  to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
+  category rather than additionally producing a tax finding (D24).
 - [P1] The harness SHALL represent every timestamp as UTC ISO-8601 with a `Z` suffix at second precision.
 - [P1] The harness SHALL treat every dataset file, answer-key file, and findings artifact as strictly
   read-only.
@@ -221,8 +230,15 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] WHEN scoring completes, the harness SHALL compute precision and recall for each discrepancy category
   in the closed enumeration.
 - [P1] WHEN scoring the zero-defect control case, the harness SHALL report the raw false-positive count and
-  the false-positives-per-invoice rate, and SHALL NOT report precision for that case because it is
-  mathematically undefined there.
+  the false-positives-per-invoice rate, which are always defined.
+- [P1] WHEN a case carries no expectations, the harness SHALL report recall as null unconditionally, since
+  with no expectations the recall quotient has a zero denominator (D25).
+- [P1] WHEN a case carries no expectations, the harness SHALL report precision as null only where the agent
+  raised no flags at all, and SHALL otherwise report the computed value — which is zero, is well defined, and
+  is the result that carries the signal (D25).
+- [P1] WHERE a metric is undefined, the harness SHALL emit null for it, and SHALL NOT emit zero nor omit the
+  field, because zero reads as failure where the result was in fact perfect and an omitted key makes the
+  field unstable across runs (D25).
 - [P1] WHEN a run completes, the harness SHALL record in the scorecard the dataset identifier, the dataset
   version, a SHA-256 fingerprint of the findings artifact, and a SHA-256 fingerprint of the answer key.
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
@@ -284,6 +300,13 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] IF two or more agent findings contend for the same expected finding, the harness SHALL count exactly
   one true positive, SHALL treat the remainder as false positives, and SHALL resolve the contention by a
   deterministic tie-break so the result never depends on input ordering.
+- [P1] IF contention must be resolved, the harness SHALL order the contending findings by a canonical
+  serialization of each whole finding and SHALL select the first, and SHALL NOT resolve contention by position
+  within the findings artifact, because order-dependence would violate the requirement that reversing that
+  artifact yield an identical scorecard (D26).
+- [P1] IF contending findings are counted as false positives, the harness SHALL additionally report the
+  duplicate-contention count as a distinct diagnostic, because an agent emitting duplicates has a defect that
+  an undifferentiated false-positive count would conceal (D26).
 - [P1] IF an agent finding references a target line or document absent from the dataset, the harness SHALL
   record it as a false positive distinctly labelled as referencing a non-existent target.
 - [P1] IF the canary probe reaches inside the answer-key directory, the harness SHALL report a failed
@@ -352,7 +375,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   `QTY_INVOICE_INFLATED`.
 - [ ] [P1] A short shipment that is billed correctly for the received quantity produces **no** finding —
   a shipment anomaly with no billing impact is not a discrepancy.
-- [ ] [P1] A variance exactly equal to the threshold is flagged, and one a cent below it is not.
+- [ ] [P1] On a basis chosen so the two-percent term lands exactly on a cent — five hundred dollars, giving
+  ten dollars — a variance of exactly ten dollars is flagged and one of nine dollars ninety-nine is not.
+- [ ] [P1] On a basis where the two-percent term does **not** land on a cent — three hundred thirty-three
+  dollars thirty-three, giving six dollars six thousand six hundred sixty-six ten-thousandths — a variance of
+  six dollars sixty-seven is flagged and one of six dollars sixty-six is not, proving the comparison is exact
+  rather than quantized.
+- [ ] [P1] Rounding a value for display never alters a flagging decision: the same dataset scored with display
+  rounding applied and with it suppressed yields identical findings.
 - [ ] [P1] On a $100,000 extended line a $26 variance is flagged, confirming the twenty-five dollar cap
   governs large lines rather than two percent.
 - [ ] [P1] A line carrying both a wrong unit price and a wrong quantity yields one price finding measured at
@@ -375,6 +405,18 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   the agent-readable inputs confirms that correspondence is absent from them.
 - [ ] [P1] Reordering the lines within an invoice input file changes no line identifier and no finding,
   proving identifiers are explicit rather than positional.
+- [ ] [P1] The zero-defect control scored against an empty findings artifact reports precision as null; scored
+  against three spurious findings it reports precision as zero, not null.
+- [ ] [P1] The zero-defect control reports recall as null in both of the cases above.
+- [ ] [P1] Every undefined metric is emitted as null, and no undefined metric is emitted as zero or omitted —
+  asserted against the scorecard schema.
+- [ ] [P1] A seeded price error on a taxable line produces exactly one finding, in `PRICE_VARIANCE`, and no
+  `TAX_VARIANCE`, confirming expected tax is computed on the invoiced taxable subtotal.
+- [ ] [P1] Two duplicate findings contending for one expectation are reported with a duplicate-contention
+  count of one, distinct from the plain false-positive total, and the scorecard is byte-identical when the two
+  are swapped in the input.
+- [ ] [P1] A display-rounded amount appearing in the human summary matches the `ROUND_HALF_UP` result, and a
+  value ending in exactly half a cent rounds away from zero rather than to even.
 - [ ] [P1] Every field inside `run_metadata` is non-deterministic, and no deterministic field appears there
   — asserted by confirming that excluding `run_metadata` is sufficient to make two runs byte-identical.
 - [ ] [P1] The human-readable summary names each missed finding and each false flag individually rather
@@ -514,6 +556,20 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.5.0 (2026-07-25): third round of build-session questions, one of which **corrected an error in this spec**.
+  **D23:** rounding policy — compute and compare at full `Decimal` precision, never rounding before a
+  comparison; round to 2dp only for display, explicitly `ROUND_HALF_UP` because Python's `Decimal` defaults to
+  banker's rounding. Amounts are not part of the match key, so rounding decides only whether a finding exists
+  and how it is shown. The "one cent below" criterion was restated: it presumed a cent-aligned threshold, and
+  is now two criteria, one aligned and one deliberately not. **D24:** expected tax is computed on the
+  **invoiced** taxable subtotal, not the payable one, so a price or quantity error does not cascade into an
+  additional `TAX_VARIANCE` and pollute per-category recall. **D25 (correction):** the previous requirement
+  suppressed precision on the zero-defect control as undefined, but `0/3` is defined and is the result that
+  carries the signal — precision is null only where the agent raised no flags, recall is null unconditionally,
+  and undefined is emitted as null rather than zero or an omitted key. **D26:** contention is resolved by
+  canonical-serialization order, never by position in the findings artifact, which would violate
+  order-reversal invariance; duplicate contention is additionally reported as its own diagnostic, since an
+  agent emitting duplicates has a defect an undifferentiated false-positive count would hide.
 - 0.4.0 (2026-07-25): second round of build-session semantics questions. **D19:** the two-percent term's basis
   is the **payable** extended amount (payable quantity × PO unit price); the invoiced extended amount is
   disqualified because an inflated invoice would enlarge its own denominator and understate the variance

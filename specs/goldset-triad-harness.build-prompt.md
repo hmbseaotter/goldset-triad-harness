@@ -49,9 +49,12 @@ Phase 1 is the nine floor items, all retained:
 5. **The initial category set** as enumerated above, including arithmetic `TAX_VARIANCE`.
 6. **Dataset selection by identifier or path** — a dev split shipped in the repo, and a fully private
    held-out split resident outside the repository tree.
-7. **Held-out split isolation** — placement outside the repo tree, deny-guards, and a **canary probe**
-   proving the guarded area is unreachable from an agent context. **Read the tier table below before
-   implementing this; getting the guard scope wrong breaks evaluation rather than protecting it.**
+7. **Held-out split isolation** — placement outside the repo tree, deny-guards, plus a **guard-configuration
+   check** and a **placement check** (see D30 below — do **not** write a reachability probe). **Read the tier
+   table below before implementing this; getting the guard scope wrong breaks evaluation rather than protecting
+   it.**
+10. **Separate `goods_receipts/` documents** with their own GRN, date, receiver, line items and identifiers
+    (D31), and a **realistic dev split** plus a small labelled **synthetic fixture** set (D32).
 8. **Type discipline** — pyright with zero errors, `Decimal` for money, frozen dataclasses, `typing.Final`
    constants.
 9. **Test suite** covering every `[P1]` acceptance criterion.
@@ -131,6 +134,37 @@ match_key        = (status, category, scope, target)    # D20
   never a silent miss.
 - **Publish the rule** in the dataset's matching policy. The agent cannot compete against a threshold it
   cannot read.
+
+**Do NOT write a reachability probe (D30).** A criterion previously asked code to confirm the guarded area is
+"unreachable from an agent context". That is impossible: deny rules bind **tool calls**, and a subprocess runs
+**beneath** that boundary — your script will always `open()` the canary. Such a probe reports failure
+unconditionally and fails *identically* whether the guards are perfect or absent, which is worse than no check.
+
+Ship instead:
+1. **Guard-configuration check** — deny rules exist, parse, and cover **every** secret path (directory,
+   answer-key filename, generator filenames, design artifact). Fail loudly naming any uncovered path. This
+   catches the real regression: a guard file lost, hand-edited, or stale after a new secret file was added.
+2. **Placement check** — no secret artifact at any path inside the repo tree, **including under ignored
+   directories**.
+
+Harness enforcement is **attested, not tested**: record a dated note of a tool-level read being refused, using
+the canary as the decoy. Keep the canary covered by the directory rule alone. And **claim only what is
+verified** — placement and configuration are checked; enforcement is attested; a determined subprocess is
+outside deny coverage by design, which is exactly why placement is the primary control.
+
+**Goods receipts are separate documents (D31).** Their own `goods_receipts/` directory, each with GRN, date,
+receiver, line items and **its own identifiers and descriptions** — not a `receipts[]` array inside the PO
+record, which would let an agent find quantity discrepancies by diffing two fields in one file without opening
+an invoice. Invoices are supplier **PDFs** (external, need extraction); PO database and receipts are internal
+**structured JSON**. ⚠️ **Received quantity is the SUM across all receipts for a line** — partial deliveries
+produce several, and a key built from one receipt where two exist is wrong.
+
+**Data families (D32).** A **realistic dev split** (`datasets/dev/`, portfolio-facing, ships with its key) plus
+a small **clearly labelled synthetic fixture** set — and only for values implausible in the domain. Most
+boundary cases are realistic and belong in the dev split: a fully exempt PO is the *common* case, and $500 and
+$333.33 extended lines are ordinary. **Only the $100,000 line is synthetic.** Synthetic fixtures load through
+the **same manifest and loader**, so tests exercise the real path. A $100,000 head of lettuce in the showcase
+dataset would destroy the domain credibility the dev split exists to establish.
 
 **Line correspondence (D22) — the key declares it, the inputs do not.**
 
@@ -364,8 +398,14 @@ Do not mark this phase complete until every criterion below **passes by executio
 - [ ] Import scan confirms the scoring engine imports only standard-library modules.
 - [ ] Scan confirms no `float` on any monetary path.
 - [ ] Scan confirms no networking or model-client import anywhere in the scoring path.
-- [ ] Canary probe confirms the guarded area is unreachable from an agent context; a reachable canary fails
-  loudly and exits non-zero.
+- [ ] Guard-configuration check passes on the shipped deny rules, and fails naming the path when a secret path
+  is deliberately removed from coverage.
+- [ ] Placement check passes on a clean tree and fails when a decoy secret is planted inside the repo, including
+  beneath an ignored directory.
+- [ ] No shipped check claims to test harness enforcement by executing code; the dated attestation record exists.
+- [ ] A PO line delivered across two receipts sums both; a key built from one is demonstrably different.
+- [ ] The dev split carries a fully exempt PO, a $500 line and a $333.33 line at plausible values; the $100,000
+  line appears only in a synthetic fixture, and every synthetic fixture is labelled as such.
 - [ ] A repository scan finds no held-out answer key, generator, discrepancy-design artifact, or held-out
   dataset input at any path, including under ignored directories.
 - [ ] The agent context **can** read held-out dataset inputs while **cannot** read the held-out answer key —

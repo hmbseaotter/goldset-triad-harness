@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.7.0
+- Spec version: 0.8.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -61,8 +61,13 @@ surfaces immediately instead of by eyeballing output.
   held-out split resident outside the repository tree.
 - [P1] Held-out split isolation — placement outside the repo tree for the whole split, plus harness
   deny-guards scoped to the answer key, generators and design artifact **but deliberately not to the
-  held-out inputs**, which the agent must read — and a canary probe proving the guarded area is
-  unreachable.
+  held-out inputs**, which the agent must read — verified by an automated guard-configuration check and an
+  automated placement check, with harness enforcement recorded as a dated manual attestation using the canary
+  as its decoy (D30).
+- [P1] Separate goods-receipt documents carrying their own GRN, date, receiver, line items and identifiers, so
+  that receipt-to-purchase-order correspondence is genuine work (D31).
+- [P1] A realistic dev split shipped in the repository, plus a small, clearly labelled set of synthetic fixtures
+  for values that would be implausible in the domain, both loading through the same manifest and loader (D32).
 - [P1] Type discipline — pyright gate, `Decimal` for money, frozen dataclasses, `typing.Final` constants.
 - [P1] Test suite covering every `[P1]` acceptance criterion.
 - [P2] `--verify` recompute mode — recomputes a scorecard from its embedded fingerprints and diffs it.
@@ -289,6 +294,12 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] WHEN determining a quantity discrepancy on a line, the harness SHALL compute the payable quantity as
   the lesser of the ordered and received quantities, and SHALL treat the line as overbilled only when the
   invoiced quantity exceeds that payable quantity (D15).
+- [P1] WHEN establishing the received quantity for a purchase-order line, the harness SHALL sum the quantities
+  recorded across **all** goods receipts referencing that line, because partial deliveries produce several
+  receipts and a quantity taken from one receipt where two exist would be wrong (D31).
+- [P1] Goods receipts SHALL be represented as documents separate from the purchase order, each carrying its own
+  receipt number, date, receiver, line items and identifiers, so that resolving receipt-to-purchase-order
+  correspondence is part of the evaluated task rather than given away by co-location (D31).
 - [P1] WHEN a line is overbilled on quantity, the harness SHALL assign the category by which constraint
   bound the payable quantity: `QTY_UNDER_SHIPMENT` where the received quantity is less than the ordered
   quantity, `QTY_OVER_SHIPMENT` where the ordered quantity is less than the received quantity, and
@@ -346,8 +357,9 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   an undifferentiated false-positive count would conceal (D26).
 - [P1] IF an agent finding references a target line or document absent from the dataset, the harness SHALL
   record it as a false positive distinctly labelled as referencing a non-existent target.
-- [P1] IF the canary probe reaches inside the answer-key directory, the harness SHALL report a failed
-  isolation check prominently and exit non-zero.
+- [P1] IF the guard-configuration check finds any secret path uncovered by the deny rules, or the placement
+  check finds a secret artifact inside the repository tree, the harness SHALL report a failed isolation check
+  prominently and exit non-zero (D30).
 - [P3] IF a run exceeds the performance target, the harness SHALL emit a prominent warning and SHALL exit
   zero, because elapsed time does not affect scoring correctness.
 
@@ -361,8 +373,21 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 
 ### non-functional
 - Security: [P1] The answer key SHALL NOT be readable from the agent-under-test's execution context,
-  enforced by directory placement outside the repository tree plus harness deny-guards. [P1] The harness
-  SHALL ship a canary probe that verifies this unreachability.
+  enforced by directory placement outside the repository tree plus harness deny-guards.
+- Security: [P1] The harness SHALL ship a guard-configuration check asserting that the deny rules exist, parse,
+  and cover every path in the secret tier — the directory, the answer-key filename, the generator filenames and
+  the design artifact — and SHALL fail loudly naming any secret path left uncovered (D30).
+- Security: [P1] The harness SHALL ship a placement check asserting that no secret artifact exists at any path
+  inside the repository tree (D30).
+- Security: [P1] The harness SHALL NOT claim to verify harness enforcement of the deny rules by executing code,
+  because deny rules bind tool calls while a subprocess runs beneath that boundary — a reachability probe would
+  report failure unconditionally and prove nothing (D30).
+- Security: [P1] Harness enforcement SHALL instead be recorded as a dated manual attestation naming the method
+  used, and the canary SHALL serve as the decoy for that attestation, remaining covered by the directory rule
+  alone so that it exercises the weakest layer (D30).
+- Security: [P1] Published claims about isolation SHALL state only what is verified — that placement and guard
+  configuration are checked automatically, that enforcement is attested manually, and that a determined
+  subprocess is outside deny coverage by design, which is why placement is the primary control (D30).
 - Security: [P1] The repository SHALL NOT contain, at any path, the held-out split's answer key, its
   generators, its discrepancy-design artifact, or its dataset inputs. Every one of those SHALL reside
   outside the repository tree (D14).
@@ -474,6 +499,15 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   naming that purchase order.
 - [ ] [P1] A purchase order or invoice whose tax field is absent or null is rejected as malformed, rather than
   being treated as zero.
+- [ ] [P1] A purchase-order line delivered across two goods receipts has its received quantity computed as the
+  sum of both, and a key computed against only one of them is demonstrably different — proving receipts are
+  aggregated rather than read singly.
+- [ ] [P1] Goods receipts load from their own documents, and an invoice-to-receipt correspondence is resolvable
+  only through the answer key, not by co-location inside the purchase-order record.
+- [ ] [P1] The realistic dev split contains a fully exempt purchase order, a $500 extended line and a $333.33
+  extended line, all at plausible domain values; the $100,000 line appears only in a synthetic fixture.
+- [ ] [P1] Every synthetic fixture is labelled as synthetic and loads through the same manifest and loader as
+  the dev split, so no parallel code path exists.
 - [ ] [P1] A scan of the scoring path finds no division operation reachable from a flagging decision.
 - [ ] [P1] Reported precision, recall and false-positive rate are emitted at the declared decimal places, and a
   run under a different ambient decimal precision produces a byte-identical scorecard.
@@ -513,8 +547,12 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [ ] [P1] An automated scan confirms no `float` appears on any monetary code path.
 - [ ] [P1] An automated scan confirms no networking or model-client import exists anywhere in the scoring
   path.
-- [ ] [P1] The canary probe confirms the guarded area is unreachable from an agent context; a reachable
-  canary fails the check loudly and exits non-zero.
+- [ ] [P1] The guard-configuration check passes against the shipped deny rules, and fails naming the offending
+  path when a secret path is deliberately removed from their coverage.
+- [ ] [P1] The placement check passes on a clean tree and fails when a decoy secret artifact is planted inside
+  the repository, including beneath an ignored directory.
+- [ ] [P1] No shipped check claims to test harness enforcement by executing code; the attestation record exists
+  and carries a date and the method used.
 - [ ] [P1] A scan of the repository finds no held-out answer key, generator, discrepancy-design artifact,
   or held-out dataset input at any path — including under any ignored directory, since `.gitignore` hides
   a file from git but not from the filesystem.
@@ -546,12 +584,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   trustworthy, reproducible scorecard.
 - Includes: findings payload schema v1; scoring engine with strict 1:1 matching and deterministic
   tie-break; per-category precision/recall plus false-positive count and rate; scorecard emission as JSON
-  and human summary with embedded fingerprints and a `run_metadata` envelope; a small newly-authored 3-way
-  dataset carrying goods-receipt discrepancies and a zero-defect control; the initial category enumeration
-  (price variance, quantity under-shipment, quantity over-shipment, tax variance); dataset selection by
-  identifier or path across a dev split and a held-out split; answer-key isolation by placement plus
-  deny-guards with a canary probe; type discipline under a pyright gate; and a test suite covering every
-  `[P1]` criterion.
+  and human summary with embedded fingerprints — of the findings artifact, the answer key and the inputs — plus a
+  `run_metadata` envelope; a small newly-authored 3-way dataset with separate goods-receipt documents and a
+  zero-defect control, alongside a labelled synthetic fixture set for values implausible in the domain; the
+  initial five-category enumeration (price variance, quantity under-shipment, quantity over-shipment, quantity
+  invoice-inflated, tax variance) with an explicit `LINE` or `DOCUMENT` scope; dataset selection by identifier or
+  manifest path across a dev split and an out-of-tree held-out split; held-out isolation by placement plus
+  deny-guards, verified by a guard-configuration check and a placement check with enforcement attested; type
+  discipline under a pyright gate; and a test suite covering every `[P1]` criterion.
 - Skeleton floor: all nine floor items were retained. None were dropped, so no override reason is recorded.
 - Done when: every `[P1]` acceptance criterion passes by execution.
 
@@ -616,6 +656,21 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.8.0 (2026-07-26): **removes an unsatisfiable criterion** and settles dataset shape. **D30:** the canary
+  criterion required code to confirm the guarded area is "unreachable from an agent context" — impossible, since
+  deny rules bind tool calls while a subprocess runs beneath that boundary, so a reachability probe would report
+  failure unconditionally and fail identically whether the guards were perfect or absent. Replaced by two
+  genuinely deterministic checks — deny rules cover every secret path; no secret artifact anywhere in the tree —
+  with harness enforcement recorded as a **dated manual attestation** using the canary as its decoy, and a
+  requirement that published claims state only what is actually verified. **D31:** goods receipts become
+  **separate documents** with their own identifiers, rather than a `receipts[]` array inside each PO record,
+  because co-location lets an agent find quantity discrepancies by diffing two fields in one file without ever
+  opening an invoice. Invoices stay supplier PDFs; PO database and receipts are internal structured JSON. Adds
+  the rule D15 omitted: received quantity is the **sum across all receipts** for a line, since partial
+  deliveries produce several. **D32:** three data families — a realistic portfolio-facing dev split, a small
+  labelled synthetic fixture set for values implausible in the domain (only the $100,000 line qualifies), and
+  the out-of-tree held-out split; synthetic fixtures load through the same manifest and loader so no parallel
+  code path exists.
 - 0.7.0 (2026-07-25): **fixes a defect in D28.** D28's cross-multiplied tax comparison is valid only where the
   purchase-order taxable subtotal is positive; at zero the transformation destroys the inequality, reducing to
   zero against zero so that **every** such invoice flags — and flags identically whether the invoice charged

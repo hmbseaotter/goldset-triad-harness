@@ -995,6 +995,104 @@ money moves. **Tax was the only one that broke.**
 
 ---
 
+## D30 — The isolation check: verify configuration and placement; attest enforcement ✅
+
+**Fork:** The criterion said a canary probe "confirms the guarded area is unreachable from an agent context".
+What actually ships?
+
+**The defect — the criterion was unsatisfiable as written.** Deny rules are enforced by the harness **at the
+tool-call layer**. A Python probe runs *below* that boundary, so it will always `open()` the canary
+successfully. A reachability probe would therefore report failure **unconditionally**, and would fail
+*identically* whether the guards were perfect or entirely absent. It would prove nothing while looking like
+verification — the worst possible outcome for a credibility artifact. This is the "arbitrary subprocesses are
+outside deny coverage" gap the prior handover already recorded, but its consequence for the *probe* was missed.
+
+**Decision ✅** — split it by what is actually provable.
+
+**Ships as code (deterministic, automatable):**
+1. **Guard-configuration check** — the deny rules exist, parse, and **cover every path in the secret tier**:
+   the directory, the answer-key filename, the generator filenames, the design artifact. This catches the
+   realistic regression — a guard file lost, hand-edited, or left stale when a new secret file was added.
+2. **Placement check** — no secret artifact exists anywhere inside the repo tree. Per D14, **placement is the
+   primary control**; deny rules are the second layer.
+
+**Not code — manual attestation.** Harness enforcement is verified as the prior work did it: a session attempts
+a tool-level read, the refusal is observed, and the outcome is recorded **with date and method**. The canary
+survives unchanged in role — a decoy covered *only* by the directory rule, so it exercises the weakest layer —
+but it is an **attestation instrument, not an automated assertion**.
+
+**The README claim must match what is verified.** "Contamination structurally impossible, verified by automated
+probe" would be false. The honest claim: *placement and guard configuration are automatically verified;
+harness enforcement is attested with a dated record; a determined subprocess is outside deny coverage by
+design, which is precisely why placement outside the tree is the primary control.*
+
+**Why this is the stronger portfolio position** — for an agentic-evaluation artifact, demonstrating that you
+know the limits of your own verification beats claiming more than you can show. Same discipline as the
+documented scoring caveats.
+
+---
+
+## D31 — Goods receipts are separate documents ✅
+
+**Fork:** How are goods receipts represented? D17's illustrative tree listed only `invoices/` and
+`po_database/`; the reference fixtures embed a `receipts[]` array inside each PO record.
+
+**Options considered**
+- **(A) Embedded `receipts[]` inside each PO record** — the existing fixture shape, one fewer input directory,
+  PO-line-to-receipt correspondence already aligned. **Rejected** for the reason the prior handover itself
+  flagged: with receipts inside the PO JSON, **a lazy agent can diff `qty_ordered` against `qty_received` in a
+  single file and surface quantity discrepancies without ever opening an invoice.** That undercuts what the
+  harness measures.
+- **(B) Separate goods-receipt documents.**
+
+**Decision ✅** — **(B).** Receipts become their own documents, carrying GRN, date, receiver, line items, and
+**their own identifiers and descriptions**.
+
+**Why** — it makes GR→PO correspondence genuine work, and it is what the taxonomy already assumes: *"GR says
+Part #X792"* is only expressible if the receipt is a distinct document with its own identifiers.
+
+**Format split, which falls out realistically** — `invoices/` are **supplier PDFs** (external documents that
+arrive and must be extracted); `po_database/` and `goods_receipts/` are **internal structured JSON** (systems
+of record). This keeps the extraction challenge exactly where it belongs.
+
+**Consequence that D15 did not state** — with separate receipts and partial deliveries, the received quantity
+in `min(qty_ordered, qty_received)` is a **sum across all goods receipts for that PO line**, not a single
+field. A key computed against one receipt where two exist would be **wrong**.
+
+---
+
+## D32 — Three data families; only implausible values go synthetic ✅
+
+**Fork:** Criteria demand a $100,000 extended line, a $333.33 non-aligned basis, and a fully-exempt PO. Forcing
+those into a realistic small dataset would make the headline artifact absurd.
+
+**The premise is right, but the line is not "boundary tests are synthetic"** — most of those values are
+perfectly realistic:
+
+| Criterion | Plausible in food distribution? |
+|---|---|
+| Fully-exempt PO | **Yes** — the common case (D29) |
+| $500 extended line (aligned basis) | Yes |
+| $333.33 extended line (non-aligned basis) | Yes |
+| Zero-priced item (promo / sample) | Yes |
+| **$100,000 extended line** | **No** — synthetic |
+
+**Decision ✅** — **a criterion moves to a synthetic fixture only where its required value would be implausible
+in the domain.** Three data families:
+
+1. **`datasets/dev/`** — realistic, small, portfolio-facing; ships in the repo with its key. Demonstrates the
+   methodology end to end, and shows boundary cases arising **naturally** rather than being contrived.
+2. **Synthetic fixtures** — a handful, clearly labelled as such, for extreme-magnitude arithmetic only. They
+   load through the **same manifest and loader**, so tests exercise the real code path rather than a parallel
+   one.
+3. **Held-out split** — realistic, out-of-tree (D14), the actual evaluation.
+
+**Why the labelling matters** — a reviewer must never mistake a synthetic fixture for the showcase dataset. A
+$100,000 head of lettuce in the portfolio artifact would undermine the domain credibility the realistic dev
+split exists to establish.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

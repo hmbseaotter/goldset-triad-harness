@@ -39,25 +39,28 @@ Phase 1 is the nine floor items, all retained:
    **reserved sentinel — never empty, never absent** — for `DOCUMENT` scope; a document-scoped finding with a
    missing line id is **malformed**, not inferred. Line identifiers are assigned explicitly by the dataset,
    never positional (D20, D22).
-2. **Scoring engine** — strict match key (`Status` + `Category` + `TargetLine`), 1:1 matching, deterministic
-   tie-break, per-category precision and recall, false-positive count and rate.
-3. **Scorecard emission** — JSON plus human-readable summary; embedded SHA-256 fingerprints of the findings
-   artifact and the answer key; a `run_metadata` envelope holding exactly the non-deterministic fields.
-4. **A small, newly-authored 3-way dataset** including goods-receipt discrepancies (under-shipment and
-   over-shipment) and a **zero-defect control case**. Existing `reconciliation-fixtures` inform the *schema
-   only* — do not copy their content.
+2. **Scoring engine** — strict match key (`Status` + `Category` + **`scope`** + target, D20), 1:1 matching,
+   deterministic tie-break, per-category precision and recall, false-positive count and rate. **Loads
+   expectations; never derives them.**
+3. **Scorecard emission** — JSON plus human-readable summary; **four** embedded SHA-256 fingerprints (findings
+   artifact, answer key, structured invoice index, aggregate inputs digest — D27, D34); a `run_metadata`
+   envelope holding exactly the non-deterministic fields.
+4. **A small, newly-authored 3-way dataset** — a **realistic dev split** shipped with its key, including
+   goods-receipt discrepancies (under- and over-shipment) and a **zero-defect control case**, plus a small
+   clearly-labelled **synthetic fixture** set for values implausible in the domain (D32). Existing
+   `reconciliation-fixtures` inform the *schema only* — do not copy their content.
 5. **The initial category set** as enumerated above, including arithmetic `TAX_VARIANCE`.
-6. **Dataset selection by identifier or path** — a dev split shipped in the repo, and a fully private
+6. **Dataset selection by identifier or manifest path** — a dev split shipped in the repo, and a fully private
    held-out split resident outside the repository tree.
 7. **Held-out split isolation** — placement outside the repo tree, deny-guards, plus a **guard-configuration
    check** and a **placement check** (see D30 below — do **not** write a reachability probe). **Read the tier
    table below before implementing this; getting the guard scope wrong breaks evaluation rather than protecting
    it.**
-10. **Separate `goods_receipts/` documents** with their own GRN, date, receiver, line items and identifiers
-    (D31), and a **realistic dev split** plus a small labelled **synthetic fixture** set (D32).
-8. **Type discipline** — pyright with zero errors, `Decimal` for money, frozen dataclasses, `typing.Final`
+8. **Separate `goods_receipts/` documents** with their own GRN, date, receiver, line items and identifiers
+   (D31). Received quantity **sums across all receipts** for a line.
+9. **Type discipline** — pyright with zero errors, `Decimal` for money, frozen dataclasses, `typing.Final`
    constants.
-9. **Test suite** covering every `[P1]` acceptance criterion.
+10. **Test suite** covering every `[P1]` acceptance criterion.
 
 **Higher phases are documented-but-not-yet. Do NOT build them, and do NOT make architectural choices that
 block them.** Specifically out of this push: `--verify` mode, the JSONL ledger, README/methodology, CI,
@@ -92,13 +95,19 @@ mode can drop `TargetLine` without redesign.
 - Windows and Linux both first-class: use `pathlib`, assume no shell-specific behaviour, and document every
   command for **both** PowerShell and bash.
 
-## ⚠️ Three actors — do not conflate them (D35)
+## ⚠️ Four components — do not conflate them (D35)
 
-| Actor | Does | Ships? |
-|---|---|---|
-| **Key generator** | applies every domain rule, authors expected findings | no — secret side |
-| **Scoring engine** | loads the key, matches, counts. **No domain rule at scoring time.** | yes |
-| **Matching policy** | publishes every rule the generator applied, so the agent can implement them | yes |
+| Component | Does | Domain rules? | Ships? |
+|---|---|---|---|
+| **scoring engine** | loads the key and invoice index, matches, counts, emits the scorecard | **none, ever** | yes |
+| **key generator** | applies the domain rules, authors expected findings, emits documents and index | yes | no — secret side |
+| **key-audit command** | independently derives expectations and diffs them against the key | yes | yes, but **never invoked by a scoring run** |
+| **matching policy** | published statement of every rule the generator applied | documents them | yes |
+
+**"The harness" means the shipped tool as a whole** — scoring engine, audit command and isolation checks. Where
+a constraint applies to scoring specifically, it names the **scoring engine**. This is load-bearing: the audit
+command deliberately implements domain rules the scoring engine must never have, and **only the scoring engine
+is bound by the standard-library-only rule**.
 
 **The scorer must NOT derive expectations.** It would then score the agent against *its own* implementation of
 the rules rather than against audited ground truth — making any bug in that implementation silently
@@ -230,13 +239,14 @@ D:\Claude_Stuff\goldset-triad-secret\       tier 3: out-of-repo, agent-DENIED
 ├─ design\discrepancy-plan.md
 ├─ _generators\gen_*.py
 ├─ _guard-template.settings.json            source of truth for deny rules
-├─ dataset-holdout.manifest.json            names inputs_dir + key_path
+├─ dataset-holdout.manifest.json            names inputs_dir + key_path + index_path
 └─ canary\throwaway.json                    unique marker
 ```
 
 Siblings, not `holdout/{inputs,secret}`, so that a careless `holdout\**` deny rule cannot silently cover the
-inputs. A **dataset is a pair of locations** — resolve it through a manifest naming `inputs_dir` and
-`key_path`. The dev manifest ships in-repo under `datasets/dev/`; the held-out manifest lives on the secret
+inputs. A **dataset is a set of locations** — resolve it through a manifest naming `inputs_dir`, `key_path`
+**and `index_path`** (the structured invoice index, D34). The dev manifest ships in-repo under `datasets/dev/`;
+the held-out manifest lives on the secret
 side, readable by the scoring process and unreachable by the agent, which only needs the inputs directory.
 Keep the canary covered by the **directory** rule only, never a filename rule, so it exercises the weakest
 layer.

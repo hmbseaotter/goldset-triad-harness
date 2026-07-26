@@ -1,0 +1,65 @@
+{
+  "currency": "USD",
+  "lines": [
+    {
+      "extended": "845.85",
+      "item": "Nitrile gloves L 10x100",
+      "line_no": "P1",
+      "qty_ordered": "15",
+      "taxable": true,
+      "unit_price": "56.39",
+      "uom": "CS"
+    },
+    {
+      "extended": "800.00",
+      "item": "Commercial film wrap 18in",
+      "line_no": "P2",
+      "qty_ordered": "20",
+      "taxable": true,
+      "unit_price": "40.00",
+      "uom": "CS"
+    },
+    {
+      "extended": "500.00",
+      "item": "Fryer oil, bulk pallet",
+      "line_no": "P3",
+      "qty_ordered": "1",
+      "taxable": true,
+      "unit_price": "500.00",
+      "uom": "PL"
+    },
+    {
+      "extended": "500.00",
+      "item": "Parboiled rice tote",
+      "line_no": "P4",
+      "qty_ordered": "1",
+      "taxable": true,
+      "unit_price": "500.00",
+      "uom": "TOTE"
+    },
+    {
+      "extended": "333.33",
+      "item": "Specialty finishing salt drum",
+      "line_no": "P5",
+      "qty_ordered": "1",
+      "taxable": true,
+      "unit_price": "333.33",
+      "uom": "DR"
+    },
+    {
+      "extended": "333.33",
+      "item": "Custom spice blend drum",
+      "line_no": "P6",
+      "qty_ordered": "1",
+      "taxable": true,
+      "unit_price": "333.33",
+      "uom": "DR"
+    }
+  ],
+  "po_number": "PO-3001",
+  "ship_to": "Harbor & Vale Foodservice - Portland DC",
+  "supplier": "Cascadia Dry Goods Co.",
+  "supplier_category": "drygoods",
+  "tax": "288.19",
+  "timestamp": "2026-06-01T16:20:00Z"
+}

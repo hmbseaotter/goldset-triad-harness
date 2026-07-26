@@ -1,0 +1,29 @@
+{
+  "currency": "USD",
+  "lines": [
+    {
+      "extended": "642.00",
+      "item": "Yellow onions 50lb",
+      "line_no": "P1",
+      "qty_ordered": "30",
+      "taxable": false,
+      "unit_price": "21.40",
+      "uom": "BG"
+    },
+    {
+      "extended": "292.50",
+      "item": "Dish detergent 5gal",
+      "line_no": "P2",
+      "qty_ordered": "6",
+      "taxable": true,
+      "unit_price": "48.75",
+      "uom": "EA"
+    }
+  ],
+  "po_number": "PO-8001",
+  "ship_to": "Harbor & Vale Foodservice - Boise DC",
+  "supplier": "Marin Produce Partners",
+  "supplier_category": "produce",
+  "tax": "25.45",
+  "timestamp": "2026-05-01T16:00:00Z"
+}

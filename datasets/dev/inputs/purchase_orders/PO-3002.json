@@ -1,0 +1,65 @@
+{
+  "currency": "USD",
+  "lines": [
+    {
+      "extended": "739.20",
+      "item": "Basmati rice 25lb",
+      "line_no": "P1",
+      "qty_ordered": "24",
+      "taxable": false,
+      "unit_price": "30.80",
+      "uom": "BG"
+    },
+    {
+      "extended": "450.00",
+      "item": "Canned tomatoes #10",
+      "line_no": "P2",
+      "qty_ordered": "10",
+      "taxable": false,
+      "unit_price": "45.00",
+      "uom": "CS"
+    },
+    {
+      "extended": "480.00",
+      "item": "Extra-virgin olive oil tin",
+      "line_no": "P3",
+      "qty_ordered": "8",
+      "taxable": true,
+      "unit_price": "60.00",
+      "uom": "CS"
+    },
+    {
+      "extended": "10.00",
+      "item": "Condiment packets ketchup",
+      "line_no": "P4",
+      "qty_ordered": "100",
+      "taxable": false,
+      "unit_price": "0.10",
+      "uom": "CS"
+    },
+    {
+      "extended": "432.00",
+      "item": "Paper towel rolls",
+      "line_no": "P5",
+      "qty_ordered": "24",
+      "taxable": true,
+      "unit_price": "18.00",
+      "uom": "CS"
+    },
+    {
+      "extended": "560.00",
+      "item": "Sugar 50lb",
+      "line_no": "P6",
+      "qty_ordered": "20",
+      "taxable": false,
+      "unit_price": "28.00",
+      "uom": "BG"
+    }
+  ],
+  "po_number": "PO-3002",
+  "ship_to": "Harbor & Vale Foodservice - Tacoma DC",
+  "supplier": "Cascadia Dry Goods Co.",
+  "supplier_category": "drygoods",
+  "tax": "79.34",
+  "timestamp": "2026-06-02T15:10:00Z"
+}

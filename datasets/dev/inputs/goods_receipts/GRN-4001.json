@@ -1,0 +1,44 @@
+{
+  "grn_number": "GRN-4001",
+  "lines": [
+    {
+      "description": "Nitrile exam gloves, large",
+      "part_number": "NG-10X100-L",
+      "po_line_no": "P1",
+      "qty_received": "15"
+    },
+    {
+      "description": "Foodservice film wrap 18in x 2000ft",
+      "part_number": "FW-18-2000",
+      "po_line_no": "P2",
+      "qty_received": "20"
+    },
+    {
+      "description": "High-oleic fryer oil, bulk pallet",
+      "part_number": "OIL-BULK-PLT",
+      "po_line_no": "P3",
+      "qty_received": "1"
+    },
+    {
+      "description": "Parboiled rice, 1-ton tote",
+      "part_number": "RICE-TOTE-1",
+      "po_line_no": "P4",
+      "qty_received": "1"
+    },
+    {
+      "description": "Flake finishing salt, drum",
+      "part_number": "SALT-FIN-DR",
+      "po_line_no": "P5",
+      "qty_received": "1"
+    },
+    {
+      "description": "House spice blend, drum",
+      "part_number": "SPICE-BLND-DR",
+      "po_line_no": "P6",
+      "qty_received": "1"
+    }
+  ],
+  "po_number": "PO-3001",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-06-05T14:05:00Z"
+}

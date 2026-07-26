@@ -1,0 +1,29 @@
+{
+  "currency": "USD",
+  "lines": [
+    {
+      "extended": "600.00",
+      "item": "Case liners 55gal",
+      "line_no": "P1",
+      "qty_ordered": "50",
+      "taxable": true,
+      "unit_price": "12.00",
+      "uom": "CS"
+    },
+    {
+      "extended": "660.00",
+      "item": "Foam trays 9x7",
+      "line_no": "P2",
+      "qty_ordered": "30",
+      "taxable": true,
+      "unit_price": "22.00",
+      "uom": "CS"
+    }
+  ],
+  "po_number": "PO-3003",
+  "ship_to": "Harbor & Vale Foodservice - Portland DC",
+  "supplier": "Summit Paper & Packaging",
+  "supplier_category": "supplies",
+  "tax": "109.62",
+  "timestamp": "2026-06-03T17:00:00Z"
+}

@@ -1,0 +1,15 @@
+{
+  "categories": [
+    "PRICE_VARIANCE",
+    "QTY_UNDER_SHIPMENT",
+    "QTY_OVER_SHIPMENT",
+    "QTY_INVOICE_INFLATED",
+    "TAX_VARIANCE"
+  ],
+  "materiality_threshold": "max($0.05, min(2% x basis, $25)); flag on >= (D16).",
+  "note": "Every rule the key generator applied, published so the agent can compete against rules it can read (D35). Not claimed as industry norm.",
+  "payable_quantity": "min(qty_ordered, qty_received); received is summed across all goods receipts for a line (D15, D31).",
+  "price_variance": "(inv_unit_price - po_unit_price) x payable_qty; basis = payable_qty x po_unit_price (D16, D19).",
+  "quantity_overbill": "invoiced > payable; value = (invoiced - payable) x po_unit_price; same materiality; category by which constraint bound the payable quantity (D15, D16).",
+  "tax_variance": "document-scoped; expected tax = PO-derived rate x invoice's own taxable subtotal; evaluated cross-multiplied, no division; zero taxable subtotal takes the degenerate $0.05 branch (D21, D24, D28, D29)."
+}

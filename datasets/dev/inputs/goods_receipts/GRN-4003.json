@@ -1,0 +1,14 @@
+{
+  "grn_number": "GRN-4003",
+  "lines": [
+    {
+      "description": "Cane sugar, 50 lb bag",
+      "part_number": "SUG-50",
+      "po_line_no": "P6",
+      "qty_received": "10"
+    }
+  ],
+  "po_number": "PO-3002",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-06-08T11:40:00Z"
+}

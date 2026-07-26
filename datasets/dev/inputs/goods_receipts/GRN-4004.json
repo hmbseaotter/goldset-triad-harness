@@ -1,0 +1,20 @@
+{
+  "grn_number": "GRN-4004",
+  "lines": [
+    {
+      "description": "Can liners 55gal x200",
+      "part_number": "LIN-55-200",
+      "po_line_no": "P1",
+      "qty_received": "50"
+    },
+    {
+      "description": "Foam trays 9x7 x500",
+      "part_number": "TRAY-9X7-500",
+      "po_line_no": "P2",
+      "qty_received": "30"
+    }
+  ],
+  "po_number": "PO-3003",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-06-07T12:20:00Z"
+}

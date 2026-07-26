@@ -1,0 +1,29 @@
+{
+  "currency": "USD",
+  "lines": [
+    {
+      "extended": "740.00",
+      "item": "Romaine hearts 24ct",
+      "line_no": "P1",
+      "qty_ordered": "40",
+      "taxable": false,
+      "unit_price": "18.50",
+      "uom": "CS"
+    },
+    {
+      "extended": "520.00",
+      "item": "Strawberry flats 8x1lb",
+      "line_no": "P2",
+      "qty_ordered": "20",
+      "taxable": false,
+      "unit_price": "26.00",
+      "uom": "FL"
+    }
+  ],
+  "po_number": "PO-3004",
+  "ship_to": "Harbor & Vale Foodservice - Tacoma DC",
+  "supplier": "Marin Produce Partners",
+  "supplier_category": "produce",
+  "tax": "0.00",
+  "timestamp": "2026-06-04T16:35:00Z"
+}

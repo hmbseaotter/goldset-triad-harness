@@ -1,0 +1,20 @@
+{
+  "grn_number": "GRN-4005",
+  "lines": [
+    {
+      "description": "Romaine hearts, 24 ct",
+      "part_number": "ROM-24",
+      "po_line_no": "P1",
+      "qty_received": "40"
+    },
+    {
+      "description": "Strawberries, 8x1lb flat",
+      "part_number": "STRAW-8",
+      "po_line_no": "P2",
+      "qty_received": "20"
+    }
+  ],
+  "po_number": "PO-3004",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-06-08T13:15:00Z"
+}

@@ -1,0 +1,14 @@
+{
+  "grn_number": "GRN-9001",
+  "lines": [
+    {
+      "description": "[SYNTHETIC] 100k unit",
+      "part_number": "SYN-100K",
+      "po_line_no": "P1",
+      "qty_received": "1"
+    }
+  ],
+  "po_number": "PO-9001",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-01-02T00:00:00Z"
+}

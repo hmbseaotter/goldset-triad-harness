@@ -1,0 +1,26 @@
+{
+  "correspondence": [
+    {
+      "grns": [
+        "GRN-8001"
+      ],
+      "invoice_id": "INV-8001",
+      "invoice_line_id": "1",
+      "po_line_no": "P1",
+      "po_number": "PO-8001"
+    },
+    {
+      "grns": [
+        "GRN-8001"
+      ],
+      "invoice_id": "INV-8001",
+      "invoice_line_id": "2",
+      "po_line_no": "P2",
+      "po_number": "PO-8001"
+    }
+  ],
+  "dataset_identifier": "dev-zero-defect",
+  "dataset_version": "1.0.0",
+  "expected_findings": [],
+  "synthetic": false
+}

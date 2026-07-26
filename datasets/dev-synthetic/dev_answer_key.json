@@ -1,0 +1,28 @@
+{
+  "correspondence": [
+    {
+      "grns": [
+        "GRN-9001"
+      ],
+      "invoice_id": "INV-9001",
+      "invoice_line_id": "1",
+      "po_line_no": "P1",
+      "po_number": "PO-9001"
+    }
+  ],
+  "dataset_identifier": "dev-synthetic",
+  "dataset_version": "1.0.0",
+  "expected_findings": [
+    {
+      "category": "PRICE_VARIANCE",
+      "reasoning": "seeded PRICE_VARIANCE on INV-9001 line 1",
+      "scope": "LINE",
+      "status": "DISCREPANCY",
+      "target": {
+        "document_id": "INV-9001",
+        "line_id": "1"
+      }
+    }
+  ],
+  "synthetic": true
+}

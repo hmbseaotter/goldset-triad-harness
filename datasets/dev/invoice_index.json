@@ -1,0 +1,156 @@
+{
+  "invoices": [
+    {
+      "invoice_id": "INV-2001",
+      "lines": [
+        {
+          "extended": "845.85",
+          "line_id": "1",
+          "qty_invoiced": "15",
+          "taxable": true,
+          "unit_price": "56.39"
+        },
+        {
+          "extended": "850.00",
+          "line_id": "2",
+          "qty_invoiced": "20",
+          "taxable": true,
+          "unit_price": "42.50"
+        },
+        {
+          "extended": "510.00",
+          "line_id": "3",
+          "qty_invoiced": "1",
+          "taxable": true,
+          "unit_price": "510.00"
+        },
+        {
+          "extended": "509.99",
+          "line_id": "4",
+          "qty_invoiced": "1",
+          "taxable": true,
+          "unit_price": "509.99"
+        },
+        {
+          "extended": "340.00",
+          "line_id": "5",
+          "qty_invoiced": "1",
+          "taxable": true,
+          "unit_price": "340.00"
+        },
+        {
+          "extended": "339.99",
+          "line_id": "6",
+          "qty_invoiced": "1",
+          "taxable": true,
+          "unit_price": "339.99"
+        }
+      ],
+      "po_number": "PO-3001",
+      "supplier": "Cascadia Dry Goods Co.",
+      "tax": "295.44",
+      "taxable_subtotal": "3395.83",
+      "timestamp": "2026-06-07T09:30:00Z"
+    },
+    {
+      "invoice_id": "INV-2002",
+      "lines": [
+        {
+          "extended": "739.20",
+          "line_id": "1",
+          "qty_invoiced": "24",
+          "taxable": false,
+          "unit_price": "30.80"
+        },
+        {
+          "extended": "540.00",
+          "line_id": "2",
+          "qty_invoiced": "12",
+          "taxable": false,
+          "unit_price": "45.00"
+        },
+        {
+          "extended": "585.00",
+          "line_id": "3",
+          "qty_invoiced": "9",
+          "taxable": true,
+          "unit_price": "65.00"
+        },
+        {
+          "extended": "10.10",
+          "line_id": "4",
+          "qty_invoiced": "101",
+          "taxable": false,
+          "unit_price": "0.10"
+        },
+        {
+          "extended": "360.00",
+          "line_id": "5",
+          "qty_invoiced": "20",
+          "taxable": true,
+          "unit_price": "18.00"
+        },
+        {
+          "extended": "672.00",
+          "line_id": "6",
+          "qty_invoiced": "24",
+          "taxable": false,
+          "unit_price": "28.00"
+        }
+      ],
+      "po_number": "PO-3002",
+      "supplier": "Cascadia Dry Goods Co.",
+      "tax": "82.21",
+      "taxable_subtotal": "945.00",
+      "timestamp": "2026-06-10T10:15:00Z"
+    },
+    {
+      "invoice_id": "INV-2003",
+      "lines": [
+        {
+          "extended": "600.00",
+          "line_id": "1",
+          "qty_invoiced": "50",
+          "taxable": true,
+          "unit_price": "12.00"
+        },
+        {
+          "extended": "660.00",
+          "line_id": "2",
+          "qty_invoiced": "30",
+          "taxable": true,
+          "unit_price": "22.00"
+        }
+      ],
+      "po_number": "PO-3003",
+      "supplier": "Summit Paper & Packaging",
+      "tax": "149.62",
+      "taxable_subtotal": "1260.00",
+      "timestamp": "2026-06-09T08:45:00Z"
+    },
+    {
+      "invoice_id": "INV-2004",
+      "lines": [
+        {
+          "extended": "740.00",
+          "line_id": "1",
+          "qty_invoiced": "40",
+          "taxable": false,
+          "unit_price": "18.50"
+        },
+        {
+          "extended": "520.00",
+          "line_id": "2",
+          "qty_invoiced": "20",
+          "taxable": false,
+          "unit_price": "26.00"
+        }
+      ],
+      "po_number": "PO-3004",
+      "supplier": "Marin Produce Partners",
+      "tax": "0.00",
+      "taxable_subtotal": "0.00",
+      "timestamp": "2026-06-10T09:05:00Z"
+    }
+  ]
+}

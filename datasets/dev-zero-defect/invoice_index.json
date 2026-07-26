@@ -1,0 +1,28 @@
+{
+  "invoices": [
+    {
+      "invoice_id": "INV-8001",
+      "lines": [
+        {
+          "extended": "642.00",
+          "line_id": "1",
+          "qty_invoiced": "30",
+          "taxable": false,
+          "unit_price": "21.40"
+        },
+        {
+          "extended": "292.50",
+          "line_id": "2",
+          "qty_invoiced": "6",
+          "taxable": true,
+          "unit_price": "48.75"
+        }
+      ],
+      "po_number": "PO-8001",
+      "supplier": "Marin Produce Partners",
+      "tax": "25.45",
+      "taxable_subtotal": "292.50",
+      "timestamp": "2026-05-07T09:00:00Z"
+    }
+  ]
+}

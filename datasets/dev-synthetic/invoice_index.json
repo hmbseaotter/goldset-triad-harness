@@ -1,0 +1,21 @@
+{
+  "invoices": [
+    {
+      "invoice_id": "INV-9001",
+      "lines": [
+        {
+          "extended": "100026.00",
+          "line_id": "1",
+          "qty_invoiced": "1",
+          "taxable": false,
+          "unit_price": "100026.00"
+        }
+      ],
+      "po_number": "PO-9001",
+      "supplier": "[SYNTHETIC] Extreme-Magnitude Test Supplier",
+      "tax": "0.00",
+      "taxable_subtotal": "0.00",
+      "timestamp": "2026-01-03T00:00:00Z"
+    }
+  ]
+}

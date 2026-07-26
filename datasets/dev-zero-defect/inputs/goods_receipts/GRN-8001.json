@@ -1,0 +1,20 @@
+{
+  "grn_number": "GRN-8001",
+  "lines": [
+    {
+      "description": "Yellow onions, 50 lb",
+      "part_number": "ONI-50",
+      "po_line_no": "P1",
+      "qty_received": "30"
+    },
+    {
+      "description": "Dish detergent, 5 gal",
+      "part_number": "DET-5G",
+      "po_line_no": "P2",
+      "qty_received": "6"
+    }
+  ],
+  "po_number": "PO-8001",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-05-05T14:00:00Z"
+}

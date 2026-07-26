@@ -1,0 +1,44 @@
+{
+  "grn_number": "GRN-4002",
+  "lines": [
+    {
+      "description": "Basmati rice, 25 lb bag",
+      "part_number": "RICE-BAS-25",
+      "po_line_no": "P1",
+      "qty_received": "20"
+    },
+    {
+      "description": "Canned tomatoes, #10 x6",
+      "part_number": "TOM-10-6",
+      "po_line_no": "P2",
+      "qty_received": "12"
+    },
+    {
+      "description": "EVOO 3L tin x6",
+      "part_number": "EVOO-TIN-6",
+      "po_line_no": "P3",
+      "qty_received": "8"
+    },
+    {
+      "description": "Ketchup packets, 1000 ct",
+      "part_number": "COND-KTC-1000",
+      "po_line_no": "P4",
+      "qty_received": "100"
+    },
+    {
+      "description": "Paper towels, 30 rolls",
+      "part_number": "PT-ROLL-30",
+      "po_line_no": "P5",
+      "qty_received": "20"
+    },
+    {
+      "description": "Cane sugar, 50 lb bag",
+      "part_number": "SUG-50",
+      "po_line_no": "P6",
+      "qty_received": "10"
+    }
+  ],
+  "po_number": "PO-3002",
+  "received_by": "K. Alvarez",
+  "timestamp": "2026-06-06T13:00:00Z"
+}

@@ -1,7 +1,7 @@
 {
   "identifier": "dev-synthetic",
   "inputs_dir": "inputs",
-  "invoice_index_path": "invoice_index.json",
+  "invoice_index_path": "dev_invoice_index.json",
   "key_path": "dev_answer_key.json",
   "synthetic": true,
   "version": "1.0.0"

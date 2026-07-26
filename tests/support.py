@@ -56,6 +56,12 @@ def key_path(dataset: str) -> Path:
     return DATASETS / dataset / "dev_answer_key.json"
 
 
+def index_path(dataset: str) -> Path:
+    """The dev-side invoice index. Prefixed `dev_` so the public name is not a
+    substring of `holdout_invoice_index.json` (D51)."""
+    return DATASETS / dataset / "dev_invoice_index.json"
+
+
 def expected_findings(dataset: str) -> tuple[Finding, ...]:
     key = read_json(key_path(dataset))
     return tuple(parse_finding(e, i) for i, e in enumerate(key["expected_findings"]))

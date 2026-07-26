@@ -109,7 +109,7 @@ class DatasetLoadingTests(unittest.TestCase):
         idx = load_invoice_index(m.invoice_index_path)
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
-            ipath = manifest.parent / "invoice_index.json"
+            ipath = manifest.parent / "dev_invoice_index.json"
             data = json.loads(ipath.read_text())
             for inv in data["invoices"]:
                 inv["lines"].reverse()  # reorder lines

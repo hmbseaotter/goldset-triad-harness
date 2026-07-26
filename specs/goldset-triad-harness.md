@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.10.3
+- Spec version: 0.10.4
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,6 +17,12 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
+- **Last swept: 2026-07-26 @ 0.10.3 @ D36.** Next sweep due when **~8–10 decisions have accrued since this
+  line** (so around D45), **before publishing**, or **at phase completion** — whichever comes first. The trigger
+  is deliberately **change-based, not calendar-based**: drift accumulates per decision, not per day. This spec
+  ran 0.3.0 → 0.10.0, seven versions and roughly twenty decisions, before its first sweep, and that interval is
+  exactly where the defects piled up. A monthly reminder would have fired during quiet weeks and stayed silent
+  through the heavy design run. **Update this line whenever a sweep completes**, or it stops meaning anything.
 - Decision record: `DECISIONS.md` at the repository root — permitted in place of
   `specs/<slug>.decisions.md` because this repo holds a single spec, and root placement is more
   discoverable for a portfolio artifact.
@@ -818,6 +824,16 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.4 (2026-07-26): adds a **staleness marker and sweep trigger** to metadata. Three maintenance passes
+  happened only because someone asked for them — an observation that periodic maintenance finds drift is not a
+  mechanism. The marker records when the spec was last swept, at which version and decision number, so "is a
+  sweep due?" is answerable at a glance rather than from memory. The trigger is **change-based rather than
+  calendar-based**, because drift accumulates per decision and not per day: this spec ran seven versions and
+  roughly twenty decisions before its first sweep, and that is precisely the interval where the defects
+  accumulated, while a monthly reminder would have fired during quiet weeks and stayed silent through the heavy
+  design run. Mechanical drift — duplicate requirements, misfiled EARS patterns, dangling decision references —
+  is now caught by `lint_spec.py` as of toolkit `647d185`, so the sweep's remaining job is the part no linter
+  can do: spec-to-build-prompt agreement.
 - 0.10.3 (2026-07-26): **confirmation pass after the sweep and restructure** — deliberately scoped to what those
   two had *not* tested, rather than repeating them. Eight findings, six of them in the **build prompt, which
   neither earlier pass had opened** — and which is the document the build session actually reads, so drift there

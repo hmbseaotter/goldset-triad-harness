@@ -152,6 +152,24 @@ the canary as the decoy. Keep the canary covered by the directory rule alone. An
 verified** — placement and configuration are checked; enforcement is attested; a determined subprocess is
 outside deny coverage by design, which is exactly why placement is the primary control.
 
+**The harness NEVER parses a document (D34).** Structured invoice data — line ids, quantities, prices, tax
+field, timestamps, invoice count — comes from a **structured invoice index** in the **agent-denied tier**,
+beside the answer key. Not from parsing PDFs (extraction is out of scope, and a parser in the scoring engine
+breaks stdlib-only), and **not** from an agent-readable sidecar (structured invoice data would bypass the
+extraction the PDF exists to require).
+
+It is a **complete line inventory including clean lines** — target validation must tell a line that exists from
+one that does not, which expected findings alone cannot support. It is **separate from the key**, so the key
+stays expected-findings rather than input restatement. And it is **fingerprinted**: it moves the score, so by
+D27's logic the scorecard carries **four** fingerprints — findings, key, **invoice index**, inputs aggregate.
+
+**PDF authoring: ReportLab, from P1, clean text-layer only (D33).** Hard format tiers (dot-matrix, multi-page,
+consolidated, scanned) stay `[P3]`. ⚠️ **Generated PDFs must be byte-identical on regeneration** — PDF writers
+embed a creation timestamp and document ID by default, so without pinning them, every regeneration changes the
+inputs digest and looks like tampering. Pin document dates to the **seeded** timestamp (D6) and pin or suppress
+the ID; ReportLab's invariant output mode is the reason it was chosen over PyMuPDF, so **verify that early**.
+This dependency is **generation-side only** — the scoring engine remains standard-library-only.
+
 **Goods receipts are separate documents (D31).** Their own `goods_receipts/` directory, each with GRN, date,
 receiver, line items and **its own identifiers and descriptions** — not a `receipts[]` array inside the PO
 record, which would let an agent find quantity discrepancies by diffing two fields in one file without opening
@@ -319,8 +337,13 @@ Do not mark this phase complete until every criterion below **passes by executio
   category.
 - [ ] Scorecard emitted both as parseable JSON and as a human-readable summary.
 - [ ] Scorecard records dataset identifier and version.
-- [ ] Scorecard embeds SHA-256 fingerprints of the findings artifact and the answer key, plus an aggregate
-  digest of the dataset inputs.
+- [ ] Scorecard embeds four fingerprints: findings artifact, answer key, structured invoice index, and the
+  aggregate inputs digest.
+- [ ] Editing the invoice index alone changes its recorded fingerprint.
+- [ ] Regenerating the dev split's PDFs from the same seed yields byte-identical files and an unchanged inputs
+  digest.
+- [ ] No PDF or document-parsing library is importable from the scoring engine.
+- [ ] A scan of the agent-readable inputs confirms the invoice index is absent from them.
 - [ ] Editing one byte of one input, with key and version untouched, changes the aggregate inputs digest.
 - [ ] A verify mismatch names which input files diverged, not just that the aggregate differed.
 - [ ] The aggregate inputs digest is identical computed on Windows and on Linux from the same data.

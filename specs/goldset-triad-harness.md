@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.8.0
+- Spec version: 0.9.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -145,8 +145,10 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - Stack: Python 3.11 or newer.
 - Scoring engine: standard library only — `json`, `decimal`, `dataclasses`, `typing`, `hashlib`, `pathlib`.
   Zero third-party dependencies, so the credibility core stays trivially auditable.
-- Data-generation side may take a PDF-authoring dependency; which library is a `[P3]` decision, not needed
-  now.
+- Data generation takes **ReportLab** as a PDF-authoring dependency, from `[P1]`, for clean text-layer invoices.
+  Harder format tiers — multi-page dot-matrix layouts, consolidated invoices, scanned documents with no text
+  layer — remain `[P3]`. **This does not breach the stdlib-only rule, which is scoped to the scoring engine;
+  this dependency lands on the generation side, in the secret tier** (D33).
 - Static checker: pyright. "Type-check passes with zero errors" is an acceptance criterion.
 - Cross-platform: Windows and Linux are both first-class. Every documented command is given for PowerShell
   and for bash. Use `pathlib`; assume no shell-specific behaviour.
@@ -300,6 +302,26 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] Goods receipts SHALL be represented as documents separate from the purchase order, each carrying its own
   receipt number, date, receiver, line items and identifiers, so that resolving receipt-to-purchase-order
   correspondence is part of the evaluated task rather than given away by co-location (D31).
+- [P1] The harness SHALL obtain structured invoice data — line identifiers, quantities, prices, the tax field,
+  timestamps and the invoice count — from a structured invoice index, and SHALL NOT parse any invoice document,
+  because extraction is out of scope and a document parser in the scoring engine would breach the
+  standard-library-only rule (D34).
+- [P1] The structured invoice index SHALL be a complete line inventory covering clean lines as well as discrepant
+  ones, because target validation must be able to distinguish a line that exists from one that does not, which
+  the expected findings alone cannot support (D34).
+- [P1] The structured invoice index SHALL reside in the agent-denied tier alongside the answer key, and SHALL NOT
+  be readable by the agent-under-test, because structured invoice data would bypass the extraction that the
+  document form exists to require (D34).
+- [P1] The structured invoice index SHALL be a separate artifact from the answer key, so that the key remains a
+  statement of expected findings rather than a restatement of the inputs, and so that the key's fingerprint does
+  not change when only the inputs change (D34).
+- [P1] WHEN a run completes, the harness SHALL additionally record a SHA-256 fingerprint of the structured
+  invoice index, because that index determines the false-positive-rate denominator and target validation and
+  therefore moves the score (D34, D27).
+- [P1] Generated invoice documents SHALL be byte-identical on regeneration from the same seed, with document
+  creation and modification dates pinned to the seeded timestamp and the document identifier pinned or
+  suppressed — otherwise the aggregate inputs digest changes on every regeneration and presents as tampering
+  (D33).
 - [P1] WHEN a line is overbilled on quantity, the harness SHALL assign the category by which constraint
   bound the payable quantity: `QTY_UNDER_SHIPMENT` where the received quantity is less than the ordered
   quantity, `QTY_OVER_SHIPMENT` where the ordered quantity is less than the received quantity, and
@@ -421,8 +443,15 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   in every category.
 - [ ] [P1] The scorecard is emitted both as JSON that parses and as a human-readable summary.
 - [ ] [P1] The scorecard records the dataset identifier and version.
-- [ ] [P1] The scorecard embeds a SHA-256 fingerprint of the findings artifact, of the answer key, and an
-  aggregate digest of the dataset inputs.
+- [ ] [P1] The scorecard embeds four fingerprints — of the findings artifact, the answer key, the structured
+  invoice index, and an aggregate digest of the dataset inputs.
+- [ ] [P1] Editing the structured invoice index while leaving the key, the inputs and the version untouched
+  changes the recorded index fingerprint, so the altered run cannot masquerade as the original.
+- [ ] [P1] Regenerating the dev split's invoice PDFs from the same seed produces byte-identical files, leaving
+  the aggregate inputs digest unchanged.
+- [ ] [P1] No PDF or document-parsing library is importable from the scoring engine, and the harness reads no
+  invoice document at any point.
+- [ ] [P1] A scan of the agent-readable inputs confirms the structured invoice index is absent from them.
 - [ ] [P1] Editing one byte of one input file, leaving the answer key and dataset version untouched, changes
   the aggregate inputs digest — so the altered run cannot masquerade as the original.
 - [ ] [P1] Verification against a scorecard whose inputs have changed reports which specific files diverged,
@@ -656,6 +685,23 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.9.0 (2026-07-26): resolves the contradiction D31 created and answers where structured invoice data comes
+  from. **D33 corrects a stale constraint:** the PDF-authoring library was deferred to `[P3]` as "not needed
+  now", but D31 made invoices supplier PDFs and the dev split needs authoring immediately. The deferral had
+  conflated the *library* with *format difficulty* — ReportLab enters at `[P1]` for clean text-layer invoices
+  while dot-matrix, consolidated and scanned tiers stay `[P3]`. ReportLab specifically because PDF writers embed
+  a creation timestamp and document ID by default, so regeneration yields different bytes, changing the D27
+  inputs digest and collapsing byte-reproducibility at the data layer while presenting as tampering; ReportLab
+  documents an invariant output mode for exactly this. Generation must pin document dates to the seeded
+  timestamp and pin or suppress the ID. The stdlib-only rule is unaffected — it is scoped to the scoring engine,
+  and this dependency sits on the generation side. **D34:** the harness obtains structured invoice data from a
+  **structured invoice index** held in the agent-denied tier, never by parsing documents. It is a complete line
+  inventory including clean lines, because target validation must distinguish a line that exists from one that
+  does not — something the expected findings alone cannot support. It is agent-denied because structured invoice
+  data would bypass the extraction the document form exists to require, and it is separate from the key so the
+  key stays a statement of expected findings rather than a restatement of inputs. By D27's own reasoning it is
+  also fingerprinted, bringing the scorecard to four fingerprints: findings, key, invoice index, and inputs
+  aggregate.
 - 0.8.0 (2026-07-26): **removes an unsatisfiable criterion** and settles dataset shape. **D30:** the canary
   criterion required code to confirm the guarded area is "unreachable from an agent context" — impossible, since
   deny rules bind tool calls while a subprocess runs beneath that boundary, so a reachability probe would report

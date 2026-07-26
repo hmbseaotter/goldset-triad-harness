@@ -210,6 +210,12 @@ auditable, which is the whole point of a credibility artifact.
 **Deferred** — PDF-authoring lib → P2; portable (non-Claude-Code) answer-key isolation → P4 (audience). For
 P1, isolation uses the proven Claude Code `.claude/settings.json` deny-guards + canary.
 
+> **Superseded in part.** The PDF-library deferral above was **overturned by D33**: D31 made invoices supplier
+> PDFs, so authoring is needed in P1. ReportLab enters at `[P1]` for clean text-layer invoices; only *format
+> difficulty* defers. The stdlib-only rule still holds — it is scoped to the scoring engine, while this
+> dependency sits on the generation side. The canary's role was also narrowed by **D30**: it is an attestation
+> decoy, not an automated probe.
+
 ---
 
 ## D8 — Scoring semantics (match key, matching model, over-flag measure)
@@ -1090,6 +1096,79 @@ in the domain.** Three data families:
 **Why the labelling matters** — a reviewer must never mistake a synthetic fixture for the showcase dataset. A
 $100,000 head of lettuce in the portfolio artifact would undermine the domain credibility the realistic dev
 split exists to establish.
+
+---
+
+## D33 — PDF authoring enters P1, but only the clean tier ✅ (corrects a stale constraint)
+
+**Fork:** D31 makes invoices supplier PDFs, but the constraints block still defers the PDF-authoring library to
+`[P3]` as "not needed now" — and authoring the dev split's invoices needs it now.
+
+**The deferral conflated two things.** What P1 needs is **clean, text-layer invoice PDFs**. What can still
+defer is **format difficulty** — multi-page dot-matrix layouts, consolidated invoices, and scanned/OCR-only
+documents, the tiering the old fixtures used.
+
+**Decision ✅** — **ReportLab, in P1, clean text-layer invoices only.** Hard format tiers remain `[P3]` with the
+dataset expansion.
+
+**Why ReportLab over PyMuPDF** — a decisive technical reason rather than preference: **PDF writers embed a
+creation timestamp and a document ID by default, so regenerating the same dataset produces different bytes.**
+That changes the D27 inputs digest and collapses byte-reproducibility **at the data layer**, while presenting
+as tampering. ReportLab documents an invariant/deterministic-output mode aimed at exactly this; PyMuPDF does
+not advertise one for authoring. **Verify this early in the build** rather than discovering it after the first
+regeneration.
+
+**Generation must therefore pin** the document creation and modification dates to the seeded timestamp (D6) and
+pin or suppress the document ID.
+
+**This does not breach the stdlib-only rule.** That constraint is scoped to the **scoring engine**; this
+dependency lands on the **generation side**, which lives in the secret tier. The constraints block must say so
+explicitly, because "no third-party dependencies" and "we need a PDF library" otherwise read as a contradiction.
+
+---
+
+## D34 — A structured invoice index, key-side and agent-denied ✅
+
+**Fork:** Once invoices are PDFs, where does the harness get the structured invoice data it needs — tax-field
+presence (D29), invoice count, line identifiers for target validation, timestamp validation — while never
+parsing documents?
+
+**Options considered**
+- **(A) The harness parses the PDFs** — rejected twice over: extraction is explicitly out of scope, and it would
+  drag a PDF library into the **scoring engine**, breaking the stdlib-only rule that makes the credibility core
+  auditable.
+- **(B) A structured sidecar beside the PDFs, agent-readable** — **the trap.** If the agent can read structured
+  invoice data, extraction is bypassed entirely and the PDF becomes decoration.
+- **(C) Fold a full line inventory into the answer key** — one artifact instead of two, but it blurs what the key
+  *is*: expected findings become mixed with input restatement, and the key's fingerprint would then change
+  whenever the inputs change even though no expectation did.
+- **(D) A separate structured invoice index, key-side and agent-denied.**
+
+**Decision ✅** — **(D).**
+
+**Why it belongs with the key** — the index is **ground truth about what the documents contain**, the same
+category as the invoice→PO→receipt correspondence D22 already placed key-side. Both answer *"what do these
+documents actually say"*, which is exactly what the agent must derive for itself.
+
+**Why the key alone is insufficient** — the key lists *expected findings*, covering only lines that carry a
+discrepancy. Target validation (I6, a finding referencing a non-existent line) needs a **complete line
+inventory including clean lines**. So it is a separate artifact, not a field on the key.
+
+**Resulting tier model:**
+
+| | agent-readable | agent-denied |
+|---|---|---|
+| **inputs** | invoice PDFs, PO JSON, goods-receipt JSON | — |
+| **ground truth** | — | expected findings, **invoice index**, correspondence, generators, design artifact |
+
+The asymmetry is realistic rather than arbitrary: purchase orders and receipts are *our* internal systems of
+record, so structured data is genuinely what we would hold; invoices arrive from outside as documents.
+
+**Consequence — the index must be fingerprinted.** By D27's own reasoning, every score-determining artifact must
+be pinned or recomputation is not pinned. The invoice index drives the false-positive-rate denominator and
+target validation, so an edited index under an unchanged key would score differently under identical-looking
+provenance — reopening precisely the hole D27 closed. The scorecard therefore carries **four** fingerprints:
+findings artifact, answer key, inputs aggregate, and invoice index.
 
 ---
 

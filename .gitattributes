@@ -1,0 +1,16 @@
+# --- Dataset inputs: no line-ending conversion (D27) -----------------------------
+# The aggregate inputs digest hashes each file's RAW BYTES. If git's autocrlf
+# normalized these on checkout, a Windows and a Linux working tree would hold
+# different bytes, the digest would diverge, and the cross-platform
+# identical-output requirement (N3) would fail looking like a harness bug.
+# `-text` disables all line-ending conversion; `binary` also disables diff/merge
+# munging. Both are applied to every file kind that can appear in a dataset.
+datasets/**/*.json  -text
+datasets/**/*.pdf   binary
+datasets/**/*.txt   -text
+
+# PDFs are binary everywhere, never line-ending converted.
+*.pdf  binary
+
+# Scorecards are the durable committed record; keep their bytes exact too.
+scorecards/**/*.json  -text

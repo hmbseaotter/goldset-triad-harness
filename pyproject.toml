@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goldset-triad-harness"
+version = "0.1.0"
+description = "A held-out golden-dataset harness that scores an AP document-matching agent's 3-way (PO / invoice / goods-receipt) findings against hand-audited ground truth."
+requires-python = ">=3.11"
+# The scoring engine is standard-library only, by design (D7). It has ZERO
+# runtime dependencies, and that emptiness is the credibility core: nothing
+# third-party sits between a dataset and its score.
+dependencies = []
+
+[project.scripts]
+goldset-triad = "goldset_triad.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# --- Dev / generation-side tooling (NOT runtime dependencies) --------------------
+# pyright is the type gate (D7); it is invoked as `npx pyright`, not installed here.
+# ReportLab is the key generator's PDF-authoring library (D33) and lives on the
+# SECRET side, never in this repository — it is intentionally absent from this
+# manifest because the generator is not shipped (D35).

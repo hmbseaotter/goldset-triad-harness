@@ -224,6 +224,41 @@ class CorrespondenceReferenceTests(unittest.TestCase):
         self.assertIn("omits", message)
         self.assertIn("po_line_no", message)
 
+    def test_one_invoice_line_mapped_twice_is_rejected(self) -> None:
+        """D56 — exactly one row per invoice line, not merely at least one.
+
+        Two rows pointing one invoice line at different purchase-order lines is genuine
+        ambiguity: the audit walks every row, so it derives from BOTH and unions the
+        results, admitting a finding only one mapping justifies."""
+        def two_mappings(key: dict) -> None:
+            row = dict(key["correspondence"][0])
+            row["po_line_no"] = "P2"  # a real PO line, but a second mapping for one line
+            key["correspondence"].append(row)
+
+        message = self._broken(two_mappings)
+        self.assertIn("correspondence entries", message)
+        self.assertIn("exactly one", message)
+
+    def test_duplicated_identical_row_is_rejected(self) -> None:
+        """An exact duplicate is still two entries where one is required."""
+        def duplicate(key: dict) -> None:
+            key["correspondence"].append(dict(key["correspondence"][0]))
+
+        self.assertIn("exactly one", self._broken(duplicate))
+
+    def test_shipped_datasets_map_each_line_exactly_once(self) -> None:
+        """Positive control: the rule does not over-fire on the shipped datasets."""
+        for name in ("dev", "dev-synthetic", "dev-zero-defect"):
+            loaded = load_dataset(name, support.DATASETS)
+            counts: dict[tuple[str, str], int] = {}
+            for e in loaded.answer_key.correspondence:
+                k = (str(e["invoice_id"]), str(e["invoice_line_id"]))
+                counts[k] = counts.get(k, 0) + 1
+            self.assertEqual(
+                [k for k, n in counts.items() if n != 1], [],
+                f"{name}: an invoice line is mapped more than once",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

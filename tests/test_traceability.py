@@ -239,6 +239,19 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_port_schema.SchemaTests.test_malformed_finding_names_finding_and_field"),
     ("C35", "reported ratios emit at the declared precision",
      "test_scorecard_repro.ScorecardTests.test_ratios_emitted_at_declared_places"),
+    # Formalizing the behaviours that lived only in code (D55-D57).
+    ("C36", "MATCH cannot satisfy an expectation either, only leave it a miss",
+     "test_scoring_engine.ScoringTests.test_match_cannot_satisfy_an_expectation_either"),
+    ("C37", "surplus flags on an unexpected key are not duplicate contention",
+     "test_scoring_engine.ScoringTests.test_surplus_flags_on_an_unexpected_key_are_not_duplicate_contention"),
+    ("C38", "one invoice line mapped twice is rejected",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_one_invoice_line_mapped_twice_is_rejected"),
+    ("C39", "an exact duplicate correspondence row is rejected",
+     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_duplicated_identical_row_is_rejected"),
+    ("C40", "the dev split exercises all five categories and both boundary directions",
+     "test_key_and_arithmetic.KeyContentTests.test_dataset_coverage_invariants_hold"),
+    ("C41", "the zero-defect control declares no expectations but keeps correspondence",
+     "test_key_and_arithmetic.KeyContentTests.test_zero_defect_control_declares_no_expectations"),
 ]
 
 
@@ -251,6 +264,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",
     "test_cross_artifact_validation.CorrespondenceCompletenessTests.test_every_shipped_dataset_is_complete",
+    "test_cross_artifact_validation.CorrespondenceReferenceTests.test_shipped_datasets_map_each_line_exactly_once",
     "test_isolation.IsolationTests.test_placement_passes_on_clean_tree",
     "test_key_audit.KeyAuditTests.test_shipped_dev_key_is_consistent",
     "test_dataset_loading.DatasetLoadingTests.test_inputs_digest_stable_on_recompute",
@@ -286,7 +300,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 94
+EXPECTED_SPEC_P1_CRITERIA = 98
 
 
 def _spec_p1_criteria() -> list[str]:

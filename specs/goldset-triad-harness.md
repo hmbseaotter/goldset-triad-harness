@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.12.0
+- Spec version: 0.13.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.12.0 @ D54** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.13.0 @ D57** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -331,6 +331,19 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] The structured invoice index SHALL be a separate artifact from the answer key, so that the key remains a
   statement of expected findings rather than a restatement of the inputs, and so that the key's fingerprint does
   not change when only the inputs change (D34).
+- [P1] The answer key SHALL declare **exactly one** correspondence entry per invoice line, not merely at least
+  one: the key audit derives from every row, so two rows mapping one line to different purchase-order lines
+  would union conflicting derivations and admit a finding only one mapping justifies (D56).
+- [P1] The dev split SHALL exercise every category in the closed enumeration, and SHALL contain both a flagging
+  and a non-flagging case on each materiality basis kind — cent-aligned and non-aligned — because a dataset of
+  flagging cases alone cannot distinguish a correct threshold from one that flags everything (D57).
+- [P1] The zero-defect control SHALL declare no expected findings while still declaring correspondence for
+  every one of its invoice lines, since it is the whole basis of the over-flagging measure and an expectation
+  appearing there would silently change what the false-positive rate means (D57).
+- [P1] A dataset property that holds only for the current phase SHALL be enforced by a named tripwire that
+  fails when the property stops holding, rather than assumed — the single-purchase-order shape of every shipped
+  invoice is such a property, and its tripwire is what forces `[P3]` to implement the deferred tax
+  apportionment instead of guessing it (D57, D47).
 
 *Generation invariants (D33, D36)*
 - [P1] Generated invoice documents SHALL be byte-identical on regeneration from the same seed, with document
@@ -427,6 +440,13 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] WHEN an agent finding carries a status of MATCH rather than DISCREPANCY, the harness SHALL treat it
   as an assertion of correctness that is ineligible to be a flag, and SHALL NOT count it as a false
   positive.
+- [P1] WHEN an agent finding carries a status of MATCH, the harness SHALL ALSO treat it as ineligible to
+  satisfy an expected finding, so a MATCH on a line that does carry an expected discrepancy leaves that
+  expectation recorded as a miss — the entry asserts the opposite of the finding, and the single wrong
+  assertion is therefore counted exactly once (D55, extending D13).
+- [P1] WHEN a finding's target is absent from the dataset, the harness SHALL exclude that finding from 1:1
+  matching altogether rather than allowing it to consume an expectation, and SHALL count it as a false
+  positive labelled as referencing a non-existent target (D55).
 - [P1] WHEN determining a quantity discrepancy on a line, the key generator SHALL compute the payable quantity as
   the lesser of the ordered and received quantities, and SHALL treat the line as overbilled only when the
   invoiced quantity exceeds that payable quantity (D15).
@@ -503,6 +523,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] IF contending findings are counted as false positives, the harness SHALL additionally report the
   duplicate-contention count as a distinct diagnostic, because an agent emitting duplicates has a defect that
   an undifferentiated false-positive count would conceal (D26).
+- [P1] IF two or more agent findings share a match key for which the answer key holds NO expectation, the
+  harness SHALL count each as an ordinary false positive and SHALL NOT report them as duplicate contention,
+  because contention means contending for an expectation and inflating that diagnostic would obscure the
+  defect it exists to reveal (D55).
 - [P1] IF an agent finding references a target line or document absent from the dataset, the harness SHALL
   record it as a false positive distinctly labelled as referencing a non-existent target.
 - [P1] IF verification detects a mismatch in the aggregate inputs digest, the harness SHALL recompute
@@ -733,6 +757,17 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   instead of protecting it.
 - [ ] [P1] The full acceptance suite passes using **only** the dev split shipped in the repository, with no
   out-of-tree path configured — proving CI can verify the harness without access to the held-out split.
+- [ ] [P1] A `MATCH` entry on a line that carries an expected discrepancy yields no true positive, leaves the
+  expectation recorded as a miss, and is still not a false positive — the wrong assertion counted exactly once
+  (D55).
+- [ ] [P1] Two agent findings sharing a match key for which no expectation exists are two ordinary false
+  positives with a duplicate-contention count of zero, while the same pair against a real expectation reports a
+  count of one (D55).
+- [ ] [P1] An invoice line carrying two correspondence entries is rejected, whether the entries name different
+  purchase-order lines or are exact duplicates, and the shipped datasets map every line exactly once (D56).
+- [ ] [P1] The dev split exercises all five categories and carries a flagging and a non-flagging case on each
+  materiality basis kind; the zero-defect control declares no expected findings yet still declares
+  correspondence for every line (D57).
 - [ ] [P1] Two runs completing within the same second each leave their own scorecard, and
   writing over an existing scorecard is refused by the operating system rather than merely
   avoided, because scorecards are the durable record (D49).
@@ -879,6 +914,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.13.0 (2026-07-26): **formalizes the behaviours that lived only in code** — the remaining unrecorded
+  assumptions. **D55:** three scoring micro-semantics become requirements — a `MATCH` is ineligible to *satisfy*
+  an expectation as well as to be a flag (D13 settled only the latter), a finding whose target is absent is
+  excluded from matching outright, and surplus flags on a key holding no expectation are ordinary false
+  positives rather than duplicate contention. Two further micro-semantics initially listed as undocumented
+  turned out already stated; a phrase grep over a line-wrapped document had under-reported them. **D56:** the
+  answer key declares **exactly one** correspondence entry per invoice line — two rows mapping one line to
+  different purchase-order lines made the audit union conflicting derivations. **D57:** the dev split's coverage
+  is asserted rather than assumed, the zero-defect control is pinned to zero expectations, and a phase-scoped
+  dataset property is enforced by a named tripwire — the manifest `profile` field this sweep first proposed was
+  rejected as machinery duplicating D47's existing tripwire and partly contradicting it. 4 acceptance criteria
+  added; 128 tests.
 - 0.12.0 (2026-07-26): **second sweep, over code and data as well as documents** — 13 findings, all fixed,
   recorded as D49–D54. Two were live rule violations: scorecards written inside the same second **overwrote**
   each other (the run stamp is second-precision by D6), and the scorecard writer emitted platform-dependent

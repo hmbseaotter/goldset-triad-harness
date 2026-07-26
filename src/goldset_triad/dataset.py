@@ -483,12 +483,34 @@ def _validate_correspondence_references(
                 f"row {position} names line {po_line_no} of purchase order {po_number}, "
                 f"which that purchase order does not contain"
             )
+    # Exactly one row per invoice line, not merely at least one (D56). D48 established
+    # that every line needs an entry; multiplicity is the other half. Two rows mapping
+    # one invoice line to different purchase-order lines is genuine ambiguity: the key
+    # audit walks every row, so it would derive from BOTH mappings and union the
+    # results, admitting a finding that only one of them justifies. Which line governs
+    # the price and quantity comparison would be decided by nothing.
+    seen: dict[tuple[str, str], list[str]] = {}
+    for entry in answer_key.correspondence:
+        if not isinstance(entry, dict):
+            continue
+        line_key = (str(entry.get("invoice_id", "")), str(entry.get("invoice_line_id", "")))
+        mapping = f"{entry.get('po_number')} line {entry.get('po_line_no')}"
+        seen.setdefault(line_key, []).append(mapping)
+    for line_key, mappings in sorted(seen.items()):
+        if len(mappings) > 1:
+            problems.append(
+                f"invoice line {line_key[0]} line {line_key[1]} has {len(mappings)} "
+                f"correspondence entries ({', '.join(sorted(mappings))}); exactly one is "
+                f"required, since the audit derives from every row and would union "
+                f"conflicting mappings"
+            )
+
     if problems:
         shown = "; ".join(problems[:5])
         more = "" if len(problems) <= 5 else f" (and {len(problems) - 5} more)"
         raise DatasetError(
-            f"the answer key's correspondence has {len(problems)} unresolved "
-            f"reference(s): {shown}{more} (D50)."
+            f"the answer key's correspondence has {len(problems)} unresolved or "
+            f"ambiguous reference(s): {shown}{more} (D50, D56)."
         )
 
 

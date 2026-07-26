@@ -81,6 +81,36 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(r.false_positive_count, 0)
         self.assertEqual(r.match_status_count, 1)
 
+    def test_match_cannot_satisfy_an_expectation_either(self) -> None:
+        """D55 — the other half of D13, which said only that MATCH is never a flag.
+
+        A MATCH entry on a line that does carry an expected discrepancy must not count
+        as a true positive: it asserts the opposite of the finding. The expectation is
+        recorded as a miss, and the entry is still not a false positive — so a single
+        wrong assertion is counted exactly once, as a miss."""
+        expected = (line(Category.PRICE_VARIANCE, "INV-1", "1"),)
+        agent = (line(Category.PRICE_VARIANCE, "INV-1", "1", status=Status.MATCH),)
+        r = score(expected, agent, self.inv)
+        self.assertEqual(sum(m.true_positives for m in r.category_metrics), 0)
+        self.assertEqual(len(r.missed), 1)
+        self.assertEqual(r.false_positive_count, 0)
+        self.assertEqual(r.match_status_count, 1)
+
+    def test_surplus_flags_on_an_unexpected_key_are_not_duplicate_contention(self) -> None:
+        """D55 — 'duplicate contention' means contending for an *expectation*.
+
+        Two identical flags on a key the key never expected are two ordinary spurious
+        flags. Counting them as duplicate contention would inflate a diagnostic that
+        exists to reveal an agent emitting duplicates against real findings."""
+        agent = (line(Category.PRICE_VARIANCE, "INV-1", "1"),
+                 line(Category.PRICE_VARIANCE, "INV-1", "1"))
+        r = score((), agent, self.inv)
+        self.assertEqual(r.false_positive_count, 2)
+        self.assertEqual(r.duplicate_contention_count, 0)
+        # Whereas the same pair against a real expectation IS duplicate contention.
+        r2 = score((line(Category.PRICE_VARIANCE, "INV-1", "1"),), agent, self.inv)
+        self.assertEqual(r2.duplicate_contention_count, 1)
+
     def test_line_and_document_findings_do_not_match_each_other(self) -> None:
         # Same category + document id, different scope -> not a match.
         exp = (document(Category.TAX_VARIANCE, "INV-1"),)

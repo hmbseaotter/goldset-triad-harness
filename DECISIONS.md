@@ -1770,10 +1770,87 @@ criterion. That remains open.
 
 ---
 
+## D55 — The scoring micro-semantics are stated, not merely implemented ✅
+
+**Fork:** Three matching behaviours existed only in `scoring.py`. Each was a judgment call made while
+building, none was written down, and the payload schema is the port that external agents bind to — so an
+agent author could only discover them by reading the scorer, which is precisely what a published contract is
+supposed to make unnecessary.
+
+**A correction to the sweep's own first pass.** Five micro-semantics were originally listed as undocumented.
+Checking properly — against the spec with line-wrapping collapsed, because a phrase grep on a wrapped
+document silently under-reports — showed two were already stated: the tie-break orders by a canonical
+serialization of each **whole** finding (which covers confidence and reasoning, the point D26 argued), and the
+false-positive denominator is the dataset's invoice count. Only three were genuinely absent.
+
+**Decision ✅** — state all three as requirements:
+1. **`MATCH` is ineligible to satisfy an expectation**, not only ineligible to be a flag. D13 settled that a
+   `MATCH` is never a false positive; it never said what happens when one lands on a line that *does* carry an
+   expected discrepancy. The entry asserts the opposite of the finding, so it cannot be a true positive; the
+   expectation stays a miss, and the entry is still not a flag — the single wrong assertion counted exactly
+   once, which is the property D13 was protecting.
+2. **A finding whose target is absent from the dataset is excluded from matching altogether**, rather than
+   being allowed to consume an expectation.
+3. **Surplus flags on a key holding no expectation are ordinary false positives, never duplicate contention.**
+   Contention means contending *for an expectation*; counting unexpected duplicates there would inflate the
+   very diagnostic that exists to reveal an agent emitting duplicates against real findings.
+
+**An honest note on (2).** Since D50 now rejects any expected finding naming an absent target, every
+expectation names a real line — so a bogus-target flag could not have matched one anyway, and the exclusion is
+**defensive rather than load-bearing**. Its one observable effect is the label: the flag is reported as
+referencing a non-existent target instead of as an ordinary non-match. Recorded as a stated invariant so a
+future refactor cannot quietly drop it and change that label.
+
+---
+
+## D56 — Exactly one correspondence entry per invoice line ✅
+
+**Fork:** D48 required every invoice line to have a correspondence entry. Nothing constrained how *many*.
+
+**Demonstrated ambiguity.** Two rows mapping one invoice line to two different purchase-order lines were
+accepted, and so were exact duplicates. The key audit walks **every** row, so it derives from both mappings and
+unions the results — admitting a finding that only one mapping justifies, with nothing deciding which
+purchase-order line governs the price and quantity comparison. That is not a stylistic issue: it makes the
+derived truth depend on which rows happen to exist rather than on the data.
+
+**Decision ✅** — exactly one entry per invoice line, exact duplicates included, rejected at load naming the
+conflicting mappings. A positive control asserts the rule does not over-fire on the shipped datasets.
+
+---
+
+## D57 — Dataset coverage is asserted, and phase-scoped shape gets a tripwire ✅
+
+**Fork:** The dev split's coverage — all five categories, both directions of the materiality boundary on both
+basis kinds, a control with no expectations — was a property of how the data happened to be authored, asserted
+nowhere. And the single-purchase-order shape of every shipped invoice was a phase-scoped assumption.
+
+**Why coverage needs asserting.** A dataset that quietly stopped exercising a category would leave that
+category's precision and recall permanently `null`, and every scorecard would still look healthy — the same
+shape of silent failure as a wrong key. Both boundary *directions* matter for the same reason a
+rejection-only test is insufficient: a dataset of flagging cases alone cannot distinguish a correct threshold
+from one that flags everything.
+
+**Options considered for the phase-scoped shape**
+- **(A) A `profile` field in the manifest**, declaring the shape and enforced at load — the approach this
+  sweep originally proposed. **Rejected:** D47 already deliberately *allows* equal-rate multi-purchase-order
+  invoices, so "one PO per invoice" is not a rule the harness wants; and D47's existing test already fails the
+  moment multi-PO data arrives, which is the tripwire a profile would duplicate. Adding manifest schema for a
+  property that is already guarded, and partly contradicted, is machinery for its own sake.
+- **(B) Record the property as phase-scoped and name its tripwire.**
+
+**Decision ✅** — **(B).** Coverage invariants become requirements with tests. The single-PO shape is recorded
+as a phase-scoped property whose named tripwire is D47's existing assertion — which fails when `[P3]` authors
+its first multi-PO invoice and thereby *forces* the deferred apportionment to be implemented rather than
+guessed. The general rule: **a property that holds only for the current phase is enforced by a named tripwire,
+never assumed.**
+
+---
+
 ## Document status
 
-Decisions **D0–D54** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
-D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator). Spec emitted at
+Decisions **D0–D57** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
+D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57
+formalizing the behaviours that had lived only in code). Spec emitted at
 `specs/goldset-triad-harness.md`; build prompt for phase 1 at
 `specs/goldset-triad-harness.build-prompt.md`.
 

@@ -82,6 +82,39 @@ class KeyContentTests(unittest.TestCase):
         syn = support.read_json(support.DATASETS / "dev-synthetic" / "inputs" / "purchase_orders" / "PO-9001.json")
         self.assertIn("100000.00", {ln["extended"] for ln in syn["lines"]})
 
+    def test_dataset_coverage_invariants_hold(self) -> None:
+        """D57 — the dev split must actually exercise what it claims to.
+
+        These were properties of how the data happened to be authored, asserted nowhere.
+        A dataset that quietly stopped covering a category would leave that category's
+        precision and recall permanently null, and every scorecard would look fine."""
+        key = support.read_json(support.key_path("dev"))
+        categories = {f["category"] for f in key["expected_findings"]}
+        self.assertEqual(
+            categories,
+            {"PRICE_VARIANCE", "QTY_UNDER_SHIPMENT", "QTY_OVER_SHIPMENT",
+             "QTY_INVOICE_INFLATED", "TAX_VARIANCE"},
+            "the dev split no longer exercises all five categories",
+        )
+        # Both directions of the materiality boundary, on both basis kinds: a dataset
+        # with only flagging cases could not distinguish a correct threshold from one
+        # that flags everything.
+        self.assertTrue(has_finding("dev", "PRICE_VARIANCE", "LINE", "INV-2001", "3"))
+        self.assertFalse(has_finding("dev", "PRICE_VARIANCE", "LINE", "INV-2001", "4"))
+        self.assertTrue(has_finding("dev", "PRICE_VARIANCE", "LINE", "INV-2001", "5"))
+        self.assertFalse(has_finding("dev", "PRICE_VARIANCE", "LINE", "INV-2001", "6"))
+
+    def test_zero_defect_control_declares_no_expectations(self) -> None:
+        """D57 — the control is the whole basis of the over-flagging measure.
+
+        If it ever acquired an expected finding it would stop being a clean case, and
+        the false-positive rate computed from it would silently mean something else."""
+        key = support.read_json(support.key_path("dev-zero-defect"))
+        self.assertEqual(key["expected_findings"], [])
+        # But it must still carry correspondence for every line, or D48/D50 would be
+        # satisfied only by the dataset being empty.
+        self.assertTrue(key["correspondence"])
+
     def test_synthetic_labelled_and_loads_through_same_loader(self) -> None:
         m = support.read_json(support.DATASETS / "dev-synthetic" / "manifest.json")
         self.assertTrue(m["synthetic"])

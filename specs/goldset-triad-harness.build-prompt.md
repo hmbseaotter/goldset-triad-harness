@@ -92,7 +92,32 @@ mode can drop `TargetLine` without redesign.
 - Windows and Linux both first-class: use `pathlib`, assume no shell-specific behaviour, and document every
   command for **both** PowerShell and bash.
 
-**Scoring semantics — these decide which lines the answer key marks (D15, D16).**
+## ⚠️ Three actors — do not conflate them (D35)
+
+| Actor | Does | Ships? |
+|---|---|---|
+| **Key generator** | applies every domain rule, authors expected findings | no — secret side |
+| **Scoring engine** | loads the key, matches, counts. **No domain rule at scoring time.** | yes |
+| **Matching policy** | publishes every rule the generator applied, so the agent can implement them | yes |
+
+**The scorer must NOT derive expectations.** It would then score the agent against *its own* implementation of
+the rules rather than against audited ground truth — making any bug in that implementation silently
+authoritative, and collapsing "held-out golden dataset" into "reference implementation". It is not even possible
+in full: derivation needs the invoice→PO→receipt correspondence, which lives in the key (D22).
+
+**Ship a separate `audit` command** that derives expected findings from the structured inputs and diffs them
+against the declared key. It catches arithmetic slips, drift after regeneration, and hand-edits — the standing
+risk that a wrong key yields confidently wrong scores. It **must never run inside a scoring run**, or a
+derivation bug could become ground truth mid-score. Describe its output as a **consistency check, not a
+correctness proof** — generator and auditor share an author.
+
+**PDF ↔ index agreement (D36).** Emit the invoice document and its index entry from **one canonical record in a
+single pass**, so they cannot diverge by construction. Then **read the PDF back and assert it matches the
+index**, closing the rendering-bug residual (correct data, mis-rendered — a dropped digit). Parse-back is
+allowed here: D34 bars a parser from the *scoring engine*, not from the generator. Reliable only for the clean
+text-layer tier; P3's scanned tier has no text layer by definition and rests on construction alone.
+
+**The rules below are the KEY GENERATOR's, not the scorer's (D15, D16).**
 
 ```
 payable_qty      = min(qty_ordered, qty_received)
@@ -344,6 +369,13 @@ Do not mark this phase complete until every criterion below **passes by executio
   digest.
 - [ ] No PDF or document-parsing library is importable from the scoring engine.
 - [ ] A scan of the agent-readable inputs confirms the invoice index is absent from them.
+- [ ] A scan of the scoring engine finds no domain-rule implementation — no payable-quantity computation, no
+  materiality threshold, no tax comparison. Expectations are loaded, never derived.
+- [ ] Editing an expected finding in the key changes the score while the inputs are untouched.
+- [ ] `audit` against a corrupted key reports the divergence and names the finding; against the shipped key it
+  reports none. No scoring code path invokes it.
+- [ ] Every generator rule appears in the published matching policy.
+- [ ] Generation-time parse-back confirms document matches index for every clean-tier invoice.
 - [ ] Editing one byte of one input, with key and version untouched, changes the aggregate inputs digest.
 - [ ] A verify mismatch names which input files diverged, not just that the aggregate differed.
 - [ ] The aggregate inputs digest is identical computed on Windows and on Linux from the same data.

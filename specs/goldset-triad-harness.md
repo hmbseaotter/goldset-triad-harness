@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.9.0
+- Spec version: 0.10.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-25
 - Author(s): Saso Gale
@@ -195,26 +195,33 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 
 ## requirements
 
+**Three actors, deliberately separated (D35).** *The key generator* applies the domain rules and authors the
+expected findings; it runs on the secret side and never ships. *The scoring engine* loads those expectations and
+confines itself to matching and counting — **no domain rule executes at scoring time**. *The published matching
+policy* states every rule the generator applied, because an agent cannot compete against rules it cannot read.
+Requirements below name whichever actor they bind; "the harness" means the scoring engine unless stated
+otherwise.
+
 ### ubiquitous (always active)
 - [P1] The harness SHALL perform all scoring in deterministic plain code, making no LLM call and no network
   call at any point during a run.
 - [P1] The harness SHALL represent every monetary value as `Decimal` and never as `float`.
-- [P1] The harness SHALL compute and compare every monetary value at full `Decimal` precision and SHALL NOT
-  round any value before a comparison, because rounding an intermediate is path-dependent and would make an
-  independent auditor's recomputation diverge (D23).
+- [P1] The harness **and the key generator** SHALL compute and compare every monetary value at full `Decimal`
+  precision and SHALL NOT round any value before a comparison, because rounding an intermediate is
+  path-dependent and would make an independent auditor's recomputation diverge (D23).
 - [P1] The harness SHALL round monetary values to two decimal places only when emitting them for display,
   SHALL use `ROUND_HALF_UP` explicitly rather than the language default, and SHALL NOT admit a rounded value
   back into any comparison (D23).
-- [P1] WHEN computing the expected tax for an invoice, the harness SHALL apply the purchase-order-derived rate
-  to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
+- [P1] WHEN computing the expected tax for an invoice, the key generator SHALL apply the purchase-order-derived
+  rate to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
   category rather than additionally producing a tax finding (D24).
-- [P1] WHEN deciding whether a tax variance is material, the harness SHALL evaluate the comparison in
+- [P1] WHEN deciding whether a tax variance is material, the key generator SHALL evaluate the comparison in
   cross-multiplied form, comparing the absolute difference between the invoiced tax times the purchase-order
   taxable subtotal and the purchase-order tax times the invoiced taxable subtotal against the threshold times
   the purchase-order taxable subtotal — so that the decision uses multiplication and subtraction only and
   performs **no division**, the tax rate being generally non-terminating (D28).
 - [P1] WHERE the purchase order has no taxable lines, so that its taxable subtotal is zero and no rate is
-  derivable, the harness SHALL treat the expected tax as zero and SHALL compare the invoiced tax directly
+  derivable, the key generator SHALL treat the expected tax as zero and SHALL compare the invoiced tax directly
   against the threshold, which degenerates to five cents — and SHALL NOT apply the cross-multiplied comparison,
   which at a zero subtotal reduces to zero against zero and would flag every such invoice while annihilating
   the invoiced tax (D29).
@@ -224,8 +231,21 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] IF a purchase order or an invoice omits its tax field, or presents it as null, the harness SHALL reject
   the dataset as malformed — the field SHALL always be present, carrying zero where nothing is taxable, so that
   absent is never confusable with zero (D29).
-- [P1] The harness SHALL NOT perform a division inside any flagging decision, and SHALL confine division to
-  values that are only displayed or only reported (D28).
+- [P1] The key generator SHALL NOT perform a division inside any flagging decision, and SHALL confine division
+  to values that are only displayed or only reported (D28).
+- [P1] The harness SHALL provide a key-audit command, separate from scoring, that derives expected findings from
+  the structured inputs and reports every divergence from the declared answer key — and that command SHALL NOT
+  execute during a scoring run, so that a derivation defect can never become ground truth mid-score (D35).
+- [P1] The key-audit command SHALL describe its result as a consistency check rather than a proof of
+  correctness, because generator and auditor share an author and their independence is therefore weak (D35).
+- [P1] The key generator SHALL emit each invoice document and its entry in the structured invoice index from a
+  single canonical record in one pass, so that document and index cannot diverge by construction (D36).
+- [P1] The key generator SHALL read back each generated invoice document and SHALL assert that it matches the
+  structured invoice index, closing the residual case of correct data mis-rendered into the document — this
+  parse-back being permitted because it runs on the generation side, which the scoring engine's
+  standard-library-only rule does not bind (D36).
+- [P3] WHERE a document tier has no reliable text layer, the round-trip parse-back SHALL be recorded as
+  inapplicable and agreement SHALL rest on single-source construction alone (D36).
 - [P1] The harness SHALL pin the decimal context precision to a declared constant rather than relying on the
   language default, so that any incidental division is reproducible across environments (D28).
 - [P1] The harness SHALL emit every reported ratio — precision, recall, and the false-positives-per-invoice
@@ -293,12 +313,18 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [P1] WHEN an agent finding carries a status of MATCH rather than DISCREPANCY, the harness SHALL treat it
   as an assertion of correctness that is ineligible to be a flag, and SHALL NOT count it as a false
   positive.
-- [P1] WHEN determining a quantity discrepancy on a line, the harness SHALL compute the payable quantity as
+- [P1] The scoring engine SHALL load expected findings from the answer key and SHALL confine itself to matching
+  and counting, and SHALL NOT apply any domain rule at scoring time — because a scorer that derived expectations
+  would score the agent against its own implementation rather than against audited ground truth, making any bug
+  in that implementation silently authoritative (D35).
+- [P1] Every rule determining whether a discrepancy exists, its category, or its materiality SHALL be applied by
+  the key generator when authoring expected findings, and SHALL be stated in the published matching policy (D35).
+- [P1] WHEN determining a quantity discrepancy on a line, the key generator SHALL compute the payable quantity as
   the lesser of the ordered and received quantities, and SHALL treat the line as overbilled only when the
   invoiced quantity exceeds that payable quantity (D15).
-- [P1] WHEN establishing the received quantity for a purchase-order line, the harness SHALL sum the quantities
-  recorded across **all** goods receipts referencing that line, because partial deliveries produce several
-  receipts and a quantity taken from one receipt where two exist would be wrong (D31).
+- [P1] WHEN establishing the received quantity for a purchase-order line, the key generator SHALL sum the
+  quantities recorded across **all** goods receipts referencing that line, because partial deliveries produce
+  several receipts and a quantity taken from one receipt where two exist would be wrong (D31).
 - [P1] Goods receipts SHALL be represented as documents separate from the purchase order, each carrying its own
   receipt number, date, receiver, line items and identifiers, so that resolving receipt-to-purchase-order
   correspondence is part of the evaluated task rather than given away by co-location (D31).
@@ -322,14 +348,14 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   creation and modification dates pinned to the seeded timestamp and the document identifier pinned or
   suppressed — otherwise the aggregate inputs digest changes on every regeneration and presents as tampering
   (D33).
-- [P1] WHEN a line is overbilled on quantity, the harness SHALL assign the category by which constraint
+- [P1] WHEN a line is overbilled on quantity, the key generator SHALL assign the category by which constraint
   bound the payable quantity: `QTY_UNDER_SHIPMENT` where the received quantity is less than the ordered
   quantity, `QTY_OVER_SHIPMENT` where the ordered quantity is less than the received quantity, and
   `QTY_INVOICE_INFLATED` where the ordered and received quantities are equal (D15).
-- [P1] WHEN measuring a price variance on a line, the harness SHALL compute it as the difference between the
-  invoiced and purchase-order unit prices multiplied by the **payable** quantity, so that a quantity error
+- [P1] WHEN measuring a price variance on a line, the key generator SHALL compute it as the difference between
+  the invoiced and purchase-order unit prices multiplied by the **payable** quantity, so that a quantity error
   cannot present as a price error and be counted twice (D16).
-- [P1] WHEN deciding whether a monetary variance is material, the harness SHALL apply a single threshold —
+- [P1] WHEN deciding whether a monetary variance is material, the key generator SHALL apply a single threshold —
   the greater of five cents and the lesser of two percent of the applicable basis and twenty-five dollars —
   and SHALL flag the variance when its absolute value is **equal to or greater than** that threshold (D16).
 - [P1] WHERE the finding is line-scoped, the basis for the two-percent term SHALL be the **payable extended
@@ -340,8 +366,9 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
   invoice's taxable subtotal (D21).
 - [P1] A `TAX_VARIANCE` finding SHALL be document-scoped, because tax is charged once per invoice rather than
   per line, and SHALL NOT be distributed across the invoice's taxable lines (D20, D21).
-- [P1] WHEN assessing a quantity overbill for materiality, the harness SHALL value it as the excess quantity
-  multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances (D16).
+- [P1] WHEN assessing a quantity overbill for materiality, the key generator SHALL value it as the excess
+  quantity multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances
+  (D16).
 - [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory and the
   answer-key path separately, so that a split whose inputs and key reside in different locations is loadable
   without special-casing (D17).
@@ -452,6 +479,17 @@ each writes a distinctly timestamped scorecard and appends to the ledger atomica
 - [ ] [P1] No PDF or document-parsing library is importable from the scoring engine, and the harness reads no
   invoice document at any point.
 - [ ] [P1] A scan of the agent-readable inputs confirms the structured invoice index is absent from them.
+- [ ] [P1] A scan of the scoring engine finds no implementation of any domain rule — no payable-quantity
+  computation, no materiality threshold, no tax comparison — confirming expectations are loaded, never derived.
+- [ ] [P1] Replacing an expected finding in the answer key changes the score, while leaving the inputs untouched
+  — demonstrating the key, not the inputs, is what the scorer treats as truth.
+- [ ] [P1] The key-audit command run against a deliberately corrupted answer key reports the divergence and
+  names the affected finding; run against the shipped key it reports none.
+- [ ] [P1] The key-audit command is not invoked by any scoring code path.
+- [ ] [P1] Every rule the key generator applies appears in the published matching policy, verified by comparing
+  the policy against the generator's rule set.
+- [ ] [P1] Generation emits each invoice document and its index entry from one canonical record, and the
+  generation-time parse-back confirms the document matches the index for every clean-tier invoice.
 - [ ] [P1] Editing one byte of one input file, leaving the answer key and dataset version untouched, changes
   the aggregate inputs digest — so the altered run cannot masquerade as the original.
 - [ ] [P1] Verification against a scorecard whose inputs have changed reports which specific files diverged,
@@ -685,6 +723,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.0 (2026-07-26): **corrects a misattribution running through the whole requirements block.** **D35:** the
+  spec phrased scoring semantics as things "the harness SHALL compute" while also treating the answer key as
+  indispensable ground truth — saying both. The scorer in fact needs **no domain rule at all**: it needs the
+  match key, counting, and the invoice index for target validation and the FP-rate denominator. So the
+  payable-quantity rule, the materiality threshold, the price measurement, the tax expectation and its
+  cross-multiplied comparison, the zero-taxable branch and the receipt summation are all **re-attributed to the
+  key generator**, and must appear in the published matching policy so the agent can implement them. This is not
+  tidiness: a scorer that derived expectations would score the agent against its own rule implementation rather
+  than audited truth, making any bug in it silently authoritative and collapsing "golden dataset" into
+  "reference implementation" — and it is not even achievable, since derivation needs the correspondence D22
+  places in the key. A **separate key-audit command** derives and diffs against the key, addressing the standing
+  risk that a wrong key produces confidently wrong scores; it never runs inside a scoring run, and is labelled a
+  consistency check rather than a correctness proof, since generator and auditor share an author. **D36:** the
+  invoice document and its index entry are emitted from **one canonical record in a single pass**, so they cannot
+  diverge by construction, with a **generation-time parse-back** closing the residual rendering-bug case.
+  Parsing is permitted there because D34 bars a parser from the *scoring engine*, not from the generator. Two
+  limits recorded: parse-back suits only the clean text-layer tier, and the check is attested rather than
+  shipped. Adds a three-actor preamble to the requirements block.
 - 0.9.0 (2026-07-26): resolves the contradiction D31 created and answers where structured invoice data comes
   from. **D33 corrects a stale constraint:** the PDF-authoring library was deferred to `[P3]` as "not needed
   now", but D31 made invoices supplier PDFs and the dev split needs authoring immediately. The deferral had

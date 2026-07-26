@@ -1172,6 +1172,68 @@ findings artifact, answer key, inputs aggregate, and invoice index.
 
 ---
 
+## D35 — The scorer loads and matches; it never derives ✅ (corrects a misattribution throughout the spec)
+
+**Fork:** Does the harness derive expected findings from the inputs at scoring time, or load them from the
+answer key and only match? The spec said both — phrasing scoring semantics as things *"the harness SHALL
+compute"* while treating the key as indispensable ground truth.
+
+**The defect: the domain rules were attributed to the wrong actor.** What the scorer actually needs is small —
+the match key for matching, counting for the metrics, the invoice index for target validation and the
+false-positive-rate denominator. **It needs no domain rule at all.** The payable-quantity rule, the materiality
+threshold, the tax comparison: those are applied by the **key generator** when authoring expectations, and
+published in the **matching policy** so the agent can implement them too.
+
+**Why this matters beyond tidiness** — if the scorer derived expectations, it would be scoring the agent
+against **its own implementation of the rules**, not against audited ground truth. Any bug in that
+implementation would silently *become* truth, and "held-out golden dataset" would collapse into "reference
+implementation", which is a materially weaker claim. It is not even achievable in full: derivation needs the
+invoice→PO→receipt correspondence, which D22 deliberately places in the key.
+
+**Decision ✅**
+- **The scoring engine loads expected findings from the answer key and confines itself to matching and
+  counting.** No domain rule executes at scoring time.
+- **Domain rules are re-attributed** to the key generator, and SHALL appear in the published matching policy —
+  the agent cannot compete against rules it cannot read.
+- **A separate key-audit command** derives expected findings from the structured inputs and diffs them against
+  the declared key.
+
+**Why the audit command is a distinct command** — it addresses the risk named repeatedly across this project:
+*the answer key is the riskiest artifact, because a wrong key produces confidently wrong scores that nothing
+downstream can detect.* Deriving catches arithmetic slips, drift after regeneration, and hand-edits. But it
+**must never run inside a scoring run**, or a derivation bug could quietly become ground truth mid-score.
+
+**Labelled honestly: a consistency check, not a correctness proof.** Generator and auditor share an author, so
+their independence is weak. It catches transcription and drift, not shared misunderstanding.
+
+---
+
+## D36 — PDF and index agree by construction, with a round-trip closing the residual ✅
+
+**Fork:** Nothing in the repository can prove the committed invoice PDFs and the committed invoice index agree,
+since proving it means parsing a PDF — barred from the scoring engine by D34.
+
+**Decision ✅** — two layers, neither of which is repository-side verification:
+
+1. **Agreement by construction.** The generator emits the PDF **and** the index from **one canonical invoice
+   record in a single pass**. They cannot diverge, because they have one source. Post-hoc hand-edits are caught
+   by fingerprints — the inputs digest covers the PDF, the index fingerprint covers the index (D27, D34).
+2. **Round-trip parse-back at generation time.** Construction does not cover a **rendering bug** — correct data
+   in the index, mis-rendered into the PDF, a dropped digit or truncated column. So the generator writes the
+   PDF, **reads it back, and asserts it matches the index**.
+
+**Parsing is permitted here.** D34 bars a parser from the **scoring engine**, not from the generator, which
+already carries ReportLab. A reader for a self-check sits on the same side of that boundary.
+
+**Two honest limits**
+- Round-trip extraction is reliable only for the **clean text-layer tier**. P3's dot-matrix and scanned tiers
+  fall back to construction alone — and for a scanned tier that is unavoidable, since the whole point is that
+  it has no text layer.
+- The check lives **secret-side with the generator**, so its result is **attested, not shipped** — the same
+  verify-what-you-can, attest-the-rest pattern as D30.
+
+---
+
 ## Document status
 
 Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build

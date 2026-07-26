@@ -12,5 +12,9 @@ datasets/**/*.txt   -text
 # PDFs are binary everywhere, never line-ending converted.
 *.pdf  binary
 
-# Scorecards are the durable committed record; keep their bytes exact too.
+# Scorecards are the durable committed record; keep their bytes exact too. Both
+# halves of the pair are covered: the harness writes the .json and the .txt summary
+# with pinned LF (D49), so letting git convert either one would reintroduce exactly
+# the platform divergence that pinning removed.
 scorecards/**/*.json  -text
+scorecards/**/*.txt   -text

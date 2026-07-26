@@ -72,13 +72,52 @@ def run_score(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = run_metadata.run_timestamp.replace(":", "").replace("-", "")
-    stem = f"scorecard-{loaded.manifest.identifier}-{stamp}"
-    (out_dir / f"{stem}.json").write_text(card_json, encoding="utf-8")
-    (out_dir / f"{stem}.txt").write_text(summary, encoding="utf-8")
+    json_path, txt_path = _reserve_scorecard_paths(
+        out_dir, f"scorecard-{loaded.manifest.identifier}-{stamp}"
+    )
+    _write_new_file(json_path, card_json)
+    _write_new_file(txt_path, summary)
 
     sys.stdout.write(summary)
-    sys.stdout.write(f"\nScorecard written to {out_dir / (stem + '.json')}\n")
+    sys.stdout.write(f"\nScorecard written to {json_path}\n")
     return 0
+
+
+def _write_new_file(path: Path, text: str) -> None:
+    """Create ``path`` and write ``text``, failing if it already exists.
+
+    Mode ``"x"`` makes overwriting a prior scorecard impossible at the operating
+    system level rather than merely unintended — scorecards are the durable record
+    and the harness SHALL NOT overwrite one.
+
+    ``newline="\\n"`` is pinned for the same reason it is pinned in the generator
+    (D43): without it Python translates "\\n" to the platform default, so the same
+    run would emit CRLF on Windows and LF on Linux. The scorecard bytes would then
+    differ by platform, contradicting the requirement that identical inputs yield
+    identical scorecard content on Windows and on Linux."""
+    with open(path, "x", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def _reserve_scorecard_paths(out_dir: Path, base_stem: str) -> tuple[Path, Path]:
+    """Pick a stem whose .json and .txt are both free (D49).
+
+    The run stamp is second-precision, because every timestamp this harness writes
+    is (D6) — so two runs inside the same second would otherwise derive the same
+    filename and the second would silently destroy the first. An ordinal
+    disambiguates without introducing a sub-second timestamp, which would break the
+    second-precision rule. Both extensions are checked together so the pair never
+    straddles two stems."""
+    for ordinal in range(1, 10_000):
+        stem = base_stem if ordinal == 1 else f"{base_stem}-{ordinal}"
+        json_path = out_dir / f"{stem}.json"
+        txt_path = out_dir / f"{stem}.txt"
+        if not json_path.exists() and not txt_path.exists():
+            return json_path, txt_path
+    raise DatasetError(
+        f"cannot reserve a scorecard filename in {out_dir}: 9999 runs already share "
+        f"the stem '{base_stem}'"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

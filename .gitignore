@@ -33,6 +33,10 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+# Written by `pip install .`, which D59 made a documented step (the console scripts only
+# exist once installed). Both land beside the sources rather than in a temp directory.
+build/
+dist/
 
 # --- Session / tooling artifacts -------------------------------------------------
 # Written per project by the Claude Code session tooling: a timestamp and a

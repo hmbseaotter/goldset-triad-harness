@@ -49,9 +49,9 @@ class DatasetLoadingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             po = manifest.parent / "inputs" / "purchase_orders" / "PO-3001.json"
-            data = json.loads(po.read_text())
+            data = json.loads(po.read_text(encoding="utf-8"))
             data["timestamp"] = "2026-06-01"  # bare date, no Z
-            po.write_text(json.dumps(data))
+            po.write_text(json.dumps(data), encoding="utf-8", newline="\n")
             with self.assertRaises(DatasetError) as ctx:
                 load_dataset(str(manifest), support.DATASETS)
             self.assertIn("Z-suffixed", str(ctx.exception))
@@ -60,10 +60,10 @@ class DatasetLoadingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             po = manifest.parent / "inputs" / "purchase_orders" / "PO-3001.json"
-            data = json.loads(po.read_text())
+            data = json.loads(po.read_text(encoding="utf-8"))
             for ln in data["lines"]:
                 ln["taxable"] = False  # now taxable subtotal is 0 but tax > 0
-            po.write_text(json.dumps(data))
+            po.write_text(json.dumps(data), encoding="utf-8", newline="\n")
             with self.assertRaises(DatasetError) as ctx:
                 load_dataset(str(manifest), support.DATASETS)
             self.assertIn("PO-3001", str(ctx.exception))
@@ -72,9 +72,9 @@ class DatasetLoadingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             po = manifest.parent / "inputs" / "purchase_orders" / "PO-3001.json"
-            data = json.loads(po.read_text())
+            data = json.loads(po.read_text(encoding="utf-8"))
             del data["tax"]
-            po.write_text(json.dumps(data))
+            po.write_text(json.dumps(data), encoding="utf-8", newline="\n")
             with self.assertRaises(DatasetError):
                 load_dataset(str(manifest), support.DATASETS)
 
@@ -110,10 +110,10 @@ class DatasetLoadingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             ipath = manifest.parent / "dev_invoice_index.json"
-            data = json.loads(ipath.read_text())
+            data = json.loads(ipath.read_text(encoding="utf-8"))
             for inv in data["invoices"]:
                 inv["lines"].reverse()  # reorder lines
-            ipath.write_text(json.dumps(data))
+            ipath.write_text(json.dumps(data), encoding="utf-8", newline="\n")
             idx2 = load_invoice_index(ipath)
         self.assertEqual(idx.inventory.line_targets, idx2.inventory.line_targets)
 

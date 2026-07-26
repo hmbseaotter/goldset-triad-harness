@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.13.0
+- Spec version: 0.17.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -285,9 +285,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 | Quantity | ubiquitous · event-driven |
 | Price & materiality | ubiquitous · event-driven · non-functional |
 | Matching & scope | ubiquitous · event-driven · unwanted behavior · optional feature |
-| Metrics & undefined values | ubiquitous · event-driven · unwanted behavior |
+| Metrics & undefined values | ubiquitous · event-driven · state-driven · unwanted behavior |
 | Fingerprints & integrity | ubiquitous · event-driven · unwanted behavior |
-| Ground-truth artifacts | ubiquitous · event-driven · unwanted behavior · non-functional |
+| Ground-truth artifacts | ubiquitous · event-driven · state-driven · unwanted behavior · non-functional |
 | Isolation | unwanted behavior · non-functional |
 | Generation | ubiquitous · event-driven · optional feature · non-functional |
 
@@ -345,7 +345,7 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   invoice is such a property, and its tripwire is what forces `[P3]` to implement the deferred tax
   apportionment instead of guessing it (D57, D47).
 
-*Generation invariants (D33, D36)*
+*Generation invariants (D33, D36, D58)*
 - [P1] Generated invoice documents SHALL be byte-identical on regeneration from the same seed, with document
   creation and modification dates pinned to the seeded timestamp and the document identifier pinned or
   suppressed — otherwise the aggregate inputs digest changes on every regeneration and presents as tampering
@@ -356,6 +356,53 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   structured invoice index, closing the residual case of correct data mis-rendered into the document — this
   parse-back being permitted because it runs on the generation side, which the scoring engine's
   standard-library-only rule does not bind (D36).
+- [P1] The key generator SHALL stamp a digest of its own source into every manifest it emits, and the harness
+  SHALL verify that stamp whenever the generator is reachable — because the generator lives out of tree and
+  agent-denied, so without a stamp nothing in the repository can notice that a domain rule changed and the
+  datasets were never regenerated, and every other check stays green while describing data authored under rules
+  that no longer exist (D58).
+- [P1] The staleness stamp SHALL be computed by the shipped implementation that the verifying check uses, and
+  SHALL NOT be reimplemented on the generation side, because it is a mechanical digest rather than a domain rule
+  and a second implementation could only drift — which is the very condition the stamp exists to detect (D58,
+  D35).
+- [P1] The staleness stamp SHALL cover generator source files only, SHALL exclude compiled bytecode, and SHALL
+  hash raw bytes under forward-slashed relative paths sorted byte-wise, so that two machines agree on it for the
+  same reasons the aggregate inputs digest does (D58, D27).
+- [P1] The staleness verification SHALL skip with a message naming why when the generator is not reachable, and
+  SHALL NOT fail, because a suite that is red on every clone is a suite nobody reads (D58, D14).
+- [P1] The staleness stamp SHALL live in the manifest, which sits outside the inputs directory, so re-stamping
+  SHALL NOT alter the aggregate inputs digest and SHALL NOT invalidate any scorecard already emitted (D58, D27).
+
+*Portability and shared validity (D61, D62)*
+- [P1] Every text read and write in the repository SHALL name its encoding explicitly, every text write SHALL pin
+  its newline, and a check SHALL fail on any call that does not — because the platform default differs between the
+  development machine and CI, which makes it an unstated dependency rather than a default (D61, D49).
+- [P1] The key-audit command SHALL validate a dataset through the same loader a scoring run uses before
+  performing its own derivation, so that every dataset the scorer refuses the audit also refuses (D62).
+- [P1] The key-audit command SHALL continue to derive expected findings by an implementation independent of the
+  generator, because the independence D35 requires concerns deriving findings and not deciding admissibility, on
+  which a second implementation offers nothing to compare (D62, D35).
+
+*Coverage disclosure (D60)*
+- [P1] The scorecard SHALL state which discrepancy categories the dataset holds expectations for and which it
+  does not, and SHALL report the count of expectations per category, because an undefined metric on a category
+  the data never exercised is indistinguishable from a perfect result and reads as one (D60, D25).
+- [P1] The coverage statement SHALL live in the scored body rather than the `run_metadata` envelope, because it
+  is a property of the answer key and therefore deterministic (D60, D10).
+- [P1] The human-readable summary SHALL render an undefined metric as a reader-facing token and SHALL NOT
+  interpolate the language's null representation, while the machine-readable scorecard SHALL continue to emit
+  null (D60, D25).
+- [P1] The scorecard SHALL carry a schema version, and that version SHALL be raised whenever the scored body's
+  shape changes, because byte-identity is promised between runs on the same inputs and never across schema
+  versions (D60).
+
+*Command-line surface (D59)*
+- [P1] Every module exposing a `main` entry point SHALL be declared as a console script, and the name a command
+  advertises for itself in its own help output SHALL be a command that exists — because a tool whose help names a
+  command the package never declared sends a reader to a command-not-found (D59).
+- [P1] A command that inspects the repository SHALL resolve which tree to inspect explicitly, and IF no checkout
+  can be found it SHALL report that nothing was checked rather than reporting an isolation failure, because
+  naming a failure that did not occur is the misdiagnosis D50 ruled worse than silence (D59, D50).
 
 *Category and scope invariants (D19, D20, D21)*
 - [P1] A `TAX_VARIANCE` finding SHALL be document-scoped, because tax is charged once per invoice rather than
@@ -495,6 +542,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] WHILE a run is in progress, the harness SHALL leave every input file unmodified.
 - [P1] WHILE emitting a scorecard, the harness SHALL serialize with a stable key ordering so that identical
   inputs yield identical bytes.
+- [P1] WHILE scoring a dataset whose answer key declares no expected findings at all, the harness SHALL state in
+  the scorecard that the dataset measures over-flagging only and that every recall figure is undefined by
+  construction, so the zero-defect control is not read as an agent that recalled nothing (D60, D57).
 
 ### unwanted behavior (IF — error handling)
 - [P1] IF the findings artifact violates the payload schema, the harness SHALL halt with an error naming the
@@ -535,6 +585,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] IF the guard-configuration check finds any secret path uncovered by the deny rules, or the placement
   check finds a secret artifact inside the repository tree, the harness SHALL report a failed isolation check
   prominently and exit non-zero (D30).
+- [P1] IF a dataset is malformed in a way the loader does not model, the key-audit command SHALL report that the
+  dataset is malformed and name the fault, and SHALL NOT surface a bare exception nor report the condition as a key
+  divergence (D62, D50).
 - [P3] IF a run exceeds the performance target, the harness SHALL emit a prominent warning and SHALL exit
   zero, because elapsed time does not affect scoring correctness.
 
@@ -801,6 +854,32 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] A scan confirms zero occurrences of "reconciliation agent" and "iTradeNetwork" in the repository.
 - [ ] [P1] No input dataset or answer-key file is modified by any run, verified by comparing file hashes
   before and after.
+- [ ] [P1] Every shipped dataset's manifest records a digest of the generator source that emitted it, so a
+  dataset authored under rules that have since changed can be identified rather than merely trusted (D58).
+- [ ] [P1] All shipped splits carry the same generator digest, so a partial regeneration leaving some splits
+  current and others stale is detected (D58).
+- [ ] [P1] When the generator is reachable, each manifest's recorded digest still matches the generator's
+  current source; when it is not reachable the check skips with a message naming why, so the suite still
+  passes from a clone with no out-of-tree path (D58, D14).
+- [ ] [P1] The staleness digest provably moves when a generator source is edited and provably does not move
+  when bytecode is added, so the check detects a rule change without reporting every machine as stale (D58).
+- [ ] [P1] Every module with a `main` is declared as a console script, every declared script resolves to a real
+  callable, and every program name a command advertises in its own help is a command that exists (D59).
+- [ ] [P1] Run where no checkout can be found, the isolation command reports that nothing was checked and does
+  not report an isolation failure; an explicit `--repo-root` is honoured and a nonexistent one is named (D59).
+- [ ] [P1] A dataset exercising only some categories yields a scorecard naming the categories it cannot measure,
+  with each such category's expectation count at zero and flagged unexercised, and a summary stating that their
+  null metrics mean absent data rather than a correct agent (D60).
+- [ ] [P1] The zero-defect control's scorecard states that it measures over-flagging only and that every recall
+  figure is undefined by construction (D60).
+- [ ] [P1] The coverage statement appears in the scored body and not in `run_metadata`; the human summary renders
+  undefined metrics as a reader-facing token while the JSON still emits null (D60).
+- [ ] [P1] No text read or write in `src/` or `tests/` relies on the platform default encoding, asserted over the
+  parsed syntax rather than by text search, and the check is shown to fire on a bare call (D61).
+- [ ] [P1] Every malformation the loader rejects is also rejected by the key-audit command, with an error naming the
+  fault rather than a traceback, a bare exception repr, or a key-divergence report (D62).
+- [ ] [P1] Sharing the loader has not made the audit defer to the key: a mis-targeted expectation on a structurally
+  valid dataset is still reported as a divergence (D62).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -914,6 +993,49 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.17.0 (2026-07-26): **the audit refuses what the scorer refuses (D62)**, plus **explicit encodings (D61)**.
+  `audit()` never called the loader, so every validator a scoring run applies was skipped on the audit path. This
+  was ranked *last* of the four review issues on the belief that its failure mode was a confusing message —
+  **that was wrong, and measuring it showed so**: with the fix neutralized, three of seven malformed datasets
+  came back **"consistent"**, including a dropped correspondence row, and two more were reported as key
+  divergences. The auditor walks the correspondence it is given, so an omission is a line it never examines —
+  D48's self-consistency trap, now shown to apply to the auditor itself. Validity now comes through the same
+  front door; derivation stays independent, asserted by a test that a mis-targeted expectation is still caught.
+  D61 rides along because it fired during this work: text reads with no encoding decode with the platform
+  default, which is cp1252 here, so any file acquiring a byte cp1252 leaves undefined breaks the suite **on
+  Windows only** — the fourth appearance of the line-ending/encoding class from D49. An AST guard now fails on
+  any implicit-encoding call. 6 acceptance criteria added; 152 tests.
+- 0.16.0 (2026-07-26): **the scorecard states what the dataset could not measure (D60)** — the held-out split
+  exercises 2 of 5 categories, so three came back `null`, and D25's `null` means "undefined" without saying
+  *why*. Undefined spans "not applicable", "not attempted" and "not asked", and a reader who cannot tell them
+  apart picks the flattering one — on the one split whose numbers carry weight. Nothing needed computing:
+  `tp + fn` already was the expectation count, so the defect was the scorecard declining to state what it
+  already knew. A `coverage` block in the scored body names what is and is not exercised; the summary marks each
+  unexercised row and spells out the consequence. The zero-defect control now says it measures over-flagging
+  only, rather than presenting as an agent that recalled nothing. Two things this exposed: the summary printed
+  Python's `None` into the durable human record (now `n/a`, with JSON still emitting `null`), and the scored
+  body's shape changed, so the scorecard schema goes `"1"` → `"2"`. 3 acceptance criteria added; 147 tests.
+- 0.15.0 (2026-07-26): **every advertised command exists (D59)** — `audit_key`'s own help introduced itself as
+  `goldset-triad-audit-key` while `pyproject.toml` declared only `goldset-triad`, so following the tool's
+  instructions produced command-not-found; the isolation check had no script at all. Invisible because every test
+  and every manual run used `python -m goldset_triad.<module>`, which works either way — the same shape as D58:
+  a claim nothing compared against reality. Three checks now run in opposite directions (module → declaration,
+  declaration → callable, advertised name → declaration). Declaring the scripts then exposed two latent faults:
+  `check_isolation.main` ignored the arguments it accepted, so the new command swallowed `--help` and typos; and
+  the repository root came from `__file__`, so an installed copy announced *"the deny-guards are unconfigured"* —
+  an isolation failure that had not occurred, D50's misdiagnosis in the most trust-costly direction. Verified in
+  a throwaway venv. 2 acceptance criteria added; 140 tests.
+- 0.14.0 (2026-07-26): **generator staleness becomes detectable (D58)** — closes the first of four issues the
+  post-build review left open, taken first because it is the only one whose cost of fixing *rises* with delay:
+  the fix requires regenerating every split, which is one command over four tiny datasets at `[P1]` and an event
+  with its own risk at `[P3]`. The generator lives out of tree and agent-denied (D14, D17), so nothing in the
+  repository could notice that a domain rule changed and the data was never regenerated — and a stale dataset
+  fails no existing check, because the audit re-derives from inputs that are stale in the same way the key is.
+  Every mechanical signal stays green while the whole dataset describes rules that no longer exist. Each manifest
+  now carries `generator_sha256`, verified in two halves: carrying a stamp and agreeing across splits needs no
+  generator and runs in CI, while matching the current source skips cleanly when the generator is absent, since
+  D14 requires the suite to pass from a clone. Proven by mutating a rule and observing the suite go red, naming
+  the stale dataset. 4 acceptance criteria added; 132 tests.
 - 0.13.0 (2026-07-26): **formalizes the behaviours that lived only in code** — the remaining unrecorded
   assumptions. **D55:** three scoring micro-semantics become requirements — a `MATCH` is ineligible to *satisfy*
   an expectation as well as to be a flag (D13 settled only the latter), a finding whose target is absent is

@@ -25,7 +25,11 @@ from .constants import RATIO_OUTPUT_PLACES, ROUNDING_MODE
 from .schema import Category, Finding
 from .scoring import ScoreResult
 
-SCORECARD_SCHEMA_VERSION = "1"
+# Bumped to "2" by D60, which added the `coverage` block and two per-category fields. The
+# scored body's shape changed, so a consumer written against "1" must be told rather than
+# left to discover it: byte-identity is promised between runs on the same inputs, never
+# across schema versions.
+SCORECARD_SCHEMA_VERSION = "2"
 
 _RATIO_QUANTUM = Decimal(1).scaleb(-RATIO_OUTPUT_PLACES)  # e.g. Decimal("0.0001")
 
@@ -90,13 +94,24 @@ def build_scorecard(
     """Assemble the scorecard as a JSON-ready dict. Deterministic content only in
     the scored body; the non-deterministic envelope is ``run_metadata``."""
     per_category: dict[str, Any] = {}
+    exercised: list[str] = []
+    unexercised: list[str] = []
     for m in result.category_metrics:
+        # Every expectation in a category is either matched or missed, so tp + fn IS the
+        # number of expectations the key holds there — and zero of them means the DATASET
+        # does not exercise this category (D60). The scorecard states that rather than
+        # leaving it to be inferred: a row of zeros with two nulls reads as "nothing to
+        # report", when the truth is "this dataset cannot measure this".
+        expected_count = m.true_positives + m.false_negatives
+        (exercised if expected_count else unexercised).append(m.category.value)
         per_category[m.category.value] = {
             "true_positives": m.true_positives,
             "false_positives": m.false_positives,
             "false_negatives": m.false_negatives,
             "precision": _ratio_str(m.precision),
             "recall": _ratio_str(m.recall),
+            "expected_count": expected_count,
+            "exercised_by_dataset": bool(expected_count),
         }
 
     return {
@@ -114,6 +129,23 @@ def build_scorecard(
         "workload": {
             "invoice_count": result.invoice_count,
             "finding_count": result.finding_count,
+        },
+        # What this dataset can and cannot measure (D60). Deterministic — a property of the
+        # answer key, not of the run — so it belongs in the scored body, not run_metadata.
+        # The held-out split at [P1] exercises two of five categories; without this block a
+        # reader sees three categories at null and reasonably concludes the agent was
+        # flawless in them, when in fact they were never put to the test.
+        "coverage": {
+            "categories_total": len(exercised) + len(unexercised),
+            "categories_exercised": exercised,
+            "categories_not_exercised": unexercised,
+            "expected_finding_count": sum(
+                m.true_positives + m.false_negatives for m in result.category_metrics
+            ),
+            # A key with no expectations at all is the zero-defect control (D57): it
+            # measures over-flagging only, and every recall figure on it is undefined by
+            # construction rather than by omission.
+            "measures_recall": bool(exercised),
         },
         "metrics": {
             "overall": {
@@ -163,6 +195,16 @@ def _target_str(finding: Finding) -> str:
     return f"{finding.target.document_id} line {finding.target.line_id}"
 
 
+def _display(ratio: str | None) -> str:
+    """Render an undefined metric for a human reader (D60).
+
+    The JSON emits `null`, which D25 fixed as the representation of "undefined" and which
+    is exactly right for a machine. Interpolated into text, though, the same value printed
+    as `None` — Python's repr leaking into the durable human record, where it reads as a
+    bug rather than as a measurement that does not exist."""
+    return "n/a" if ratio is None else ratio
+
+
 def human_summary(scorecard: dict[str, Any], result: ScoreResult) -> str:
     """A human-readable summary that names each missed finding and each false flag
     individually, rather than reporting aggregate numbers alone (N2)."""
@@ -176,11 +218,12 @@ def human_summary(scorecard: dict[str, Any], result: ScoreResult) -> str:
     )
     m = scorecard["metrics"]
     lines.append(
-        f"Overall precision: {m['overall']['precision']}   recall: {m['overall']['recall']}"
+        f"Overall precision: {_display(m['overall']['precision'])}   "
+        f"recall: {_display(m['overall']['recall'])}"
     )
     lines.append(
         f"False positives: {m['false_positive_count']}  "
-        f"(rate {m['false_positive_rate']} per invoice)"
+        f"(rate {_display(m['false_positive_rate'])} per invoice)"
     )
     lines.append(
         f"Duplicate-contention flags: {m['duplicate_contention_count']}   "
@@ -191,11 +234,37 @@ def human_summary(scorecard: dict[str, Any], result: ScoreResult) -> str:
     lines.append("Per-category (precision / recall):")
     for category in Category:
         row = m["per_category"][category.value]
+        # Mark the unexercised rows in the row itself. A reader scanning this table takes
+        # in the numbers, not a paragraph below it, and nulls on an untested category are
+        # exactly what gets misread as a perfect score (D60).
+        note = "" if row["exercised_by_dataset"] else "   [not exercised by this dataset]"
         lines.append(
             f"  {category.value:<22} "
             f"TP {row['true_positives']}  FP {row['false_positives']}  "
             f"FN {row['false_negatives']}   "
-            f"P {row['precision']}  R {row['recall']}"
+            f"P {_display(row['precision'])}  R {_display(row['recall'])}{note}"
+        )
+
+    cov = scorecard["coverage"]
+    lines.append("")
+    if not cov["measures_recall"]:
+        lines.append(
+            "COVERAGE: this dataset declares NO expected findings, so it measures "
+            "over-flagging only. Every recall figure above is undefined by construction, "
+            "not by omission."
+        )
+    elif cov["categories_not_exercised"]:
+        lines.append(
+            f"COVERAGE: this dataset exercises "
+            f"{len(cov['categories_exercised'])} of {cov['categories_total']} categories "
+            f"({cov['expected_finding_count']} expected finding(s)). NOT measured: "
+            f"{', '.join(cov['categories_not_exercised'])}. Their null metrics mean the "
+            f"data lacks these cases, NOT that the agent handled them correctly."
+        )
+    else:
+        lines.append(
+            f"COVERAGE: this dataset exercises all {cov['categories_total']} categories "
+            f"({cov['expected_finding_count']} expected finding(s))."
         )
 
     lines.append("")

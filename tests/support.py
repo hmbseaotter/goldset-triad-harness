@@ -48,6 +48,33 @@ def inventory(line_targets: set[tuple[str, str]], documents: set[str],
     return LineInventory(frozenset(line_targets), frozenset(documents), invoice_count)
 
 
+def _discover_dev_datasets() -> tuple[str, ...]:
+    """The in-repo splits, read off disk rather than hand-listed.
+
+    Several suites iterate "every shipped dataset". A hand-kept literal makes adding a
+    split silently narrow every one of those loops — the same positional/index drift that
+    has bitten this project before. Derived from the filesystem, a new split is covered
+    the moment it exists.
+
+    The floor below is what keeps the derivation honest: an empty or shrunken directory
+    would otherwise turn every such loop into a vacuous pass, green because it checked
+    nothing."""
+    found = tuple(sorted(
+        p.name for p in DATASETS.iterdir() if (p / "manifest.json").is_file()
+    ))
+    missing = {"dev", "dev-synthetic", "dev-zero-defect"} - set(found)
+    if missing:
+        raise AssertionError(
+            f"expected dev splits are missing from {DATASETS}: {sorted(missing)}; "
+            f"loops over 'every shipped dataset' would silently check less"
+        )
+    return found
+
+
+#: Every in-repo dataset. Never includes the held-out split, which lives out of tree.
+DEV_DATASETS: tuple[str, ...] = _discover_dev_datasets()
+
+
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
 

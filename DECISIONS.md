@@ -1846,11 +1846,264 @@ never assumed.**
 
 ---
 
+## D58 — Every dataset records the generator source that made it ✅
+
+**Fork:** The generator lives out of tree and agent-denied (D14, D17). Nothing inside the repository could
+notice that a domain rule in `gen_rules.py` changed and the datasets were never regenerated. How is that
+detected?
+
+**Why this is the worst failure class the project has.** A stale dataset fails no existing check. The key is
+self-consistent, the invoice index matches it, all four fingerprints verify, the audit command agrees — because
+the audit re-derives from the *inputs*, and the inputs are stale in exactly the same way the key is. Every
+mechanical signal stays green while the whole dataset describes rules that no longer exist. The scorecard is not
+wrong-looking; it is confidently wrong. Compare D50's principle that a check which misdiagnoses is worse than
+one that stays silent: this was worse still — a check that *affirms*.
+
+The cost of fixing also rises with deferral, which is why it went first. The fix requires regenerating every
+split. At `[P1]` that is four tiny datasets and one command. At `[P3]`, with roughly 75 hand-audited invoices,
+regeneration is an event with its own risk, and the temptation to skip it is exactly when the detector is most
+needed.
+
+**Options considered**
+- **(A) Version the generator by hand** — a `generator_version` field bumped when rules change. **Rejected:**
+  it detects only the changes someone remembered to declare, and the failure mode is forgetting. A detector that
+  depends on the discipline whose absence it detects is not a detector.
+- **(B) Copy the generator into the repository** so the tests can diff it. **Rejected:** it publishes the rules
+  the held-out split depends on, which is the entire isolation architecture (D14, D17). Never.
+- **(C) Re-derive the datasets in a test and compare** — the strongest possible check, and unavailable: the
+  generator is out of tree, so the comparison could not run from a clone, and D14 requires the suite to pass
+  there.
+- **(D) Stamp a digest of the generator's source into every manifest, and verify it when the generator is
+  reachable.**
+
+**Decision ✅** — **(D).** Each manifest carries `generator_sha256`. Verification splits in two: every shipped
+dataset must *carry* a stamp and all splits must agree on it (needs no generator, so it runs in CI), and the
+stamp must *match* the generator's current source (skips cleanly when the generator is absent).
+
+**Why each part is shaped the way it is**
+
+- **The skip is load-bearing, not a concession.** A check that failed without the secret side would make the
+  suite red on every clone, and a suite that is always red is a suite nobody reads. D14 already settled that the
+  held-out split cannot be exercised in CI; this is the same constraint, so it gets the same answer. An
+  explicitly-set `GOLDSET_TRIAD_GENERATOR_DIR` that does not resolve is the exception — that is a
+  misconfiguration, and reporting "skipped" to someone who believes the check ran is the failure this whole
+  decision is about, so it fails.
+- **All splits must share one stamp.** One generator run emits every split. Disagreement means a partial
+  regeneration — some current, some stale — and no per-dataset check would notice the mixture.
+- **The digest is computed by the shipped helper, imported by the generator.** This is the one place the
+  generator deliberately borrows harness code, and it is not a breach of D35. D35 keeps the *domain rules*
+  independent so the audit can genuinely disagree with the key. A digest has nothing to disagree about: two
+  implementations of it could only drift, and drift is the exact condition this stamp exists to catch.
+- **Bytecode is excluded and paths are normalized**, for the same reasons as the aggregate inputs digest (D27) —
+  a `.pyc` name carries an interpreter version, so including it would report every machine as stale, which is
+  the false-positive twin of the failure being prevented.
+- **The stamp lives in the manifest, outside `inputs_dir`.** So it does not enter the inputs digest, and
+  re-stamping cannot invalidate a scorecard already emitted. Verified: adding it changed the three dev manifests
+  and nothing else.
+- **The loader treats it as optional; a test requires it.** Provenance is not a scoring input — a dataset with
+  no stamp still scores correctly, it merely cannot be checked. Making the loader refuse it would turn a missing
+  stamp into an inability to score, which is a worse outcome than the one being prevented.
+
+**The digest must be shown to move.** A stamp that never changes detects nothing while looking like a
+detector — the same trap as a rejection-only test. So the check is proven on a copy: editing a generator source
+must move the digest, and adding bytecode must not.
+
+**Rule** — **any artifact authored by an out-of-tree tool records a digest of that tool's source.** Isolation
+means the repository cannot see the authority its data derives from; a stamp is how the repository regains the
+ability to notice that the authority moved.
+
+---
+
+## D59 — Every advertised command exists, and every command knows what it inspects ✅
+
+**Fork:** `audit_key`'s own `--help` introduced itself as `goldset-triad-audit-key`, and `pyproject.toml`
+declared only `goldset-triad`. Following the tool's own instructions produced command-not-found. The isolation
+check had no console script either.
+
+**Why it stayed invisible.** Every test and every manual run invoked these as
+`python -m goldset_triad.<module>`, which works whether or not an entry point is declared. Nothing ever
+exercised the advertised path — the `prog=` string was a claim no check read. This is the same shape as the
+staleness gap in D58: not a wrong answer, but a claim nothing was comparing against reality.
+
+**Decision ✅** — declare all three console scripts, and add three checks that run in opposite directions:
+module → declaration (a `main` must be reachable as a command), declaration → module (a declared command must
+resolve to a real callable, so a manifest typo fails here rather than for a user), and advertised name →
+declaration (whatever a parser calls itself must exist). The third is the regression test for the actual defect;
+the first alone would have passed a package that declared some *other* name for `audit_key`.
+
+**What the fix exposed.** Two things that were harmless while these ran only as `python -m ...`:
+
+1. **`check_isolation.main` accepted `argv` and ignored it**, so the newly-advertised command treated `--help`
+   as a request to run the check and swallowed typos silently. It now parses — parsing nothing is still parsing,
+   because it rejects a mistake instead of ignoring it.
+2. **The repository root came solely from `__file__`.** Installed, that resolves into `site-packages`, and the
+   command announced *"guard settings not found … the deny-guards are unconfigured"* — reporting an isolation
+   failure when the truth was that it had been handed nowhere to look. Verified in a throwaway venv before the
+   fix. This is exactly D50's rule, and in the alarming direction: it named a failure that had not occurred, in
+   the one area of this project where a false alarm costs the most trust.
+
+   The root is now explicit: `--repo-root` if given, else this package's own checkout, else the current
+   directory if that is one, else an error stating *nothing has been checked*. The discriminator for "is this a
+   checkout" is deliberately `pyproject.toml` plus `src/goldset_triad` and **not** `.claude/settings.json` — a
+   missing settings file is a genuine failure this tool must report, so using its absence to decide where to
+   look would convert that failure into a silent redirect.
+
+**Verified in a venv, not by inspection.** All three commands install and respond; `--help` prints; a typo exits
+2; the no-checkout case reports that nothing was checked; `--repo-root` is honoured.
+
+**Rule** — **anything a tool says about itself is a claim, and every claim gets a check.** A `prog=` name, a
+usage string, a documented flag: if nothing compares it to what the package actually provides, it will drift,
+and it will drift into the reader's hands rather than into a failing test.
+
+---
+
+## D60 — The scorecard states what the dataset could not measure ✅
+
+**Fork:** Per-category metrics are emitted for all five categories on every run. The held-out split at `[P1]`
+holds **1 invoice, 2 expected findings, 2 of 5 categories**, so three categories come back with zero counts and
+`null` precision and recall. D25 fixed `null` as the representation of "undefined", which is right — but a
+`null` on a category the agent was never asked about is indistinguishable from a `null` on a category it handled
+flawlessly, and a row of zeros reads as a clean sheet.
+
+**Why this is a credibility problem, not a cosmetic one.** This harness exists to be *shown* — its whole claim is
+that it measures honestly. A scorecard whose most flattering reading is also its most natural reading undermines
+that claim, and it does so specifically on the held-out split, the one whose results carry weight. Compare D25's
+own reasoning for choosing `null` over zero: *zero reads as failure where the result was in fact perfect*. This
+is the mirror image — **null reads as perfect where the result is in fact unknown** — and D25 solved only the
+first half.
+
+**Nothing needed computing.** Every expectation is either matched or missed, so `tp + fn` already *was* the
+number of expectations the key holds in a category. The information was in the scorecard all along; what was
+missing was the willingness to state it. That is worth naming as a category of defect: the data present, the
+inference available, and the reader left to perform it.
+
+**Options considered**
+- **(A) Suppress unexercised categories from the scorecard.** **Rejected:** it makes the omission invisible
+  rather than explicit, and a consumer diffing two scorecards would see a category appear and disappear. A stable
+  set of keys is worth more than a tidy one.
+- **(B) A separate coverage report alongside the scorecard.** **Rejected:** the scorecard is the durable record
+  (D9); a caveat that travels in a different file is a caveat that gets separated from the number it qualifies.
+- **(C) State coverage inside the scorecard, in both the JSON and the summary.**
+
+**Decision ✅** — **(C).** A `coverage` block in the **scored body** — deterministic, since it derives from the
+key — naming the categories exercised, those not exercised, the total expectation count, and whether the dataset
+measures recall at all. Per-category rows gain `expected_count` and `exercised_by_dataset`. The summary marks
+each unexercised row inline and states the consequence in words: *their null metrics mean the data lacks these
+cases, NOT that the agent handled them correctly.*
+
+**The zero-defect control gets the same treatment, and needs it most.** It declares no expectations by design
+(D57), so every category is unexercised and every recall is undefined by construction. Unstated, the control
+presents as an agent that recalled nothing — the exact inversion of what it proves. It now says so.
+
+**Two things this exposed**
+
+- **The summary printed `None`.** `null` is correct in JSON and is the language's repr leaking into the durable
+  human record when interpolated into text. Undefined metrics now render `n/a` for readers while the JSON still
+  emits `null`, with a test that the display form does not leak back the other way.
+- **The scored body's shape changed**, so `SCORECARD_SCHEMA_VERSION` goes `"1"` → `"2"`. Byte-identity is
+  promised between runs on the same inputs, never across schema versions, and a consumer written against `"1"`
+  should be told rather than left to discover it.
+
+**On the held-out split's thinness.** Per D57's rule, a property that holds only for the current phase needs a
+named tripwire rather than an assumption. Here the honest answer is that **no in-repo test can be that
+tripwire** — D14 puts the held-out split beyond CI's reach, and a tripwire that cannot run is worse than none
+because it looks like coverage. What is enforceable, and now enforced, is that *any* scorecard the split produces
+**self-reports** its thinness. That is a stronger guarantee than a tripwire: it cannot be bypassed by forgetting
+to run something, and it travels with the result to whoever reads it. The `[P3]` expansion is what closes the
+underlying thinness; until then, every held-out scorecard says out loud that it measures two categories of five.
+
+**Rule** — **a metric that is undefined states WHY it is undefined.** "Undefined" spans "not applicable", "not
+attempted" and "not asked", and a reader who cannot tell them apart will pick the flattering one.
+
+---
+
+## D61 — Every text read and write names its encoding and newline ✅
+
+**Fork:** `Path.read_text()` with no `encoding` decodes with the platform default — cp1252 on Windows, UTF-8 on
+Linux. Several suites read source and spec files that way to scan them.
+
+**How it surfaced.** It fired during this session. A file mangled by a PowerShell `Get-Content`/`Set-Content`
+round-trip acquired a byte cp1252 leaves undefined, and the suite failed with `UnicodeDecodeError` — in a test
+that had nothing to do with the file's content. Repairing the file made the failure vanish, which is precisely
+what makes this dangerous: the defect is latent until some file acquires a triggering character, and it *fails
+only on Windows*. Every em dash and curly quote this project writes freely is a candidate; em dashes happen to
+decode cleanly under cp1252 and curly quotes do not, which is the kind of distinction nobody should have to hold
+in their head.
+
+The shipped code under `src/` was already clean — every read there names its encoding. The exposure was entirely
+in the suite, which is the part that reads *other files as data*.
+
+**Decision ✅** — every text read and write in the repository names `encoding="utf-8"`, and every write pins
+`newline="\n"`. A guard walks the AST of every module in `src/` and `tests/` and fails on any `read_text`,
+`write_text` or text-mode `open` without an explicit encoding — judged by actual keyword arguments rather than by
+whether the word appears on the line, and proven to fire on a bare call.
+
+**Why the newline half rides along.** `write_text` without a pinned newline translates `\n` to the platform
+ending, which is the fourth appearance of the line-ending class recorded in D49. Fixing one and not the other
+would leave the same trap open in the same call sites.
+
+**Rule** — **the platform default is never the intended encoding.** A default that differs between the machine
+you develop on and the machine that runs CI is not a default, it is an unstated dependency.
+
+---
+
+## D62 — The audit refuses what the scorer refuses, and by name ✅
+
+**Fork:** `audit()` called `resolve_manifest` and read the artifacts itself, never calling the loader. Every
+validator a scoring run applies was therefore skipped on the audit path: reference resolution (D50),
+correspondence completeness (D48, D56), one-row-per-line (D56), multi-purchase-order rates (D47), tax-field
+presence (D29).
+
+**What this actually cost — and a correction.** This was ranked last of the four post-build review issues on the
+grounds that its failure mode was a confusing message rather than a wrong result. **That assessment was wrong**,
+and measuring it is what showed so. With the shared front door removed and seven malformations applied to the dev
+split, the pre-fix auditor:
+
+- reported **"consistent"** — exit 0 — for **a dropped correspondence row**, **a duplicated correspondence row**,
+  and **tax charged against nothing taxable**;
+- reported a **key divergence** — exit 1 — for two others, sending a reader to correct the key when the *data*
+  was malformed.
+
+So three of seven invalid datasets were *blessed* by the one check that exists to catch a bad key. The mechanism
+is the self-consistency trap D48 was written for, now shown to apply to the auditor itself: the auditor walks the
+correspondence rows it is given, so a **dropped** row is a line it never examines — it derives nothing there, the
+key declares nothing there, and the two agree perfectly. An omission silences the auditor by shrinking what it
+looks at. Had this been left for later, the held-out key could have been audited "clean" while carrying exactly
+the defect the audit exists to find.
+
+**Decision ✅** — `audit()` calls `load_dataset` first, so validity comes through the same front door as a
+scoring run, and only then performs its own independent derivation.
+
+**Why this does not weaken D35.** The independence D35 requires is in deriving **findings** by a separate
+implementation, which the auditor still does, from its own read of the artifacts — asserted by a test that a
+mis-targeted expectation on a structurally valid dataset is still caught. The loader applies no domain rule; it
+decides whether the dataset is well-formed at all, and there is no value in two answers to that question. Two
+implementations of *validity* would not be a cross-check, only a second place to be wrong.
+
+**Two smaller repairs in the same area**
+- `assert isinstance(key, dict)` became a raised `DatasetError`. `python -O` strips asserts, which would have let
+  the failure resurface later as an unrelated `TypeError` inside the derivation.
+- `main` caught `(DatasetError, KeyError)` and printed a bare `KeyError` as a quoted string with nothing to
+  indicate the data was at fault. It now names the malformation and the exception type, catching a listed set of
+  data-shape families rather than `Exception` — because catching everything would swallow genuine auditor bugs,
+  which must stay loud.
+
+**The parity is one-directional on purpose.** Everything the scorer refuses, the auditor must refuse. The
+converse is not asserted: the auditor legitimately rejects things the scorer never examines, because it derives
+from inputs the scorer never reads.
+
+**Rule** — **when two commands read the same artifact, they share one definition of "valid" and disagree only
+about meaning.** Independence is valuable where two answers can be compared; on admissibility there is nothing
+to compare, only a second chance to be silent.
+
+---
+
 ## Document status
 
-Decisions **D0–D57** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
+Decisions **D0–D62** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
 D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57
-formalizing the behaviours that had lived only in code). Spec emitted at
+formalizing the behaviours that had lived only in code; D58 onward closing the post-build review's open
+issues). Spec emitted at
 `specs/goldset-triad-harness.md`; build prompt for phase 1 at
 `specs/goldset-triad-harness.build-prompt.md`.
 

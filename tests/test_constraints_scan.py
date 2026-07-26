@@ -134,7 +134,7 @@ class ConstraintScanTests(unittest.TestCase):
         # The scorer never parses an invoice document: nothing in the shipped code
         # opens a .pdf.
         for path in SHIPPED_MODULES:
-            src = path.read_text()
+            src = path.read_text(encoding="utf-8")
             self.assertNotIn(".pdf", src, f"{path.name} references a .pdf path")
 
 

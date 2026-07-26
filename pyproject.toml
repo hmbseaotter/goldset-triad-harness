@@ -13,7 +13,14 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
+# Every module with a `main()` is listed here (D59). `audit_key` already advertised
+# itself as `goldset-triad-audit-key` in its own --help while no such command existed,
+# so following the tool's own instructions failed. A test asserts this list stays
+# complete, because the gap was invisible: both commands run fine as `python -m ...`,
+# which is how they were always exercised.
 goldset-triad = "goldset_triad.cli:main"
+goldset-triad-audit-key = "goldset_triad.audit_key:main"
+goldset-triad-check-isolation = "goldset_triad.check_isolation:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

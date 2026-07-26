@@ -32,7 +32,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .constants import DOCUMENT_LINE_SENTINEL
-from .dataset import DatasetError, resolve_manifest
+from .dataset import DatasetError, load_dataset, resolve_manifest
 
 _FLOOR = Decimal("0.05")
 _CAP = Decimal("25")
@@ -257,9 +257,25 @@ def _key_set(key: dict[str, object]) -> set[_Key]:
 
 def audit(dataset_ref: str, search_root: Path) -> list[str]:
     """Return a list of divergence messages; empty means consistent."""
+    # Validity comes through the SAME front door as a scoring run (D62). This used to call
+    # resolve_manifest alone, so every validator the loader runs -- reference resolution
+    # (D50), correspondence completeness (D48, D56), multi-PO rates (D47), tax-field
+    # presence (D29) -- was skipped here. A dataset that `score` refused with a named cause
+    # could reach the auditor's arithmetic and surface as a bare KeyError, sending a reader
+    # to debug the auditor over a defect in the data.
+    #
+    # This does NOT weaken the independence D35 requires. That independence is about
+    # deriving FINDINGS by a separate implementation, which the code below still does, from
+    # its own read of the artifacts. The loader applies no domain rule; it decides whether
+    # the dataset is well-formed at all, and there is no value in two answers to that.
+    load_dataset(dataset_ref, search_root)
+
     manifest = resolve_manifest(dataset_ref, search_root)
     key = _read(manifest.key_path, "answer key")
-    assert isinstance(key, dict)
+    if not isinstance(key, dict):
+        # Was an `assert`, which `python -O` strips -- leaving the failure to surface later
+        # as an unrelated TypeError deep in the derivation.
+        raise DatasetError(f"answer key is not a JSON object: {manifest.key_path}")
     inputs = _gather(manifest.inputs_dir, manifest.invoice_index_path)
     declared = _key_set(key)
     derived = _derive_expected(key, inputs)
@@ -289,8 +305,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         messages = audit(args.dataset, Path(args.datasets_root))
-    except (DatasetError, KeyError) as exc:
+    except DatasetError as exc:
+        # Already a named cause; pass it through as written.
         sys.stderr.write(f"audit error: {exc}\n")
+        return 2
+    except (KeyError, TypeError, ValueError, IndexError, ArithmeticError) as exc:
+        # Residual data-shape faults the loader does not model (D62). The catch is
+        # deliberately a list of families rather than `Exception`: a bare KeyError printed
+        # alone is just a quoted string with no hint that the DATA is at fault, and
+        # catching everything would swallow genuine auditor bugs, which must stay loud.
+        sys.stderr.write(
+            f"audit error: the dataset is malformed in a way the loader does not model - "
+            f"{type(exc).__name__}: {exc}\n"
+        )
         return 2
     if messages:
         sys.stderr.write(

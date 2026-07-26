@@ -19,6 +19,7 @@ Harness enforcement itself is attested manually in ``ISOLATION_ATTESTATION.md``.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -99,20 +100,30 @@ class IsolationResult:
         return not self.guard_failures and not self.placement_failures
 
 
-def _deny_rules() -> list[str]:
-    if not SETTINGS_PATH.is_file():
+def looks_like_checkout(path: Path) -> bool:
+    """Whether ``path`` is a harness source checkout (D59).
+
+    Deliberately does NOT test for ``.claude/settings.json``: a missing settings file is a
+    genuine isolation failure this tool must report, so using its presence to decide
+    whether to look here at all would convert that failure into a silent redirect."""
+    return (path / "pyproject.toml").is_file() and (path / "src" / "goldset_triad").is_dir()
+
+
+def _deny_rules(root: Path) -> list[str]:
+    settings_path = root / ".claude" / "settings.json"
+    if not settings_path.is_file():
         raise FileNotFoundError(
-            f"guard settings not found at {SETTINGS_PATH}; the deny-guards are unconfigured"
+            f"guard settings not found at {settings_path}; the deny-guards are unconfigured"
         )
-    data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
     deny = data.get("permissions", {}).get("deny", [])
     return [str(rule) for rule in deny]
 
 
-def check_guard_configuration() -> list[str]:
+def check_guard_configuration(root: Path | None = None) -> list[str]:
     """Every secret path is covered; the held-out inputs are not (D30, D14)."""
     failures: list[str] = []
-    rules = _deny_rules()
+    rules = _deny_rules(REPO_ROOT if root is None else root)
     joined = "\n".join(rules)
     for label, needle in REQUIRED_COVERAGE.items():
         if needle not in joined:
@@ -127,11 +138,12 @@ def check_guard_configuration() -> list[str]:
     return failures
 
 
-def check_placement() -> list[str]:
+def check_placement(root: Path | None = None) -> list[str]:
     """No secret artifact exists anywhere in the repo tree, ignored dirs included."""
     failures: list[str] = []
-    for dirpath, _dirnames, filenames in os.walk(REPO_ROOT):
-        rel = Path(dirpath).relative_to(REPO_ROOT)
+    base = REPO_ROOT if root is None else root
+    for dirpath, _dirnames, filenames in os.walk(base):
+        rel = Path(dirpath).relative_to(base)
         parts = set(rel.parts)
         if parts & SECRET_PATH_SEGMENTS:
             failures.append(f"a secret-tier directory exists inside the repo: {rel}")
@@ -141,16 +153,64 @@ def check_placement() -> list[str]:
     return failures
 
 
-def run() -> IsolationResult:
+def run(root: Path | None = None) -> IsolationResult:
     return IsolationResult(
-        guard_failures=tuple(check_guard_configuration()),
-        placement_failures=tuple(check_placement()),
+        guard_failures=tuple(check_guard_configuration(root)),
+        placement_failures=tuple(check_placement(root)),
     )
 
 
 def main(argv: list[str] | None = None) -> int:
+    # This took no arguments and silently ignored the ones it was handed, which was
+    # harmless while it ran only as `python -m ...`. Declaring it a console script (D59)
+    # makes that visible: an advertised command that treats `--help` as a request to run
+    # the check is a command that lies about itself. Parsing nothing is still parsing --
+    # it rejects a typo instead of ignoring it.
+    parser = argparse.ArgumentParser(
+        prog="goldset-triad-check-isolation",
+        description=(
+            "Verify the repository's isolation guards: that the deny rules cover every "
+            "secret path without covering the held-out inputs, and that no secret "
+            "artifact sits inside the repository tree. Exits non-zero on any failure."
+        ),
+        epilog=(
+            "Harness enforcement of the deny rules is attested in "
+            "ISOLATION_ATTESTATION.md, not tested by executing code (D30)."
+        ),
+    )
+    parser.add_argument(
+        "--repo-root",
+        help="the checkout to inspect; defaults to this package's own checkout, or the "
+             "current directory when the package is installed rather than run in place",
+    )
+    args = parser.parse_args(argv)
+
+    # Which tree to inspect. This module used to derive it solely from __file__, which is
+    # correct only when running from a source tree. Once D59 made it an installed command,
+    # __file__ pointed into site-packages and the tool reported "the deny-guards are
+    # unconfigured" -- naming an isolation failure when the truth was that it had been
+    # handed nowhere to look. Misdiagnosis is the failure mode D50 ruled worse than silence.
+    if args.repo_root is not None:
+        root = Path(args.repo_root).resolve()
+        if not root.is_dir():
+            sys.stderr.write(f"isolation check error: --repo-root {root} is not a directory\n")
+            return 2
+    elif looks_like_checkout(REPO_ROOT):
+        root = REPO_ROOT
+    elif looks_like_checkout(Path.cwd()):
+        root = Path.cwd()
+    else:
+        sys.stderr.write(
+            "isolation check error: this command inspects a harness checkout, and none was "
+            f"found. It is running from an installed copy at {Path(__file__).parent}, and "
+            f"the current directory ({Path.cwd()}) is not a checkout either. Run it from "
+            "inside the repository, or pass --repo-root. This is NOT an isolation failure: "
+            "nothing has been checked.\n"
+        )
+        return 2
+
     try:
-        result = run()
+        result = run(root)
     except FileNotFoundError as exc:
         sys.stderr.write(f"isolation check error: {exc}\n")
         return 2

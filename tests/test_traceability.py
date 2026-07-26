@@ -252,6 +252,35 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_key_and_arithmetic.KeyContentTests.test_dataset_coverage_invariants_hold"),
     ("C41", "the zero-defect control declares no expectations but keeps correspondence",
      "test_key_and_arithmetic.KeyContentTests.test_zero_defect_control_declares_no_expectations"),
+    # Generator staleness (D58). The generator is out of tree, so nothing here could
+    # otherwise notice that a rule changed and the data was never regenerated.
+    ("C42", "every shipped dataset's manifest records the generator source that emitted it",
+     "test_generator_staleness.GeneratorStampTests.test_every_shipped_dataset_records_its_generator"),
+    ("C43", "all splits share one generator stamp, so a partial regeneration is detected",
+     "test_generator_staleness.GeneratorStampTests.test_all_datasets_share_one_stamp"),
+    ("C44", "the stamp matches the current generator, and skips when it is unreachable",
+     "test_generator_staleness.GeneratorFreshnessTests.test_stamp_matches_the_current_generator"),
+    ("C45", "the digest provably moves on a source edit and not on bytecode",
+     "test_generator_staleness.GeneratorFreshnessTests.test_digest_notices_a_source_change"),
+    # Command-line surface (D59).
+    ("C46", "every module with a main is declared, resolves, and advertises a real name",
+     "test_entry_points.EntryPointTests.test_every_advertised_program_name_is_a_real_command"),
+    ("C47", "no checkout found reports that nothing was checked, not an isolation failure",
+     "test_isolation.RepoRootResolutionTests.test_no_checkout_anywhere_is_an_error_not_an_isolation_failure"),
+    # Coverage disclosure (D60).
+    ("C48", "a partially exercised dataset names the categories it cannot measure",
+     "test_coverage_reporting.CoverageBlockTests.test_a_partially_exercised_dataset_names_what_it_cannot_measure"),
+    ("C49", "the zero-defect control states it measures over-flagging only",
+     "test_coverage_reporting.CoverageBlockTests.test_the_zero_defect_control_says_it_measures_no_recall"),
+    ("C50", "coverage sits in the scored body; undefined metrics read as n/a while JSON emits null",
+     "test_coverage_reporting.CoverageBlockTests.test_coverage_is_in_the_scored_body_not_run_metadata"),
+    # Portability and shared validity (D61, D62).
+    ("C51", "no text I/O relies on the platform default encoding",
+     "test_coverage_reporting.TextIoIsExplicitTests.test_no_call_relies_on_the_platform_default_encoding"),
+    ("C52", "every malformation the loader rejects, the audit rejects by name",
+     "test_audit_score_parity.ValidityParityTests.test_everything_score_refuses_the_audit_also_refuses_by_name"),
+    ("C53", "sharing the loader has not made the audit defer to the key",
+     "test_audit_score_parity.ValidityParityTests.test_audit_still_derives_independently"),
 ]
 
 
@@ -286,6 +315,22 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_ground_truth.RoundingTests.test_ratio_rounds_half_up_not_banker",
     "test_isolation.IsolationTests.test_no_shipped_check_claims_to_test_enforcement_by_code",
     "test_constraints_scan.ConstraintScanTests.test_loader_reads_no_invoice_pdf",
+    # The other two directions of the D59 entry-point check, and the remaining branches
+    # of root resolution. C46 and C47 each name one direction; these are the converses,
+    # which is the same relationship the positive controls above have to their criteria.
+    "test_entry_points.EntryPointTests.test_every_module_with_a_main_is_reachable_as_a_command",
+    "test_entry_points.EntryPointTests.test_every_declared_command_resolves",
+    "test_isolation.RepoRootResolutionTests.test_falls_back_to_the_current_directory_when_installed",
+    "test_isolation.RepoRootResolutionTests.test_explicit_repo_root_wins",
+    "test_isolation.RepoRootResolutionTests.test_a_nonexistent_repo_root_is_named",
+    "test_isolation.RepoRootResolutionTests.test_settings_presence_does_not_decide_where_to_look",
+    # Positive controls and converses for the D60 coverage block.
+    "test_coverage_reporting.CoverageBlockTests.test_a_fully_exercised_dataset_reports_every_category",
+    "test_coverage_reporting.CoverageBlockTests.test_expected_finding_count_matches_the_key",
+    "test_coverage_reporting.UndefinedMetricDisplayTests.test_undefined_metrics_read_as_na_not_python_none",
+    "test_coverage_reporting.UndefinedMetricDisplayTests.test_json_still_emits_null_not_the_display_string",
+    "test_coverage_reporting.TextIoIsExplicitTests.test_the_scan_fires_on_a_bare_call",
+    "test_audit_score_parity.ValidityParityTests.test_the_shipped_splits_pass_both_doors",
     # Guards that verify another guard rather than a criterion.
     "test_repo_shipping.RepositoryShippingTests.test_required_files_are_tracked_and_not_ignored",
     "test_repo_shipping.RepositoryShippingTests.test_the_secret_vocabulary_is_not_duplicated_here",
@@ -300,7 +345,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 98
+EXPECTED_SPEC_P1_CRITERIA = 110
 
 
 def _spec_p1_criteria() -> list[str]:

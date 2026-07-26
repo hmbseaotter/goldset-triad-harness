@@ -93,6 +93,40 @@ def _decimal(value: Any, where: str) -> Decimal:
 # ---------------------------------------------------------------------------
 
 
+GENERATOR_SOURCE_SUFFIXES: Final = (".py",)
+
+
+def generator_digest(generator_dir: Path) -> str:
+    """Digest of a generator's SOURCE, so a dataset can record what produced it (D58).
+
+    Datasets are emitted by an out-of-tree generator, which means nothing in the
+    repository can otherwise notice that a rule changed and the data was never
+    regenerated. A stale dataset is a key that no longer matches the rules — confidently
+    wrong scores on data that looks healthy, the failure class this project treats as
+    worst.
+
+    Defined with the same care as the inputs digest (D27) and for the same reason — two
+    machines must agree: source files only, ``__pycache__`` excluded (bytecode is derived
+    and its name carries an interpreter version), paths relative and forward-slashed, sorted
+    byte-wise, raw bytes hashed.
+
+    This helper is imported BY the generator rather than reimplemented there. It is a
+    mechanical digest, not a domain rule, so the deliberate independence of D35 does not
+    apply: two implementations here could only drift, and drift is exactly what this
+    detects."""
+    entries: list[tuple[str, str]] = []
+    for path in sorted(generator_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in GENERATOR_SOURCE_SUFFIXES:
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(generator_dir).as_posix()
+        entries.append((rel, sha256_bytes(path.read_bytes())))
+    entries.sort(key=lambda e: e[0].encode("utf-8"))
+    joined = "\n".join(f"{rel}:{digest}" for rel, digest in entries)
+    return sha256_bytes(joined.encode("utf-8"))
+
+
 @dataclass(frozen=True)
 class Manifest:
     identifier: str
@@ -101,6 +135,13 @@ class Manifest:
     key_path: Path
     invoice_index_path: Path
     manifest_path: Path
+    generator_sha256: str | None = None
+    """Digest of the generator source that emitted this dataset, when recorded.
+
+    Optional in the loader because it is provenance, not a scoring input: a dataset with
+    no stamp still scores correctly, it simply cannot be checked for staleness. A test
+    asserts every shipped dataset carries one, so absence is caught without making the
+    loader refuse data it can score."""
 
 
 def resolve_manifest(dataset_ref: str, search_root: Path) -> Manifest:
@@ -136,6 +177,7 @@ def resolve_manifest(dataset_ref: str, search_root: Path) -> Manifest:
         ) from exc
     if not inputs_dir.is_dir():
         raise DatasetError(f"manifest inputs_dir does not exist: {inputs_dir}")
+    stamp = raw.get("generator_sha256")
     return Manifest(
         identifier=identifier,
         version=version,
@@ -143,6 +185,7 @@ def resolve_manifest(dataset_ref: str, search_root: Path) -> Manifest:
         key_path=key_path,
         invoice_index_path=invoice_index_path,
         manifest_path=manifest_path,
+        generator_sha256=None if stamp is None else str(stamp),
     )
 
 

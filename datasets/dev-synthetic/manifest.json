@@ -1,4 +1,5 @@
 {
+  "generator_sha256": "302160562d7cfb2c120eda3c01e40a93a59d21b95d2cdecd8c37dae98afcd29c",
   "identifier": "dev-synthetic",
   "inputs_dir": "inputs",
   "invoice_index_path": "dev_invoice_index.json",

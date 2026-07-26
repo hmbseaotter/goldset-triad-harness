@@ -13,7 +13,7 @@ from goldset_triad.dataset import per_file_digests, resolve_manifest
 
 
 def _write_findings(path: Path, findings: list[dict]) -> None:
-    path.write_text(json.dumps({"schema_version": "1", "findings": findings}))
+    path.write_text(json.dumps({"schema_version": "1", "findings": findings}), encoding="utf-8", newline="\n")
 
 
 class CliEndToEndTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class CliEndToEndTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             cards = list(out.glob("*.json"))
             self.assertEqual(len(cards), 1)
-            card = json.loads(cards[0].read_text())
+            card = json.loads(cards[0].read_text(encoding="utf-8"))
             self.assertEqual(card["metrics"]["overall"]["precision"], "1.0000")
             self.assertEqual(card["metrics"]["overall"]["recall"], "1.0000")
             self.assertTrue(list(out.glob("*.txt")))  # human summary too
@@ -125,8 +125,8 @@ class CliEndToEndTests(unittest.TestCase):
                   "--findings", str(fp), "--out", str(out)])
             cards = sorted(out.glob("*.json"))
             self.assertEqual(len(cards), 2)
-            a = json.loads(cards[0].read_text())
-            b = json.loads(cards[1].read_text())
+            a = json.loads(cards[0].read_text(encoding="utf-8"))
+            b = json.loads(cards[1].read_text(encoding="utf-8"))
             a.pop("run_metadata")
             b.pop("run_metadata")
             self.assertEqual(a, b)

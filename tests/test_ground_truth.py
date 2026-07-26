@@ -38,9 +38,9 @@ class TruthSourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             key_file = manifest.parent / "dev_answer_key.json"
-            key = json.loads(key_file.read_text())
+            key = json.loads(key_file.read_text(encoding="utf-8"))
             key["expected_findings"].pop()  # remove one expectation
-            key_file.write_text(json.dumps(key))
+            key_file.write_text(json.dumps(key), encoding="utf-8", newline="\n")
             ld = load_dataset(str(manifest), support.DATASETS)
             new_score = score(ld.answer_key.expected_findings,
                               support.perfect_artifact("dev"), ld.invoice_index.inventory)
@@ -65,7 +65,7 @@ class TruthSourceTests(unittest.TestCase):
         self.assertTrue(key["correspondence"])
         # No input file declares invoice->PO correspondence.
         for path in (support.DATASETS / "dev" / "inputs").rglob("*.json"):
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             self.assertNotIn("correspondence", text)
             self.assertNotIn("invoice_line_id", text)
 
@@ -151,7 +151,7 @@ class RoundingTests(unittest.TestCase):
     def test_no_quantize_in_a_flagging_decision(self) -> None:
         # Display rounding never enters a flagging decision (D23): the audit rule
         # functions call no .quantize / rounding.
-        tree = ast.parse((PKG / "audit_key.py").read_text())
+        tree = ast.parse((PKG / "audit_key.py").read_text(encoding="utf-8"))
         rule_fns = {"_threshold", "_material", "_payable", "_derive_line", "_derive_tax"}
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name in rule_fns:
@@ -180,7 +180,7 @@ class SuiteHygieneTests(unittest.TestCase):
         for path in (support.REPO_ROOT / "tests").glob("*.py"):
             if path.name in allow:
                 continue
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             for marker in bad_markers:
                 self.assertNotIn(marker, text, f"{path.name} loads out-of-tree data ({marker})")
 

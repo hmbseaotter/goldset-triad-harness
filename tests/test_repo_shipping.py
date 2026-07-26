@@ -57,6 +57,12 @@ REQUIRED_TRACKED_FILES = (
 # Build artifacts that legitimately never ship.
 _EXCLUDED_DIR_PARTS = frozenset({"__pycache__", ".pytest_cache", ".venv", "node_modules"})
 _EXCLUDED_SUFFIXES = (".pyc", ".pyo")
+# `.egg-info` is a suffix rather than a fixed name, and setuptools writes it INSIDE `src/`
+# when the package is installed from the source tree — which D59 made a documented step.
+# Without this, `pip install .` turned the shipping check red, and a guard that fires on
+# the instructions the project gives is a guard people learn to ignore. The rule stays
+# strict for everything that is not a recognized build artifact.
+_EXCLUDED_DIR_SUFFIXES = (".egg-info",)
 
 # The secret-artifact vocabulary is SINGLE-SOURCED from check_isolation (D52). It was
 # duplicated here, and the copy drifted within one commit cycle: it never learned about
@@ -102,6 +108,8 @@ def _shipping_files_on_disk() -> list[str]:
                 continue
             rel = path.relative_to(support.REPO_ROOT)
             if _EXCLUDED_DIR_PARTS & set(rel.parts):
+                continue
+            if any(part.endswith(_EXCLUDED_DIR_SUFFIXES) for part in rel.parts):
                 continue
             if path.suffix in _EXCLUDED_SUFFIXES:
                 continue

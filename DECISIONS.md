@@ -1257,10 +1257,158 @@ already carries ReportLab. A reader for a self-check sits on the same side of th
 
 ---
 
+## D37 — Scorecard serializes every `Decimal` as an exact JSON string ✅ (build)
+
+**Fork:** How are monetary/ratio values emitted so the scorecard is byte-reproducible and float-free?
+
+**Options considered**
+- **(A) JSON number literal** (e.g. `0.6667`) — the plan's first instinct. But `json.dumps` cannot emit a
+  `Decimal` as a number without a custom encoder, and a `float` bridge cannot represent `0.6667` exactly, which
+  would break U4 byte-identity.
+- **(B) Exact JSON string** (`"0.6667"`, `null` for undefined).
+
+**Decision ✅** — **(B).** Ratios quantize to the declared places (`ROUND_HALF_UP`) and emit as strings; an
+undefined metric emits `null`; counts are JSON integers (exact). Read back with `parse_float=Decimal`.
+
+**Why** — a string is exact and byte-stable and keeps `float` off the emission path entirely, which the
+"no float on a monetary path" scan then confirms. Refines the plan's call 4 (string, not number literal).
+
+---
+
+## D38 — The held-out answer key is named `ANSWER_KEY.json`; the dev key stays `answer_key.json` ⛔ SUPERSEDED by D42
+
+> **Superseded 2026-07-26 — the reasoning below is invalid and the naming caused two live bugs.** Kept
+> verbatim as the record of what was tried and why it failed. `ANSWER_KEY.json` and `answer_key.json` are the
+> **same name** on a case-insensitive filesystem, so case cannot distinguish them: the fix only works under the
+> assumption that makes it unnecessary, and fails under the assumption that motivated it. See **D42**.
+
+**Fork:** The primary guard is the secret *directory*, but the spec asks the guard to cover "the answer-key
+filename." A bare `**/answer_key.json` deny rule would also match the **public** dev key on a case-insensitive
+Windows filesystem and wrongly block it.
+
+**Decision ✅** — the held-out (secret-side) key uses the distinct, guardable name **`ANSWER_KEY.json`**
+(matching the prior answer-key-guard convention); the in-repo dev key keeps the lowercase `answer_key.json`.
+The deny rule `Read(**/goldset-triad-secret/**/ANSWER_KEY.json)` then covers the held-out key by filename
+without any chance of matching the public dev key.
+
+**Why** — filename coverage without a case-insensitivity collision that would break the dev split.
+
+---
+
+## D39 — pyright runs in `standard` mode, not `strict` ✅ (build)
+
+**Fork:** Which pyright configuration is the zero-error gate?
+
+**Options considered**
+- **(A) `strict` + `reportUnknown*`** — flagged 158 errors, ~86 in the scoring core, essentially all from
+  `json.loads` returning `Any` at data-loading boundaries. Reaching zero would need pervasive `cast()` at every
+  JSON access — churn that adds no runtime safety.
+- **(B) `standard` mode.**
+
+**Decision ✅** — **(B).** Standard mode still catches genuine type errors (it caught a real one — a test helper
+typed `object` instead of `LineInventory`) and reaches **0 errors, 0 warnings**. The acceptance criterion is
+"pyright reports zero errors," which standard mode satisfies; D7's "stricter by default" describes pyright vs
+mypy, not the maximal mode.
+
+**Why** — a conventional, CI-appropriate gate that enforces real type correctness without treating unavoidable
+`Any` at JSON boundaries as an error.
+
+---
+
+## D40 — PDF parse-back is dependency-free ✅ (build)
+
+**Fork:** D36's generation-time parse-back needs to read the PDF back. With what?
+
+**Options considered**
+- **(A) A PDF-reader dependency** (pypdf/pdfminer) — a *second* generation-side third-party package beyond the
+  approved ReportLab.
+- **(B) A regex over the uncompressed content stream** — disable PDF compression (`pageCompression=0`), draw
+  each index value as its own cell, and extract the `(value) Tj` text tokens directly.
+
+**Decision ✅** — **(B).** Keeps the flagged-dependency list to exactly **ReportLab (generation) + pyright
+(type gate)**, as approved. Reliable for the clean text-layer tier, which is all P1 authors (P3's scanned tier
+would need OCR and falls back to single-source construction per D36).
+
+---
+
+## D41 — Dataset *validation* is a loader task, distinct from the scored domain rules ✅ (build)
+
+**Fork:** The D29 malformed checks (zero-taxable-with-tax, absent tax field) and D6 timestamp checks need to
+read PO/invoice tax fields and timestamps — but the scoring engine must contain "no domain rule."
+
+**Decision ✅** — dataset *integrity validation* lives in the loader (`dataset.py`) and is treated as separate
+from the scored *domain rules* (payable quantity, materiality, tax comparison), which live only in the key
+generator and the audit command (D35). The "scoring engine implements no domain rule" scan targets the
+matching core (`scoring.py`), which genuinely computes none. The scorer reads only the key (expected findings),
+the invoice index (line inventory + count) and the findings artifact; it never parses a PO, receipt or PDF for
+*scoring* — only the loader parses PO/GR/index JSON for *validation*.
+
+**Why** — validating whether a dataset is coherent is a different act from deciding whether a discrepancy
+exists; conflating them would either weaken the "no domain rule in the scorer" claim or make malformed-input
+rejection impossible.
+
+---
+
+## D42 — Key filenames must be genuinely distinct, never case variants ✅ (supersedes D38)
+
+**Fork:** D38 distinguished the held-out key from the public dev key by **capitalisation alone** —
+`ANSWER_KEY.json` versus `answer_key.json` — to let a filename deny rule cover the secret key without matching
+the public one.
+
+**Why that cannot work.** The two names are **identical on a case-insensitive filesystem**, which is the very
+condition D38 invoked. The logic is self-defeating:
+
+- If matching is case-**sensitive**, the names are distinct — but then no collision existed to solve.
+- If matching is case-**insensitive** (D38's premise), the names are the same and the fix does nothing.
+
+**It only works in the world where it is not needed.** D38's rule happened to be safe, but for a reason it did
+not state: `Read(**/goldset-triad-secret/**/ANSWER_KEY.json)` is **path-scoped**, and the path segment — not the
+capitalisation — is what excluded the dev keys.
+
+**Two live bugs the naming actually caused:**
+
+1. **All three public dev keys were silently excluded from the repository.** `core.ignorecase` is true on
+   Windows, so the `.gitignore` rule `ANSWER_KEY*` matched `datasets/*/answer_key.json`. Nothing under
+   `datasets/` was tracked. The spec requires the dev split to "ship complete in the repository, inputs and
+   answer key together" — it did not, and a fresh clone could not have run a single dev-split test.
+2. **The placement check had a case-variant blind spot.** `check_isolation.py` compared filenames with
+   `name in SECRET_ARTIFACT_NAMES`, a case-**sensitive** Python comparison. It had to be: case-folding would have
+   flagged the legitimate dev keys. But a case-sensitive comparison cannot see a stray copy that arrives under
+   different casing — precisely the leak a filename check exists to catch.
+
+**A third, structural cost:** path-scoping the filename rule made it **redundant with the directory rule above
+it**. A filename rule's only added value is catching a **stray copy that escaped the secret tier**, and a rule
+scoped inside that tier cannot do that. Unscoping it was impossible while a public file shared the name.
+
+**Decision ✅** — genuinely distinct names, differing by more than case:
+
+| | Name | Location |
+|---|---|---|
+| Held-out key | `holdout_answer_key.json` | secret tier, out of tree |
+| Dev keys (×3) | `dev_answer_key.json` | in repo, public by design |
+
+Consequences, all applied:
+- The deny rule becomes **unscoped** — `Read(**/holdout_answer_key.json)` — regaining the stray-copy coverage
+  that was the whole point of a filename rule, with no possibility of matching a public key on any platform.
+- `check_isolation.py` now compares **case-insensitively** (`_is_secret_name`), closing the blind spot. That is
+  only safe because the names are genuinely distinct.
+- `.gitignore` names the held-out key exactly, so the dev keys are tracked.
+- Guard template updated on the secret side and re-stamped into the repo, per its own instruction.
+
+**Rule to carry forward:** *case must never be load-bearing.* Beyond case-insensitive filesystems, git
+normalises case on some checkouts and renames — the same family of cross-platform hazard as the `autocrlf`
+byte-mangling already recorded in D27. Where two things must be distinguished, give them different names.
+
+**Verified:** all 95 tests pass; `git check-ignore` no longer matches the dev keys; the guard file contains the
+unscoped rule.
+
+---
+
 ## Document status
 
-Decisions **D0–D13** recorded. Spec emitted at `specs/goldset-triad-harness.md` (linted: 0 errors); build
-prompt for phase 1 at `specs/goldset-triad-harness.build-prompt.md`.
+Decisions **D0–D41** recorded (D37–D41 appended by the phase-1 build session). Spec emitted at
+`specs/goldset-triad-harness.md`; build prompt for phase 1 at
+`specs/goldset-triad-harness.build-prompt.md`.
 
 Any new fork encountered during the build is to be appended here in the same format — fork, options
 considered, decision, why — so this record does not go stale.

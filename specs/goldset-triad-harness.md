@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.10.4
+- Spec version: 0.10.5
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -814,7 +814,28 @@ folded into prior decisions. They are retained here as the record of what was in
 ---
 
 ## decisions made
-- [the building agent appends architectural calls the spec did not cover]
+Architectural calls made during the phase-1 build (full fork/options/why in `DECISIONS.md` D37–D41):
+- **D37** — the scorecard serializes every `Decimal` as an exact JSON string (`null` for undefined), never a
+  float or number literal, so output is byte-reproducible and float-free.
+- ~~**D38**~~ — **superseded by D42.** Distinguishing the two keys by capitalisation alone could not work: the
+  names are identical on a case-insensitive filesystem, so the fix only held under the assumption that made it
+  unnecessary. It caused two live bugs — `core.ignorecase` made `.gitignore`'s `ANSWER_KEY*` exclude all three
+  public dev keys from the repository, and the placement check had to stay case-sensitive and so was blind to a
+  case-variant stray copy.
+- **D42** — key filenames are **genuinely distinct, never case variants**: `holdout_answer_key.json` on the
+  secret side, `dev_answer_key.json` in the repo. That lets the filename deny rule be **unscoped**, regaining
+  the stray-copy coverage a filename rule exists for, and lets the placement check compare case-insensitively.
+  **Case must never be load-bearing** — git normalises it on some checkouts, the same hazard family as D27.
+- **D39** — pyright runs in `standard` mode (0 errors), not `strict`, because strict flags only unavoidable
+  `Any` from `json.loads` at loading boundaries.
+- **D40** — the D36 parse-back is dependency-free (a regex over the uncompressed PDF content stream), keeping
+  the third-party set to ReportLab (generation) + pyright (type gate).
+- **D41** — dataset integrity validation (timestamps, D29 tax checks) is a loader task, kept distinct from the
+  scored domain rules; the scoring engine parses no document and implements no domain rule.
+- Supporting implementation choices: declared constants (decimal context precision 28, ratio output 4 places,
+  sentinel `"__DOCUMENT__"`); the D25 null rules applied per category as well as per case; a zero-invoice
+  dataset rejected at load (the FP-rate denominator); `confidence`/`reasoning` optional but validated when
+  present; stdlib `unittest` as the test framework (zero third-party test deps).
 
 ---
 
@@ -824,6 +845,12 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.5 (2026-07-26): phase-1 build completed. Filled the `## decisions made` block and appended D37–D41 to
+  `DECISIONS.md` (scorecard Decimal-as-string; held-out key filename; pyright standard mode; dependency-free
+  parse-back; loader-validation vs scored-rules boundary). No requirement, criterion, scope item or phase
+  changed — the build implemented the existing `[P1]` spec. All `[P1]` acceptance criteria pass by execution
+  (95 tests, pyright 0 errors, key-audit consistent, isolation checks pass); the four generation-side /
+  environment-level criteria are verified and documented in the traceability map.
 - 0.10.4 (2026-07-26): adds a **staleness marker and sweep trigger** to metadata. Three maintenance passes
   happened only because someone asked for them — an observation that periodic maintenance finds drift is not a
   mechanism. The marker records when the spec was last swept, at which version and decision number, so "is a

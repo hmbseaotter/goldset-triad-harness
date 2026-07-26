@@ -235,7 +235,7 @@ D:\Claude_Stuff\goldset-triad-holdout\      tier 2: out-of-repo, agent-READABLE
 └─ po_database\
 
 D:\Claude_Stuff\goldset-triad-secret\       tier 3: out-of-repo, agent-DENIED
-├─ ANSWER_KEY.json
+├─ holdout_answer_key.json                   genuinely distinct from the repo's dev_answer_key.json (D42)
 ├─ design\discrepancy-plan.md
 ├─ _generators\gen_*.py
 ├─ _guard-template.settings.json            source of truth for deny rules

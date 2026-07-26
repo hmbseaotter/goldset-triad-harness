@@ -1236,8 +1236,14 @@ already carries ReportLab. A reader for a self-check sits on the same side of th
 
 ## Open items
 
-- **Structural regrouping of the requirements block (T1/T2 from the 0.10.1 sweep).** Two defects, deferred
-  deliberately so a large reorganisation would not ride along with semantic fixes:
+> **T1 and T2 below were completed in spec 0.10.2.** Requirements are refiled to their correct EARS patterns,
+> the `ubiquitous` block is subject-grouped, and a **subject index** names every section each subject touches.
+> The entry is retained because the *reasoning* still applies: EARS groups by pattern, so a subject will always
+> span sections, and the index — not co-location — is what makes that survivable. **The consistency-mechanism
+> gap below remains open.**
+
+- ~~**Structural regrouping of the requirements block (T1/T2 from the 0.10.1 sweep).**~~ **Done in 0.10.2.**
+  Two defects, originally deferred so a large reorganisation would not ride along with semantic fixes:
   - **Misfiled EARS patterns** — the `ubiquitous (always active)` block now holds `WHEN`, `WHERE` and `IF`
     requirements, everything added by D24, D28, D29, D35 and D36. The categorisation is meaningless there, and
     `lint_spec.py` checks structure, not placement, so it cannot catch this.

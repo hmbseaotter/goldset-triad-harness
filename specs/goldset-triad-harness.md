@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.10.1
+- Spec version: 0.10.2
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -260,9 +260,82 @@ Where a requirement constrains scoring specifically, it names the **scoring engi
 load-bearing: the audit command deliberately implements domain rules, which the scoring engine must never do,
 and only the scoring engine is bound by the standard-library-only rule.
 
+**Subject index — every subject spans several EARS sections; check all of them before changing one.** EARS
+groups by *pattern*, so rules about one subject necessarily scatter. That scattering is what let contradictions
+survive seven versions until the 0.10.1 sweep, because each round's question only ever touched the section it
+was about. When amending a subject, read every row entry below.
+
+| Subject | Where its requirements live |
+|---|---|
+| Tax | ubiquitous (scope, basis) · event-driven (expected tax, cross-multiplied comparison, zero-taxable branch) · unwanted behavior (malformed PO, absent tax field) |
+| Quantity | event-driven (payable quantity, category assignment, receipt summation, overbill materiality) |
+| Price & materiality | ubiquitous (bases, `Decimal` discipline) · event-driven (price measurement, threshold) |
+| Matching & scope | event-driven (match key, sentinel, target anchoring) · unwanted behavior (contention, duplicates, non-existent target) · optional feature (lenient mode) |
+| Metrics & undefined values | event-driven (precision, recall, control measures, null policy) |
+| Fingerprints & integrity | ubiquitous (byte-identical, `run_metadata`) · event-driven (four fingerprints, inputs digest algorithm, mismatch diagnostics) |
+| Ground-truth artifacts | ubiquitous (key correspondence, invoice index, goods receipts) · event-driven (manifest resolution) |
+| Isolation | non-functional (all of it — guard config, placement, attestation, tier rules) |
+| Generation | ubiquitous (byte-determinism, single-source emission, parse-back) · optional feature (no-text-layer tiers) |
+
 ### ubiquitous (always active)
-- [P1] The harness SHALL perform all scoring in deterministic plain code, making no LLM call and no network
-  call at any point during a run.
+
+*Truth-source architecture (D35)*
+- [P1] The scoring engine SHALL load expected findings from the answer key and SHALL confine itself to matching
+  and counting, and SHALL NOT apply any domain rule at scoring time — because a scorer that derived expectations
+  would score the agent against its own implementation rather than against audited ground truth, making any bug
+  in that implementation silently authoritative (D35).
+- [P1] Every rule determining whether a discrepancy exists, its category, or its materiality SHALL be applied by
+  the key generator when authoring expected findings, and SHALL be stated in the published matching policy (D35).
+- [P1] The harness SHALL provide a key-audit command, separate from scoring, that derives expected findings from
+  the structured inputs and reports every divergence from the declared answer key — and that command SHALL NOT
+  execute during a scoring run, so that a derivation defect can never become ground truth mid-score (D35).
+- [P1] The key-audit command SHALL describe its result as a consistency check rather than a proof of
+  correctness, because generator and auditor share an author and their independence is therefore weak (D35).
+
+*Ground-truth artifacts (D22, D31, D34)*
+- [P1] The answer key SHALL declare the canonical correspondence from each invoice line to its purchase-order
+  line and its goods-receipt line, so the key is unambiguous and independently reproducible (D22).
+- [P1] The agent-readable inputs SHALL NOT declare that correspondence, because resolving it across differing
+  descriptions, part numbers and units of measure is the capability under evaluation (D22).
+- [P1] Goods receipts SHALL be represented as documents separate from the purchase order, each carrying its own
+  receipt number, date, receiver, line items and identifiers, so that resolving receipt-to-purchase-order
+  correspondence is part of the evaluated task rather than given away by co-location (D31).
+- [P1] The harness SHALL obtain structured invoice data — line identifiers, quantities, prices, the tax field,
+  timestamps and the invoice count — from a structured invoice index, and SHALL NOT parse any invoice document,
+  because extraction is out of scope and a document parser in the scoring engine would breach the
+  standard-library-only rule (D34).
+- [P1] The structured invoice index SHALL be a complete line inventory covering clean lines as well as discrepant
+  ones, because target validation must be able to distinguish a line that exists from one that does not, which
+  the expected findings alone cannot support (D34).
+- [P1] The structured invoice index SHALL reside in the agent-denied tier alongside the answer key, and SHALL NOT
+  be readable by the agent-under-test, because structured invoice data would bypass the extraction that the
+  document form exists to require (D34).
+- [P1] The structured invoice index SHALL be a separate artifact from the answer key, so that the key remains a
+  statement of expected findings rather than a restatement of the inputs, and so that the key's fingerprint does
+  not change when only the inputs change (D34).
+
+*Generation invariants (D33, D36)*
+- [P1] Generated invoice documents SHALL be byte-identical on regeneration from the same seed, with document
+  creation and modification dates pinned to the seeded timestamp and the document identifier pinned or
+  suppressed — otherwise the aggregate inputs digest changes on every regeneration and presents as tampering
+  (D33).
+- [P1] The key generator SHALL emit each invoice document and its entry in the structured invoice index from a
+  single canonical record in one pass, so that document and index cannot diverge by construction (D36).
+- [P1] The key generator SHALL read back each generated invoice document and SHALL assert that it matches the
+  structured invoice index, closing the residual case of correct data mis-rendered into the document — this
+  parse-back being permitted because it runs on the generation side, which the scoring engine's
+  standard-library-only rule does not bind (D36).
+
+*Category and scope invariants (D19, D20, D21)*
+- [P1] A `TAX_VARIANCE` finding SHALL be document-scoped, because tax is charged once per invoice rather than
+  per line, and SHALL NOT be distributed across the invoice's taxable lines (D20, D21).
+- [P1] For a line-scoped finding, the basis for the two-percent term SHALL be the **payable extended amount**,
+  being the payable quantity multiplied by the purchase-order unit price; the invoiced extended amount SHALL NOT
+  be used, because an inflated invoice would enlarge its own denominator and understate the variance ratio (D19).
+- [P1] For a document-scoped finding concerning tax, the basis for the two-percent term SHALL be the invoice's
+  taxable subtotal (D21).
+
+*Numeric and value discipline (D23, D28)*
 - [P1] The harness SHALL represent every monetary value as `Decimal` and never as `float`.
 - [P1] The harness **and the key generator** SHALL compute and compare every monetary value at full `Decimal`
   precision and SHALL NOT round any value before a comparison, because rounding an intermediate is
@@ -270,40 +343,8 @@ and only the scoring engine is bound by the standard-library-only rule.
 - [P1] The harness SHALL round monetary values to two decimal places only when emitting them for display,
   SHALL use `ROUND_HALF_UP` explicitly rather than the language default, and SHALL NOT admit a rounded value
   back into any comparison (D23).
-- [P1] WHEN computing the expected tax for an invoice, the key generator SHALL apply the purchase-order-derived
-  rate to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
-  category rather than additionally producing a tax finding (D24).
-- [P1] WHEN deciding whether a tax variance is material, the key generator SHALL evaluate the comparison in
-  cross-multiplied form, comparing the absolute difference between the invoiced tax times the purchase-order
-  taxable subtotal and the purchase-order tax times the invoiced taxable subtotal against the threshold times
-  the purchase-order taxable subtotal — so that the decision uses multiplication and subtraction only and
-  performs **no division**, the tax rate being generally non-terminating (D28).
-- [P1] WHERE the purchase order has no taxable lines, so that its taxable subtotal is zero and no rate is
-  derivable, the key generator SHALL treat the expected tax as zero and SHALL compare the invoiced tax directly
-  against the threshold, which degenerates to five cents — and SHALL NOT apply the cross-multiplied comparison,
-  which at a zero subtotal reduces to zero against zero and would flag every such invoice while annihilating
-  the invoiced tax (D29).
-- [P1] IF the purchase order's taxable subtotal is zero while its tax amount is greater than zero, the harness
-  SHALL reject the dataset as malformed and SHALL name the offending purchase order, because an authorized tax
-  against nothing taxable would let the expected-tax-is-zero rule silently contradict the record (D29).
-- [P1] IF a purchase order or an invoice omits its tax field, or presents it as null, the harness SHALL reject
-  the dataset as malformed — the field SHALL always be present, carrying zero where nothing is taxable, so that
-  absent is never confusable with zero (D29).
 - [P1] The key generator SHALL NOT perform a division inside any flagging decision, and SHALL confine division
   to values that are only displayed or only reported (D28).
-- [P1] The harness SHALL provide a key-audit command, separate from scoring, that derives expected findings from
-  the structured inputs and reports every divergence from the declared answer key — and that command SHALL NOT
-  execute during a scoring run, so that a derivation defect can never become ground truth mid-score (D35).
-- [P1] The key-audit command SHALL describe its result as a consistency check rather than a proof of
-  correctness, because generator and auditor share an author and their independence is therefore weak (D35).
-- [P1] The key generator SHALL emit each invoice document and its entry in the structured invoice index from a
-  single canonical record in one pass, so that document and index cannot diverge by construction (D36).
-- [P1] The key generator SHALL read back each generated invoice document and SHALL assert that it matches the
-  structured invoice index, closing the residual case of correct data mis-rendered into the document — this
-  parse-back being permitted because it runs on the generation side, which the scoring engine's
-  standard-library-only rule does not bind (D36).
-- [P3] WHERE a document tier has no reliable text layer, the round-trip parse-back SHALL be recorded as
-  inapplicable and agreement SHALL rest on single-source construction alone (D36).
 - [P1] The harness SHALL pin the decimal context precision to a declared constant rather than relying on the
   language default, so that any incidental division is reproducible across environments (D28).
 - [P1] The harness SHALL emit every reported ratio — precision, recall, and the false-positives-per-invoice
@@ -311,6 +352,13 @@ and only the scoring engine is bound by the standard-library-only rule.
   emitted bytes fall under the byte-identical comparison and would otherwise be fixed by the environment
   rather than by this specification (D28).
 - [P1] The harness SHALL represent every timestamp as UTC ISO-8601 with a `Z` suffix at second precision.
+- [P1] For any metric that is undefined, the harness SHALL emit null, and SHALL NOT emit zero nor omit the
+  field, because zero reads as failure where the result was in fact perfect and an omitted key makes the
+  field unstable across runs (D25).
+
+*Determinism, integrity and read-only inputs (D10, D18, D27)*
+- [P1] The harness SHALL perform all scoring in deterministic plain code, making no LLM call and no network
+  call at any point during a run.
 - [P1] The harness SHALL treat every dataset file, answer-key file, and findings artifact as strictly
   read-only.
 - [P1] Re-running the harness on the same dataset version and the same findings artifact SHALL produce a
@@ -333,10 +381,6 @@ and only the scoring engine is bound by the standard-library-only rule.
 - [P1] WHEN a finding identifies a target, the document identifier SHALL name the invoice under evaluation,
   and the line identifier SHALL be an identifier the dataset assigns explicitly rather than a position within
   a list (D22).
-- [P1] The answer key SHALL declare the canonical correspondence from each invoice line to its purchase-order
-  line and its goods-receipt line, so the key is unambiguous and independently reproducible (D22).
-- [P1] The agent-readable inputs SHALL NOT declare that correspondence, because resolving it across differing
-  descriptions, part numbers and units of measure is the capability under evaluation (D22).
 - [P1] WHEN an expected finding has no matching agent finding, the harness SHALL record it as a false
   negative and name the expectation that was missed.
 - [P1] WHEN an agent finding matches no expected finding, the harness SHALL record it as a false positive.
@@ -349,9 +393,6 @@ and only the scoring engine is bound by the standard-library-only rule.
 - [P1] WHEN a case carries no expectations, the harness SHALL report precision as null only where the agent
   raised no flags at all, and SHALL otherwise report the computed value — which is zero, is well defined, and
   is the result that carries the signal (D25).
-- [P1] WHERE a metric is undefined, the harness SHALL emit null for it, and SHALL NOT emit zero nor omit the
-  field, because zero reads as failure where the result was in fact perfect and an omitted key makes the
-  field unstable across runs (D25).
 - [P1] WHEN a run completes, the harness SHALL record in the scorecard the dataset identifier, the dataset
   version, a SHA-256 fingerprint of the findings artifact, a SHA-256 fingerprint of the answer key, and an
   aggregate SHA-256 digest of the dataset inputs, because the inputs determine the false-positive-rate
@@ -360,9 +401,6 @@ and only the scoring engine is bound by the standard-library-only rule.
   directory recursively, SHALL normalize each path relative to that directory using forward slashes, SHALL
   sort those paths byte-wise, SHALL digest each file's raw bytes without any text transformation, and SHALL
   hash the concatenation of path and file-digest pairs in that order (D27).
-- [P1] WHERE verification detects a mismatch in the aggregate inputs digest, the harness SHALL recompute
-  per-file digests and SHALL report which files diverged, so that diagnostic depth is computed on demand rather
-  than stored in every scorecard (D27).
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
   load, score and total durations in milliseconds, and nothing else.
 - [P1] WHEN a run completes, the harness SHALL record the invoice count and the finding count in the
@@ -371,41 +409,15 @@ and only the scoring engine is bound by the standard-library-only rule.
 - [P1] WHEN an agent finding carries a status of MATCH rather than DISCREPANCY, the harness SHALL treat it
   as an assertion of correctness that is ineligible to be a flag, and SHALL NOT count it as a false
   positive.
-- [P1] The scoring engine SHALL load expected findings from the answer key and SHALL confine itself to matching
-  and counting, and SHALL NOT apply any domain rule at scoring time — because a scorer that derived expectations
-  would score the agent against its own implementation rather than against audited ground truth, making any bug
-  in that implementation silently authoritative (D35).
-- [P1] Every rule determining whether a discrepancy exists, its category, or its materiality SHALL be applied by
-  the key generator when authoring expected findings, and SHALL be stated in the published matching policy (D35).
 - [P1] WHEN determining a quantity discrepancy on a line, the key generator SHALL compute the payable quantity as
   the lesser of the ordered and received quantities, and SHALL treat the line as overbilled only when the
   invoiced quantity exceeds that payable quantity (D15).
 - [P1] WHEN establishing the received quantity for a purchase-order line, the key generator SHALL sum the
   quantities recorded across **all** goods receipts referencing that line, because partial deliveries produce
   several receipts and a quantity taken from one receipt where two exist would be wrong (D31).
-- [P1] Goods receipts SHALL be represented as documents separate from the purchase order, each carrying its own
-  receipt number, date, receiver, line items and identifiers, so that resolving receipt-to-purchase-order
-  correspondence is part of the evaluated task rather than given away by co-location (D31).
-- [P1] The harness SHALL obtain structured invoice data — line identifiers, quantities, prices, the tax field,
-  timestamps and the invoice count — from a structured invoice index, and SHALL NOT parse any invoice document,
-  because extraction is out of scope and a document parser in the scoring engine would breach the
-  standard-library-only rule (D34).
-- [P1] The structured invoice index SHALL be a complete line inventory covering clean lines as well as discrepant
-  ones, because target validation must be able to distinguish a line that exists from one that does not, which
-  the expected findings alone cannot support (D34).
-- [P1] The structured invoice index SHALL reside in the agent-denied tier alongside the answer key, and SHALL NOT
-  be readable by the agent-under-test, because structured invoice data would bypass the extraction that the
-  document form exists to require (D34).
-- [P1] The structured invoice index SHALL be a separate artifact from the answer key, so that the key remains a
-  statement of expected findings rather than a restatement of the inputs, and so that the key's fingerprint does
-  not change when only the inputs change (D34).
 - [P1] WHEN a run completes, the harness SHALL additionally record a SHA-256 fingerprint of the structured
   invoice index, because that index determines the false-positive-rate denominator and target validation and
   therefore moves the score (D34, D27).
-- [P1] Generated invoice documents SHALL be byte-identical on regeneration from the same seed, with document
-  creation and modification dates pinned to the seeded timestamp and the document identifier pinned or
-  suppressed — otherwise the aggregate inputs digest changes on every regeneration and presents as tampering
-  (D33).
 - [P1] WHEN a line is overbilled on quantity, the key generator SHALL assign the category by which constraint
   bound the payable quantity: `QTY_UNDER_SHIPMENT` where the received quantity is less than the ordered
   quantity, `QTY_OVER_SHIPMENT` where the ordered quantity is less than the received quantity, and
@@ -416,17 +428,22 @@ and only the scoring engine is bound by the standard-library-only rule.
 - [P1] WHEN deciding whether a monetary variance is material, the key generator SHALL apply a single threshold —
   the greater of five cents and the lesser of two percent of the applicable basis and twenty-five dollars —
   and SHALL flag the variance when its absolute value is **equal to or greater than** that threshold (D16).
-- [P1] WHERE the finding is line-scoped, the basis for the two-percent term SHALL be the **payable extended
-  amount**, being the payable quantity multiplied by the purchase-order unit price; the invoiced extended
-  amount SHALL NOT be used, because an inflated invoice would enlarge its own denominator and understate the
-  variance ratio (D19).
-- [P1] WHERE the finding is document-scoped and concerns tax, the basis for the two-percent term SHALL be the
-  invoice's taxable subtotal (D21).
-- [P1] A `TAX_VARIANCE` finding SHALL be document-scoped, because tax is charged once per invoice rather than
-  per line, and SHALL NOT be distributed across the invoice's taxable lines (D20, D21).
 - [P1] WHEN assessing a quantity overbill for materiality, the key generator SHALL value it as the excess
   quantity multiplied by the purchase-order unit price and SHALL apply the same threshold as monetary variances
   (D16).
+- [P1] WHEN computing the expected tax for an invoice, the key generator SHALL apply the purchase-order-derived
+  rate to the invoice's **own** taxable subtotal, so that a price or quantity error yields one finding in its own
+  category rather than additionally producing a tax finding (D24).
+- [P1] WHEN deciding whether a tax variance is material, the key generator SHALL evaluate the comparison in
+  cross-multiplied form, comparing the absolute difference between the invoiced tax times the purchase-order
+  taxable subtotal and the purchase-order tax times the invoiced taxable subtotal against the threshold times
+  the purchase-order taxable subtotal — so that the decision uses multiplication and subtraction only and
+  performs **no division**, the tax rate being generally non-terminating (D28).
+- [P1] WHEN the purchase order has no taxable lines, so that its taxable subtotal is zero and no rate is
+  derivable, the key generator SHALL treat the expected tax as zero and SHALL compare the invoiced tax directly
+  against the threshold, which degenerates to five cents — and SHALL NOT apply the cross-multiplied comparison,
+  which at a zero subtotal reduces to zero against zero and would flag every such invoice while annihilating
+  the invoiced tax (D29).
 - [P1] WHEN a dataset is resolved, the harness SHALL read a manifest naming the inputs directory, the
   answer-key path and the structured-invoice-index path separately, so that a split whose inputs and
   ground-truth artifacts reside in different locations is loadable without special-casing (D17, D34).
@@ -452,6 +469,12 @@ and only the scoring engine is bound by the standard-library-only rule.
   the absence of ground truth as a pass.
 - [P1] IF any timestamp in a dataset is not `Z`-suffixed second-precision ISO-8601, the harness SHALL reject
   the dataset as malformed.
+- [P1] IF the purchase order's taxable subtotal is zero while its tax amount is greater than zero, the harness
+  SHALL reject the dataset as malformed and SHALL name the offending purchase order, because an authorized tax
+  against nothing taxable would let the expected-tax-is-zero rule silently contradict the record (D29).
+- [P1] IF a purchase order or an invoice omits its tax field, or presents it as null, the harness SHALL reject
+  the dataset as malformed — the field SHALL always be present, carrying zero where nothing is taxable, so that
+  absent is never confusable with zero (D29).
 - [P1] IF two or more agent findings contend for the same expected finding, the harness SHALL count exactly
   one true positive, SHALL treat the remainder as false positives, and SHALL resolve the contention by a
   deterministic tie-break so the result never depends on input ordering.
@@ -464,6 +487,9 @@ and only the scoring engine is bound by the standard-library-only rule.
   an undifferentiated false-positive count would conceal (D26).
 - [P1] IF an agent finding references a target line or document absent from the dataset, the harness SHALL
   record it as a false positive distinctly labelled as referencing a non-existent target.
+- [P1] IF verification detects a mismatch in the aggregate inputs digest, the harness SHALL recompute
+  per-file digests and SHALL report which files diverged, so that diagnostic depth is computed on demand rather
+  than stored in every scorecard (D27).
 - [P1] IF the guard-configuration check finds any secret path uncovered by the deny rules, or the placement
   check finds a secret artifact inside the repository tree, the harness SHALL report a failed isolation check
   prominently and exit non-zero (D30).
@@ -473,6 +499,8 @@ and only the scoring engine is bound by the standard-library-only rule.
 ### optional feature (WHERE — behind a flag / config)
 - [P2] WHERE verify mode is requested, the harness SHALL compare recomputed results against the stored
   scorecard and exit non-zero on any mismatch.
+- [P3] WHERE a document tier has no reliable text layer, the round-trip parse-back SHALL be recorded as
+  inapplicable and agreement SHALL rest on single-source construction alone (D36).
 - [P3] WHERE lenient matching is enabled, the harness SHALL drop only the **line** component from the match
   key, SHALL retain status, category, scope and document identifier, and SHALL record in the scorecard that
   lenient matching was used — so a document-scoped finding never becomes indistinguishable from a line-scoped
@@ -782,6 +810,20 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.2 (2026-07-26): **structural regrouping (T1/T2 from the sweep).** Pure reorganisation — no requirement
+  was added, removed or reworded except where an EARS keyword had to change to match its new section. **T1:**
+  every misfiled requirement moved to its correct pattern. The `ubiquitous` block had accumulated `WHEN`, `IF`
+  and `WHERE` statements from D24, D28, D29 and D36, while `event-driven` held a dozen always-true statements
+  from D22, D31, D33, D34 and D35 that trigger on nothing. Two `WHERE` clauses were mislabelled rather than
+  misplaced: an undefined metric is not a feature flag, so it becomes ubiquitous, and a digest mismatch is a
+  detected fault, so it becomes `IF`. **T2:** the `ubiquitous` block is now grouped by subject under italic
+  sub-headings — truth-source architecture, ground-truth artifacts, generation invariants, category and scope,
+  numeric discipline, determinism and integrity. Because EARS groups by *pattern*, a subject must still span
+  sections, so a **subject index** was added naming every section each subject touches, with an explicit
+  instruction to read all of them before amending one. That scattering is what let contradictions survive seven
+  versions until the 0.10.1 sweep. **Verification:** the SHALL count was used as a checksum and returned to
+  exactly 127, its pre-restructure value — an intermediate state briefly hit 136, which caught nine duplicates
+  created mid-move and would otherwise have been invisible. Criteria unchanged at 90.
 - 0.10.1 (2026-07-26): **consistency sweep** — the first pass reading the spec as a whole rather than answering
   a question against it. Found five contradictions and eight stale passages, every one of them a later decision
   correctly applied in one place and missed in another. **Contradictions:** a criterion suppressed precision on

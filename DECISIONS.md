@@ -1581,9 +1581,19 @@ than a formality.
 dataset validation** as unspecified, rather than silently keyed by whichever PO happens to flag. Same rates on
 all referenced POs is unambiguous and remains allowed.
 
-**⚠️ NOT YET IMPLEMENTED.** No validation enforces this, because no such invoice exists to reject. It must be
-implemented **before** `[P3]` authors multi-PO data, or the first one produces a silently-wrong key — the exact
-failure class nothing downstream can detect.
+**✅ IMPLEMENTED** — `_validate_multi_po_tax_rates` in `dataset.py`, a cross-artifact validation (it needs the
+key's correspondence *and* the POs, so it cannot sit in a per-artifact validator). Rejected at load, naming both
+POs. A test asserts no shipped dataset has a multi-PO invoice, so **the moment `[P3]` authors one, that test
+fails and forces the apportionment to be implemented** rather than silently keyed.
+
+**A tolerance is required, and exact equality would have been a bug — caught by its own test.** A PO's tax is a
+rate applied to a subtotal *then quantized to cents*, so two POs authored at the **same** rate derive slightly
+different ones: at 8.7%, subtotals of 3312.51 and 912.00 give 288.19 and 79.34, cross-multiplying to 262829.28
+against 262814.54. Exact comparison would have rejected a legitimate same-rate invoice. The residual is bounded
+by the quantization — half a cent on each side, so at most `0.005 × (sub_a + sub_b)` — and a genuinely different
+rate exceeds that by orders of magnitude. The check compares against that bound, still using only multiplication
+and addition. **The test that proves equal rates are allowed is what exposed this**; a rejection-only test would
+have passed a check that rejected everything.
 
 ---
 
@@ -1610,10 +1620,14 @@ cannot be removed, only bounded.
 D35's existing caveat (generator and auditor share an author), the audit catches arithmetic slips,
 transcription errors and post-regeneration drift — not omissions and not shared misunderstanding.
 
-**Cheap mitigation, verified passing today:** every invoice line in the index must have a correspondence entry.
-All four splits are complete (16/16, 1/1, 2/2, 2/2 — checked during this sweep), so the invariant holds now.
+**✅ MITIGATION IMPLEMENTED** — `_validate_correspondence_completeness` in `dataset.py` rejects a dataset whose
+index contains any invoice line with no correspondence entry, naming the offending lines. **The hole cannot be
+closed from inside the audit** — the correspondence has no other source (D22) — but it can be closed *here*: if
+every line is covered, the audit has looked at every line. Placed at load, so it guards the scorer too, not only
+the audit command.
 
-**⚠️ NOT YET IMPLEMENTED as a check.** Worth adding to the audit command, where it costs a set difference.
+All four splits were already complete (16/16, 1/1, 2/2, 2/2, verified during this sweep); the invariant is now
+asserted rather than assumed, with a negative test that drops an entry and confirms rejection.
 
 ---
 

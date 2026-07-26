@@ -1,0 +1,27 @@
+{
+  "//": "SOURCE OF TRUTH for the answer-key deny-guards (D30). This template lives on the secret side; the repo's .claude/settings.json is stamped from it. Edit HERE and re-stamp; never hand-edit the repo copy. The guards cover the secret TIER (the held-out answer key, invoice index, generators, discrepancy-design artifact) and DELIBERATELY NOT the held-out inputs directory (goldset-triad-holdout), which the agent must read to produce findings (D14). Placement outside the repo tree is the primary control; these rules are the second layer. NOTE the answer-key filename rule is deliberately UNSCOPED ('**/holdout_answer_key.json', not '**/goldset-triad-secret/**/holdout_answer_key.json'): scoped to the secret directory it would merely restate the directory rule above, whereas unscoped it catches a STRAY COPY that escaped the secret tier, which is the only thing a filename rule adds. That is safe only because 'holdout_answer_key.json' is genuinely distinct from the public dev key's 'dev_answer_key.json' -- NOT a case variant of it. Case cannot distinguish names on a case-insensitive filesystem, so it must never be load-bearing (D38).",
+  "permissions": {
+    "deny": [
+      "Read(D:\\Claude_Stuff\\goldset-triad-secret\\**)",
+      "Read(**/goldset-triad-secret/**)",
+      "Read(**/holdout_answer_key.json)",
+      "Read(**/gen_rules.py)",
+      "Read(**/generate.py)",
+      "Read(**/pdf_invoice.py)",
+      "Read(**/discrepancy-plan.md)",
+      "Bash(cat *goldset-triad-secret*)",
+      "Bash(type *goldset-triad-secret*)",
+      "Bash(head *goldset-triad-secret*)",
+      "Bash(tail *goldset-triad-secret*)",
+      "Bash(sed *goldset-triad-secret*)",
+      "Bash(grep *goldset-triad-secret*)",
+      "Bash(findstr *goldset-triad-secret*)",
+      "Bash(Get-Content *goldset-triad-secret*)",
+      "Bash(python -c *goldset-triad-secret*)",
+      "Bash(*holdout_answer_key.json*)",
+      "Bash(*gen_rules.py*)",
+      "Bash(*generate.py*)",
+      "Bash(*discrepancy-plan.md*)"
+    ]
+  }
+}

@@ -3,7 +3,13 @@
 # primary control. The patterns below are insurance against an accidental copy
 # landing inside the tree, NOT enforcement: `git add -f` still overrides them,
 # and a key committed to public history is permanent.
-ANSWER_KEY*
+#
+# The pattern MUST name the held-out key exactly and MUST NOT be a case variant of
+# the public dev key's name. `core.ignorecase` is true on Windows, so an earlier
+# `ANSWER_KEY*` rule silently matched `datasets/*/answer_key.json` and excluded all
+# three PUBLIC dev keys from the repository — the dev split shipped with no keys at
+# all, and a fresh clone could not run a single dev-split test (D38).
+holdout_answer_key.json
 README.original.md
 answer-keys/
 **/answer-keys/

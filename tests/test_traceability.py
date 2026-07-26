@@ -189,6 +189,18 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_constraints_scan.ConstraintScanTests.test_forbidden_strings_absent_from_the_authored_work"),
     ("C14", "no input or key file modified by a run (hashes before/after)",
      "test_cli_end_to_end.CliEndToEndTests.test_run_does_not_modify_any_input_file"),
+    # Repository composition. Added after a near-miss: every check above reads the
+    # filesystem, where a file excluded from git is still plainly present, so an
+    # ignore rule could silently drop the public dev keys while the whole suite
+    # stayed green. These assert over the git index and ignore rules instead.
+    ("C15", "the dev split ships complete in git - inputs and key both tracked",
+     "test_repo_shipping.RepositoryShippingTests.test_the_dev_split_ships_complete"),
+    ("C16", "no ignore rule excludes a file that must ship",
+     "test_repo_shipping.RepositoryShippingTests.test_no_shipping_file_is_excluded_by_an_ignore_rule"),
+    ("C17", "no secret artifact is tracked in the git index",
+     "test_repo_shipping.RepositoryShippingTests.test_no_secret_artifact_is_tracked"),
+    ("C18", "the shipping check provably fires on the historical bad pattern",
+     "test_repo_shipping.RepositoryShippingTests.test_the_check_actually_fires_on_a_known_bad_pattern"),
 ]
 
 

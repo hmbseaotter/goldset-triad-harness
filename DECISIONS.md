@@ -1447,9 +1447,54 @@ the names on disk were already correct.
 
 ---
 
+## D44 — Repository composition is asserted over the git index, not the filesystem ✅
+
+**Fork:** D42 fixed the `ANSWER_KEY*` ignore rule that would have dropped the three **public** dev keys from
+the commit. That fix removed the instance. What removes the *class*?
+
+**Why nothing already in the suite could have caught it.** Every check — placement, isolation, dataset
+loading — reads the **filesystem**, and on the filesystem the excluded file is plainly present and valid. The
+suite would have stayed fully green while a fresh clone lacked the keys, so *"the dev split ships complete"*
+and *"the full acceptance suite passes from the repository alone"* would both have been false, silently. A
+green suite asserting the wrong surface is worse than no check, because it manufactures confidence.
+
+**Options considered**
+- **(A) Assert the specific fact** — "the three dev keys are tracked." Closes the instance, not the class: the
+  next ignore rule to over-match some other required file is undetected.
+- **(B) Assert over the git index and ignore rules**, generalised to every file that must ship.
+
+**Decision ✅** — **(B).** Four assertions: no file in the shipping trees (`src`, `tests`, `datasets`) may be
+excluded by an ignore rule; named critical files must be tracked; each dev split must ship its inputs *and* its
+key; and no secret artifact may be tracked — the **dual** of the placement check, since a `git add -f` leak is
+invisible to a filesystem walk of an otherwise clean tree.
+
+**Scoped deliberately to *silent* exclusion.** A file merely not yet `git add`-ed is **loud**: `git status`
+shows it, and a CI checkout contains only committed files. Asserting "every on-disk file is tracked" would fail
+on ordinary in-progress work and train readers to ignore the signal — the failure mode that makes a noisy guard
+worse than none. An ignore rule is the silent case, so that is what is asserted.
+
+**Two implementation details are load-bearing, both found by the check failing against itself**
+- **`--no-index`.** By default `git check-ignore` consults the index and will **not** report an already-tracked
+  path as ignored. Without this flag the check passes vacuously from the moment the file is committed —
+  reporting health precisely when the damage is done.
+- **`-z` with byte-mode I/O.** In text mode `subprocess` translates `\n` to the platform line ending when
+  writing stdin, so on Windows git received each path with a trailing CR and checked a filename that does not
+  exist, yielding false negatives against exact-name rules. The same newline-translation class as **D43**,
+  hit twice in one session — which is itself the argument for never leaving a newline implicit.
+
+**A guard that cannot fail is worth nothing.** Because this one has two specific ways of rotting into a vacuous
+pass, the suite **self-verifies**: it injects the historical `*ANSWER_KEY*` pattern through a temporary excludes
+file — the repository's own `.gitignore` untouched — and asserts all three dev keys are caught, and that the
+returned paths carry no CR and no quoting.
+
+**Consequence** — a `[P1]` acceptance criterion now covers repository composition, so this is a binding
+requirement a future rebuild must satisfy rather than a test someone could quietly delete.
+
+---
+
 ## Document status
 
-Decisions **D0–D43** recorded (D37–D41 appended by the phase-1 build session; D42–D43 by the follow-up
+Decisions **D0–D44** recorded (D37–D41 appended by the phase-1 build session; D42–D44 by the follow-up
 consistency work). Spec emitted at `specs/goldset-triad-harness.md`; build prompt for phase 1 at
 `specs/goldset-triad-harness.build-prompt.md`.
 

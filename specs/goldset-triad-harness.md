@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.10.5
+- Spec version: 0.10.6
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -729,6 +729,10 @@ over-inclusion**: a spurious "check here" costs a glance, a missing one costs a 
   instead of protecting it.
 - [ ] [P1] The full acceptance suite passes using **only** the dev split shipped in the repository, with no
   out-of-tree path configured — proving CI can verify the harness without access to the held-out split.
+- [ ] [P1] No ignore rule excludes any file the repository must ship — asserted over git's ignore rules with
+  the index disregarded, since a tracked path is not reported as ignored and the check would otherwise pass
+  vacuously from the moment the file was committed; the dev split's inputs and answer key are confirmed
+  tracked, and no secret artifact appears in the index (D44).
 - [ ] [P1] A scan confirms zero occurrences of "reconciliation agent" and "iTradeNetwork" in the repository.
 - [ ] [P1] No input dataset or answer-key file is modified by any run, verified by comparing file hashes
   before and after.
@@ -845,6 +849,12 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.10.6 (2026-07-26): adds a `[P1]` acceptance criterion covering **repository composition** (D44). Every
+  existing check reads the filesystem, where a file excluded from git is still plainly present -- so the
+  `ANSWER_KEY*` ignore rule fixed in D42 would have dropped all three public dev keys from the commit while the
+  entire suite stayed green, making "the dev split ships complete" and "the suite passes from the repository
+  alone" silently false. The new criterion asserts over git's ignore rules and index instead. No requirement,
+  scope item or phase changed; one criterion added.
 - 0.10.5 (2026-07-26): phase-1 build completed. Filled the `## decisions made` block and appended D37–D41 to
   `DECISIONS.md` (scorecard Decimal-as-string; held-out key filename; pyright standard mode; dependency-free
   parse-back; loader-validation vs scored-rules boundary). No requirement, criterion, scope item or phase

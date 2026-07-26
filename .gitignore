@@ -33,6 +33,12 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# --- Session / tooling artifacts -------------------------------------------------
+# Written per project by the Claude Code session tooling: a timestamp and a
+# `claude --resume <id>` command. Machine- and session-specific, so it is useless to
+# anyone else and would churn on every run.
+resume_session.txt
+
 # --- OS / editor junk -----------------------------------------------------------
 Thumbs.db
 desktop.ini

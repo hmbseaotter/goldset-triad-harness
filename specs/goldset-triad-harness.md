@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.11.0
+- Spec version: 0.12.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.11.0 @ D46** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.12.0 @ D54** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -733,6 +733,32 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   instead of protecting it.
 - [ ] [P1] The full acceptance suite passes using **only** the dev split shipped in the repository, with no
   out-of-tree path configured — proving CI can verify the harness without access to the held-out split.
+- [ ] [P1] Two runs completing within the same second each leave their own scorecard, and
+  writing over an existing scorecard is refused by the operating system rather than merely
+  avoided, because scorecards are the durable record (D49).
+- [ ] [P1] Both halves of an emitted scorecard — the JSON and the human summary — are
+  written with pinned LF endings, so the bytes do not differ between Windows and Linux
+  (D49).
+- [ ] [P1] An expected finding naming a target absent from the invoice index is rejected at
+  load, because such an expectation can never be matched and would score as a permanent
+  false negative against every agent (D50).
+- [ ] [P1] Every correspondence row resolves on both sides — a real invoice line, a real
+  purchase order, and a real line on that purchase order — and a phantom purchase-order
+  reference is reported as such rather than misdiagnosed as a differing tax rate (D50).
+- [ ] [P1] An empty correspondence list is rejected rather than exempted, since D22
+  requires an entry for every invoice line (D50).
+- [ ] [P1] An unresolved correspondence reference reaching the audit command names its
+  specific cause rather than surfacing as a raw key error (D50).
+- [ ] [P1] No public dataset artifact's filename is a substring of its held-out
+  counterpart's, so no filename deny rule written for the held-out artifact can silently
+  over-block the public split (D51).
+- [ ] [P1] The secret-artifact vocabulary has a single source shared by the filesystem
+  placement check and the git-index check, so neither can fall behind the other (D52).
+- [ ] [P1] The published matching policy states the same materiality floor, cap and
+  percentage that the shipped rule implementation applies (D53).
+- [ ] [P1] Every test is either mapped to an acceptance criterion or explicitly exempt, and
+  the count of `[P1]` criteria is itself checksummed, so neither a new criterion nor a new
+  test can arrive unaccounted for (D54).
 - [ ] [P1] No ignore rule excludes any file the repository must ship — asserted over git's ignore rules with
   the index disregarded, since a tracked path is not reported as ignored and the check would otherwise pass
   vacuously from the moment the file was committed; the dev split's inputs and answer key are confirmed
@@ -853,6 +879,19 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.12.0 (2026-07-26): **second sweep, over code and data as well as documents** — 13 findings, all fixed,
+  recorded as D49–D54. Two were live rule violations: scorecards written inside the same second **overwrote**
+  each other (the run stamp is second-precision by D6), and the scorecard writer emitted platform-dependent
+  line endings, so the durable record's bytes differed between Windows and Linux — the third instance of the
+  newline-translation class and the first in shipping code (**D49**). Five ground-truth reference holes were
+  demonstrated accepted at load and are now rejected with named causes, including an expected finding naming a
+  line that does not exist, which would have scored as a permanent false negative against every agent
+  (**D50**). The public invoice-index name was a **substring** of the held-out one, so a deny rule for the
+  held-out artifact would silently over-block the public split — D42's lesson in a new disguise (**D51**). The
+  secret-artifact vocabulary existed twice and the copy had already drifted (**D52**). The published policy was
+  bound only to the non-shipping generator (**D53**). Traceability was one-directional and had already fallen
+  behind by 28 tests (**D54**). Also corrected the sweep marker, which read `@ D46` although the same commit
+  added D45–D48. 11 acceptance criteria added; 121 tests.
 - 0.11.0 (2026-07-26): **full pre-phase-2 sweep** over spec, decisions, build prompt, all four datasets, the
   in-repo code, the secret-side generator, the guards and cross-platform behaviour — the first sweep to cover
   code and data rather than documents alone. Four decisions recorded. **D45:** two more artifacts had D42's

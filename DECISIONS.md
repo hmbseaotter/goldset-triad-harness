@@ -1631,10 +1631,150 @@ asserted rather than assumed, with a negative test that drops an entry and confi
 
 ---
 
+## D49 — Scorecards cannot be overwritten, and their bytes are platform-independent ✅
+
+**Fork:** The scorecard filename derived from the run stamp, which is second-precision because **every**
+timestamp this harness writes is (D6). Two runs inside one second therefore derived the **same filename** and
+the second silently destroyed the first — against *"Never delete or overwrite a prior scorecard; they are the
+durable record"* and against the spec's own claim that *"runs may overlap safely because each writes a
+distinctly timestamped scorecard."* Demonstrated: three back-to-back runs left one file.
+
+**Options considered**
+- **(A) Sub-second precision in the filename** — smallest change. **Rejected:** it puts a
+  finer-than-second timestamp into an artifact name, contradicting the second-precision rule it would be
+  working around.
+- **(B) Content digest as the suffix** — deterministic. **Rejected:** two runs on identical inputs produce an
+  identical digest, so the collision returns for exactly the case that provokes it.
+- **(C) Ordinal on collision, plus exclusive creation.**
+
+**Decision ✅** — **(C).** The stem stays second-precision; if it is taken, an ordinal (`-2`, `-3`) is appended,
+checking both extensions together so the pair never straddles two stems. Files are created with mode `"x"`, so
+overwriting is **impossible at the operating-system level** rather than merely unintended.
+
+**The same commit pinned the writer's newline.** `write_text` without `newline=` emitted CRLF on Windows and LF
+on Linux, so the scorecard — the durable record — had platform-dependent bytes, contradicting *"identical
+scorecard content on Windows and on Linux."* This is the **third** instance of the newline-translation class
+(D43 in the generator, D44 in a subprocess stdin), and the first in shipping code, because D43 pinned only the
+out-of-tree generator. `.gitattributes` now covers the `.txt` summary as well as the `.json`.
+
+**How it hid:** the reproducibility test slept 1.05 s to obtain distinct stamps. That worked around the defect
+instead of exposing it — a sleep inserted to make a test pass is worth re-reading as a symptom.
+
+---
+
+## D50 — Ground-truth references are resolved at load, not trusted ✅
+
+**Fork:** D48 established that every invoice line needs a correspondence entry. Five neighbouring holes
+remained, all demonstrated as accepted by the loader.
+
+**Decision ✅** — reject each at load, naming the specific cause:
+1. **An expected finding naming a target absent from the index.** The severe one: such an expectation can never
+   be matched, so it becomes a **permanent false negative** scoring every agent worse than it performed, on a
+   dataset that looks healthy. Exactly the "wrong key, confidently wrong scores" failure the key is the
+   riskiest artifact for.
+2. **An empty correspondence list.** The completeness check returned early when the list was empty, so the rule
+   enforced only *"if you declare some, declare all"* while D22 requires one entry per line. An escape hatch
+   that exempts the largest possible omission is not an exemption, it is a hole.
+3. **A correspondence row naming a nonexistent invoice line** (an orphan — D48 checked only the converse).
+4. **A row naming a nonexistent purchase order.** It had been silently defaulted to a zero-rated PO by the
+   multi-PO rate check.
+5. **A row naming a nonexistent line on a real purchase order.**
+
+**Ordering is deliberate:** reference resolution runs **before** the D47 rate check. Previously a phantom PO,
+where it surfaced at all, surfaced as *"tax rates differ … apportionment UNSPECIFIED"* — sending a reader to
+implement apportionment over what was actually a typo. A check that misdiagnoses is worse than one that is
+silent, because it directs effort at the wrong thing.
+
+**The audit command keeps its own guards.** `audit()` resolves the manifest directly and does **not** run the
+loader's validation, so it can still meet an unresolved reference; it reported `KeyError ('PO-3001','P999')`,
+naming a tuple rather than the fault. Both lookups now raise named causes, per *"every halt SHALL name its
+specific cause."*
+
+---
+
+## D51 — A public artifact name may never be a substring of its held-out counterpart ✅
+
+**Fork:** D45 renamed the held-out index to `holdout_invoice_index.json` but left the public one
+`invoice_index.json` — which is a **substring** of the held-out name.
+
+**Why that is the same bug D42 fixed, in a new disguise.** D42's lesson was "case must never be load-bearing;
+where two things must be distinguished, give them different names." Substring containment defeats distinction
+just as case-insensitivity does: any deny rule written against the held-out tail — `*invoice_index.json*` —
+also matches all three **public** dev indexes and silently over-blocks the dev split, which is the D14 trap.
+The *key* names were already mutually non-containing; the index names were not.
+
+**Decision ✅** — the public index becomes `dev_invoice_index.json`, symmetrical with `dev_answer_key.json`, so
+neither name contains the other. Recorded as a general rule rather than a rename: **no public artifact name may
+be a substring of its held-out counterpart.**
+
+**A vacuous test fell out of it.** The assertion that no index appears under `inputs/` pinned the literal old
+filename, so the rename would have made it pass while checking nothing. It now matches any `*invoice_index*`
+and additionally asserts the index it expects does exist, so it cannot be satisfied by absence.
+
+---
+
+## D52 — The secret-artifact vocabulary has exactly one source ✅
+
+**Fork:** The list of secret artifact names existed twice — canonically in `check_isolation` (filesystem
+placement) and as a private copy in the git-index check.
+
+**It drifted within one commit cycle.** The copy never learned about `holdout_invoice_index.json` (D45), and
+because its entries carried a `.py` suffix it could not have caught a tracked `gen_rules.cpython-314.pyc` —
+the very bytecode case D45 added stem matching for. So the index-side check silently covered less than the
+filesystem-side one.
+
+**Decision ✅** — the git-index check imports the canonical set and its matcher. A test asserts the matcher
+recognises every artifact type **including** bytecode and backup extensions, and equally that it does **not**
+claim the public dev artifacts — because a placement check that flagged `dev_answer_key.json` would be as
+broken as one that missed the held-out key.
+
+---
+
+## D53 — The published policy is bound to the implementation that ships ✅
+
+**Fork:** D46 interpolated the policy from the generator's constants, removing authoring-time drift. But the
+generator does **not** ship, so nothing in the repository could detect the published rule diverging from an
+implementation a reader can actually run.
+
+**Decision ✅** — a test binds the policy's stated floor, cap and percentage to `audit_key`'s constants, which
+do ship. The tokens are **derived** from those constants rather than restated, so the test cannot drift either.
+
+**Why it matters beyond tidiness** — an agent competes against the published rule. If the published rule
+disagrees with the rule the harness scores by, the agent is judged against a threshold it was never told, and
+the scorecard is not measuring what it claims to measure.
+
+---
+
+## D54 — Traceability must be bidirectional ✅
+
+**Fork:** The traceability map asserted that every mapped criterion resolves to a real test. It never asserted
+the converse.
+
+**So it had already fallen behind.** 28 test methods were unmapped, including all five cross-artifact tests
+added with D47/D48 — and a criterion added to the spec with no map entry was equally invisible. The map is a
+hand-authored parallel copy of the spec's criteria list, which is the exact pattern the 0.10.3 sweep condemned
+when it found the hand-written subject index wrong in six of nine rows and replaced it with a generated one.
+That lesson had not been carried across.
+
+**Decision ✅** — two further assertions:
+- **test → map:** every test method is mapped to a criterion or listed in an explicit exempt set. Exempt is for
+  positive controls, self-verifications of another guard, and internal invariants; listing one is a deliberate
+  act, which is the point.
+- **spec → map:** the count of `[P1]` criteria is checksummed, in the tradition the 0.10.2 sweep established
+  when a SHALL count caught nine silently duplicated requirements. Adding a criterion fails the test until the
+  entry and the count are both updated.
+
+**Not the ideal fix, and recorded as such.** Deriving the map from the spec text would remove the parallel list
+altogether. The checksum only forces a human to notice; it does not prove the new entry covers the new
+criterion. That remains open.
+
+---
+
 ## Document status
 
-Decisions **D0–D44** recorded (D37–D41 appended by the phase-1 build session; D42–D44 by the follow-up
-consistency work). Spec emitted at `specs/goldset-triad-harness.md`; build prompt for phase 1 at
+Decisions **D0–D54** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
+D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator). Spec emitted at
+`specs/goldset-triad-harness.md`; build prompt for phase 1 at
 `specs/goldset-triad-harness.build-prompt.md`.
 
 Any new fork encountered during the build is to be appended here in the same format — fork, options

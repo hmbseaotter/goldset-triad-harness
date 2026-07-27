@@ -152,6 +152,29 @@ def ignored_paths(candidates: list[str], extra_excludes: str | None = None) -> l
     return [p.decode("utf-8") for p in result.stdout.split(b"\0") if p]
 
 
+def _checkout_folds_case() -> bool:
+    """Whether this checkout matches ignore patterns case-insensitively (D73).
+
+    `core.ignorecase` is the switch git consults when casefolding a wildmatch, so it is
+    what decides whether an uppercase pattern can reach a lowercase path. Read from the
+    config rather than inferred by observation: inferring it from whether an uppercase
+    decoy matched would make the assertion that uses it tautological, proving only that
+    git agrees with itself."""
+    result = _git("config", "--bool", "--get", "core.ignorecase")
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _caught_by_decoy(pattern: str, candidates: list[str]) -> list[str]:
+    """Which of ``candidates`` an injected ignore ``pattern`` would exclude.
+
+    The repository's own `.gitignore` is never touched: the pattern lives in a throwaway
+    excludes file that exists only for the duration of the probe."""
+    with tempfile.TemporaryDirectory() as td:
+        excludes = Path(td) / "extra.gitignore"
+        excludes.write_text(f"{pattern}\n", encoding="utf-8", newline="\n")
+        return ignored_paths(candidates, extra_excludes=str(excludes))
+
+
 class RepositoryShippingTests(unittest.TestCase):
     def setUp(self) -> None:
         if not _is_git_work_tree():
@@ -181,24 +204,61 @@ class RepositoryShippingTests(unittest.TestCase):
         A guard that cannot fail is worth nothing, and this one has a specific way
         of rotting into a vacuous pass (dropping `--no-index`, or mangling the paths
         it feeds git, both of which happened while writing it). So the suite injects
-        the historical pattern through a temporary excludes file — the repository's
-        own `.gitignore` is untouched — and asserts the dev keys are caught."""
-        with tempfile.TemporaryDirectory() as td:
-            excludes = Path(td) / "extra.gitignore"
-            # The pattern that nearly shipped. Under core.ignorecase this matches
-            # dev_answer_key.json as surely as it matched answer_key.json.
-            excludes.write_text("*ANSWER_KEY*\n", encoding="utf-8", newline="\n")
-            caught = ignored_paths(_shipping_files_on_disk(), extra_excludes=str(excludes))
+        a decoy pattern through a temporary excludes file — the repository's own
+        `.gitignore` is untouched — and asserts the dev keys are caught.
+
+        The decoy is deliberately CASE-EXACT, which is D73. It used to be the historical
+        `*ANSWER_KEY*` verbatim, and that pattern reaches `dev_answer_key.json` only
+        where `core.ignorecase` is true: the first Linux CI run caught all three keys on
+        Windows and none on Linux, so the proof that this guard can fire at all was
+        itself vacuous on the platform CI runs on. D42 ruled that case must never be
+        load-bearing; that rule had been applied to artifact names and never reached the
+        probe. Note what was and was not broken — the guard itself reads the real ignore
+        rules against the real files and passed on both platforms. What failed is its
+        proof of life, which is the harder one to notice, because a vacuous
+        self-verification presents as coverage.
+
+        Both halves are asserted rather than one being skipped. A skip states nothing,
+        and the reason the plumbing proof must be case-exact is precisely that the
+        historical pattern provably cannot reach these paths on a case-sensitive
+        checkout — so that is asserted too, in whichever direction this checkout runs."""
+        shipping = _shipping_files_on_disk()
+
+        # 1. The plumbing proof, and the only half that has to hold everywhere: a
+        #    case-exact decoy fires on any filesystem, so it cannot be satisfied or
+        #    defeated by the checkout's manners.
+        caught = _caught_by_decoy("*answer_key*", shipping)
         key_hits = sorted(p for p in caught if p.endswith("dev_answer_key.json"))
         self.assertEqual(
             len(key_hits), 3,
-            "the ignore check failed to detect the historical bug pattern; "
-            f"expected all three dev keys, got {key_hits}",
+            "the ignore check failed to detect a decoy pattern matching the dev keys; "
+            f"expected all three, got {key_hits}",
         )
         # And the paths must come back clean -- no stray CR from newline translation.
         for path in caught:
             self.assertNotIn("\r", path, f"path mangled by newline translation: {path!r}")
             self.assertNotIn("\\", path, f"path came back quoted/escaped: {path!r}")
+
+        # 2. The historical pattern itself, whose reach is decided by case folding. The
+        #    platform difference becomes an asserted fact in both directions rather than
+        #    an unstated assumption that only one platform ever tested.
+        historical = sorted(
+            p for p in _caught_by_decoy("*ANSWER_KEY*", shipping)
+            if p.endswith("dev_answer_key.json")
+        )
+        if _checkout_folds_case():
+            self.assertEqual(
+                len(historical), 3,
+                "this checkout folds case, so the historical `ANSWER_KEY*` rule must "
+                f"still be caught reaching all three PUBLIC dev keys; got {historical}",
+            )
+        else:
+            self.assertEqual(
+                historical, [],
+                "this checkout is case-sensitive, so `*ANSWER_KEY*` cannot reach a "
+                "lowercase key — which is exactly why the proof above uses a case-exact "
+                f"decoy rather than the historical one; got {historical}",
+            )
 
     def test_no_secret_artifact_is_tracked(self) -> None:
         """The dual check, over the index rather than the filesystem: a secret

@@ -2449,6 +2449,95 @@ judgment beyond that, since no test can assert the order in which a future phase
 
 ---
 
+## D73 — The guard's self-verification was itself case-dependent ✅ (first Linux run)
+
+**Fork:** The first CI run on Linux — the D72 entry gate — failed exactly one test,
+identically on Python 3.11 and 3.14. What does the failure mean, and what shape should the
+fix take?
+
+**What failed.** `test_the_check_actually_fires_on_a_known_bad_pattern`, the
+self-verification of the D44 repository-composition guard. It injects the historical
+`*ANSWER_KEY*` ignore pattern through a throwaway excludes file and asserts all three
+public dev keys are caught, thereby proving the guard can fire at all. On Linux it caught
+**none**: `AssertionError: 0 != 3`.
+
+**Why — established by experiment, not inferred from the message.** `git check-ignore`
+casefolds a wildmatch only where `core.ignorecase` is true. Measured directly against the
+three shipped keys:
+
+| decoy pattern | `core.ignorecase=true` | `core.ignorecase=false` |
+|---|---|---|
+| `*ANSWER_KEY*` | all three caught | **nothing caught** |
+| `*answer_key*` | all three caught | all three caught |
+
+So the historical pattern reaches `dev_answer_key.json` only on a case-folding checkout.
+That is not incidental to the test — **the D38/D42 defect it reproduces was itself only
+ever possible on such a filesystem.** `core.ignorecase` is true on Windows, which is
+precisely why `ANSWER_KEY*` silently excluded three lowercase public keys there and could
+not have done so on Linux. The decoy inherited the original defect's preconditions along
+with its shape.
+
+**What was and was not broken, because that distinction is the finding.** The guard is
+intact and passed on both platforms: `test_no_shipping_file_is_excluded_by_an_ignore_rule`
+reads the real ignore rules against the real files, and case-insensitive matching is a
+superset of case-sensitive, so Windows is the strictly stronger platform for it. What was
+vacuous on Linux is the **proof that the guard can fire** — and a self-verification that
+quietly proves nothing is worse than none, because it presents as coverage. D44 recorded
+that principle in the same breath as writing this test ("a guard that cannot fail is worth
+nothing"); this is that principle failing on the one axis D44 never ran on.
+
+**The rule that had already been written.** D42: *case must never be load-bearing.* It was
+applied to artifact names — it is the entire reason `holdout_answer_key.json` and
+`dev_answer_key.json` differ by more than case — and it never reached the probe that proves
+the ignore guard works. Correct rule, wrong universe: the same shape as **D64a** (every
+staleness check iterated a set that excluded the held-out split) and **D69** (the
+numbered-set rule never reached a Python list). Three instances now, each surfaced by a
+mechanism the previous one built.
+
+**Options considered**
+- **(A) Keep the historical pattern; skip the assertion on a case-sensitive checkout.**
+  **Rejected:** a skip states nothing, and it would leave the plumbing proof — the part that
+  catches `--no-index` being dropped or the fed paths being mangled, both of which happened
+  while D44 was being written — running on one platform only, which is how this arose.
+- **(B) Force `core.ignorecase=true` for the probe.** **Rejected:** that setting is git's
+  record of what the filesystem actually does and is documented as not to be set by hand.
+  Making a test lie about its platform to keep an assertion green is the vacuous pass in a
+  new costume.
+- **(C) A case-exact decoy for the plumbing proof, plus the historical pattern asserted in
+  both directions.**
+
+**Decision ✅** — **(C).** The decoy becomes `*answer_key*`, byte-exact against the shipped
+names, so the plumbing proof fires on any filesystem and cannot be satisfied or defeated by
+the checkout's manners. The historical `*ANSWER_KEY*` is still probed, and its result is
+asserted **in whichever direction this checkout runs**: all three keys where case folds,
+none where it does not. `core.ignorecase` is read from the config rather than observed,
+because inferring it from whether the uppercase decoy matched would make the assertion
+tautological — proving only that git agrees with itself. The platform difference stops
+being an unstated assumption one platform happened to satisfy and becomes a fact the suite
+states out loud.
+
+**Verified in both directions, not only the one that was red.** Windows checkout
+(`core.ignorecase=true`): 190 tests, OK, pyright 0 errors. A throwaway clone with
+`core.ignorecase=false` and neither out-of-tree tier reachable — the CI condition
+reproduced locally — 190 tests, OK (skipped=8).
+
+**What the gate bought, stated plainly.** This is one test and the fix is small. The finding
+is that a mechanism had run on one platform for its entire life while describing itself as
+general, and **no amount of re-reading it on Windows could have surfaced that, because on
+Windows it works.** D72 argued that CI was worth building before anything else in `[P2]`
+rather than alongside it; it returned a defect of the project's recurring class on its first
+run, for the price of one push.
+
+**Rule** — **a self-verification must be at least as platform-independent as the guard it
+proves.** A decoy chosen to reproduce a historical defect inherits that defect's
+preconditions, and where those preconditions are a property of the machine, the proof
+silently narrows to machines that have them while still reporting success on them. Enforced
+by `test_the_check_actually_fires_on_a_known_bad_pattern` in `tests/test_repo_shipping.py`,
+which now asserts a case-exact decoy on every platform and the historical pattern in both
+directions.
+
+---
+
 ## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
@@ -2468,9 +2557,14 @@ iterate only the dev splits" was true, deliberate and unrecorded.** The next rea
   that is self-consistently wrong would pass.
 - **`[P2]` verify mode against the D66 schema rule.** D66 recorded the rule before the feature exists, so
   nothing yet enforces that verify reports an unrecognised version as its own outcome.
-- **Cross-platform behaviour on a real Linux run.** Still `[P2]`, still asserted by construction only (`H17`) —
-  and the encoding class (D61) reached the suite through a Windows-only failure mode, which is precisely the
-  asymmetry that argues for running it once for real.
+- **The cross-platform digest COMPARISON** — narrowed by D73, not closed, and this bullet is kept honest
+  between sweeps rather than at one (the stamp above still names the last sweep, D72). A real Linux run now
+  exists: the suite and the pyright gate both run there, and the very first one returned D73 — the encoding
+  class (D61) had reached the suite through a Windows-only failure mode, and this was its mirror image, a probe
+  that only ever worked on Windows. What still has **never** happened is the comparison `H17` actually names:
+  an aggregate inputs digest computed on Windows set beside one computed on Linux. CI computes digests on Linux
+  and the suite asserts they are stable on recompute, but no value has yet been carried across platforms, so
+  `H17` stays `MANUAL:` until `[P2]`'s cross-platform item does exactly that.
 - **Whether the secret tier's remote actually has the commits.** D70 reads `[ahead N]` from local git, which
   reflects the last fetch rather than the remote's true state. A tier that is level with a *stale* tracking ref
   reports clean. Closing that means talking to the remote, which the check deliberately does not do.

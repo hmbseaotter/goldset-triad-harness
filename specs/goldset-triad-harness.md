@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.21.0
+- Spec version: 0.22.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -19,12 +19,17 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
 - **Last swept: 2026-07-26 @ 0.21.0 @ D72** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
-  when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
+  when **~8–10 decisions have accrued since the stamp above**, **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
   is deliberately **change-based, not calendar-based**: drift accumulates per decision, not per day. This spec
   ran 0.3.0 → 0.10.0, seven versions and roughly twenty decisions, before its first sweep, and that interval is
   exactly where the defects piled up. A monthly reminder would have fired during quiet weeks and stayed silent
   through the heavy design run. **Update this line whenever a sweep completes**, or it stops meaning anything.
+  The threshold is now expressed against the stamp rather than restated as a decision number: this line read
+  *"so around D55"* while its own stamp said D72, because a hand-computed value sitting beside its own source is
+  a parallel list, and parallel lists drift — the defect class that produced the hand-written subject index
+  (0.10.3) and the one-directional traceability map (D54), here inside the very marker that exists to stop a
+  document going stale (0.22.0).
 - Decision record: `DECISIONS.md` at the repository root — permitted in place of
   `specs/<slug>.decisions.md` because this repo holds a single spec, and root placement is more
   discoverable for a portfolio artifact.
@@ -43,8 +48,10 @@ expansion. Tags were renumbered from the interview's P1a/P1b naming because the 
 (`821fac1`) accepted integer-only tags. Sub-phase tags like `[P1a]` became legal in toolkit `b09a99a`, but
 the renumbering stands: re-tagging every item and the build prompt would be pure churn for a mnemonic.
 
-**Companion document.** `DECISIONS.md` at the repo root is the running decision record (**D0–D36**): every
-fork, the options considered, the choice, and why. This spec states *what*; `DECISIONS.md` preserves *why*.
+**Companion document.** `DECISIONS.md` at the repo root is the running decision record: every fork, the
+options considered, the choice, and why. This spec states *what*; `DECISIONS.md` preserves *why*. Its extent is
+deliberately **not restated here** — it said `D0–D36` for thirteen versions after it stopped being true, and the
+record states its own range while `lint_spec.py` reports the real one and fails on a gap (0.22.0).
 
 > **Read decisions as a sequence, not in isolation.** Several early entries were later narrowed or overturned:
 > **A5→D22**, **A8→D14**, **D7→D33**, **D8→D20**, **D10→D27 and D34**, **D28→D29**, and the D35
@@ -830,6 +837,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   malformed.
 - [ ] [P2] Verify mode on a scorecard whose stored numbers have been altered detects the difference and
   exits non-zero.
+- [ ] [P2] Verify mode on a scorecard carrying an unrecognised schema version reports the version mismatch as
+  its own outcome and does **not** present the resulting differences as a scoring discrepancy — the rule D66
+  recorded before the feature existed, and which had a requirement in the `optional feature` block but no
+  criterion, so nothing would have failed had verify been built without it (D66).
 
 ### constraint validation
 - [ ] [P1] The same dataset version and findings artifact scored twice produce byte-identical scorecards
@@ -1066,6 +1077,25 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.22.0 (2026-07-26): **`[P2]`'s entry gate opened, and the first Linux run found a defect (D73)**. The CI
+  workflow lands as D72 required — pyright and the full suite on `ubuntu-latest`, across Python 3.11 and 3.14,
+  because 3.11 is the floor `pyproject.toml` declares and `pyrightconfig.json` targets while every verification
+  to date ran on this machine's 3.14. The workflow also **asserts** that the tier-dependent tests skip rather
+  than merely letting them not run: D14 puts the held-out split out of tree, so a clone must skip them, and a
+  test that vanished is indistinguishable from one that skipped inside a green tick. The first run was green on
+  pyright and red on exactly one test, identically on both interpreters. **D73:** the self-verification of the
+  D44 repository-composition guard injects the historical `*ANSWER_KEY*` pattern and asserts the three public
+  dev keys are caught — but `git check-ignore` casefolds only where `core.ignorecase` is true, so on Linux it
+  caught none. The guard itself passed on both platforms; what was vacuous is the **proof that it can fire**,
+  the harder failure to notice because it presents as coverage. The decoy had inherited the preconditions of the
+  defect it reproduces, since the D38/D42 bug was itself only ever possible on a case-folding filesystem. D42's
+  rule that case must never be load-bearing had reached artifact names and never reached the probe: correct
+  rule, wrong universe, the same shape as D64a and D69. Adds the `[P2]` criterion **D66 required but never
+  got** — verify mode must report an unrecognised schema version as its own outcome — which had a requirement
+  in the `optional feature` block and no criterion, so verify could have been built without it and nothing
+  would have failed. Also removes three restated decision ranges (`so around D55`, `D0–D36`, `D0–D68`), every
+  one of them wrong, every one derivable, and all the same class as the hand-written subject index the 0.10.3
+  sweep replaced with a generated one. 1 acceptance criterion added; 190 tests.
 - 0.21.0 (2026-07-26): **the held-out tier gets a durability story, three gaps close, and Linux becomes `[P2]`'s
   entry gate (D71, D72)**. The held-out inputs tier is now a git repository — the last tier with none, and the one
   whose loss is worst: a scorecard embeds a digest of exactly those bytes (D27), so without them every held-out

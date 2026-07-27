@@ -2544,11 +2544,16 @@ What this pass deliberately did **not** examine. Recorded because the recurring 
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here.
 
-- **The 16 non-numeric absence defaults** in shipped code (`.get(k, "")`, `.get(k, [])`, `.get(k, {})`). Scoped
-  out of D68 with reasoning, not overlooked — but not individually reviewed either. `dataset.py`'s
-  `raw.get("po_number", po_path.name)` is the one to look at first: it identifies a purchase order by
-  **filename** when the field is absent, so a file whose name and contents disagree would be silently reconciled
-  in favour of the name.
+- **The non-numeric absence defaults** in shipped code (`.get(k, "")`, `.get(k, [])`, `.get(k, {})`). Scoped out
+  of D68 with reasoning, not overlooked — but not individually reviewed either. **The count that used to open
+  this bullet is deliberately gone.** It read 16 while D71's own text read 15, and the two disagreed for a
+  specific reason: this bullet also named `dataset.py`'s `raw.get("po_number", po_path.name)` as the one to look
+  at first, and **D71(d) removed that fallback in the same session that wrote this line.** So the negative-space
+  list — whose entire purpose is to be the honest record of what a sweep knowingly left — was both counting a
+  closed defect and sending the next reader to it, which is this section's own failure mode turned on itself. A
+  hand-copied total sitting beside its own source drifts; spec 0.22.0 removed three more of exactly that shape
+  in the same pass. If a number is wanted here, count it at the time, and D68's scanner in
+  `tests/test_defect_classes.py` is where a real one would come from rather than from prose.
 - **`.claude/settings.json` beyond the deny list.** Pattern anchoring is now checked on every rule list, but
   nothing asserts which lists may exist. An `allow` list appearing there would be scanned for anchoring and
   otherwise unremarked.
@@ -2576,12 +2581,19 @@ iterate only the dev splits" was true, deliberate and unrecorded.** The next rea
 
 ## Document status
 
-Decisions **D0–D68** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
-D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57
-formalizing the behaviours that had lived only in code; D58 onward closing the post-build review's open
-issues). Spec emitted at
-`specs/goldset-triad-harness.md`; build prompt for phase 1 at
-`specs/goldset-triad-harness.build-prompt.md`.
+Decisions are numbered from **D0** and run to the last heading in this file. That extent is deliberately **not
+restated here**: this line read `D0–D68` while D69–D73 sat above it — a derived value copied beside its own
+source, the same class spec 0.22.0 removed from three places in the same pass. `lint_spec.py` reports the real
+range and fails on a duplicate or a gap, which is a mechanism rather than a sentence someone must maintain.
+
+Attribution by session: D37–D41 by the phase-1 build; D42–D44 by the first consistency pass; D45–D48 by the
+pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57 formalizing the behaviours
+that had lived only in code; D58–D71 closing the post-build review's open issues and the two sweeps after it;
+D72 gating `[P2]` on a Linux CI run; **D73 by that run itself, on its first attempt.**
+
+Spec emitted at `specs/goldset-triad-harness.md`; build prompts at
+`specs/goldset-triad-harness.build-prompt.md` (phase 1) and
+`specs/goldset-triad-harness.p2.build-prompt.md` (phase 2).
 
 Any new fork encountered during the build is to be appended here in the same format — fork, options
 considered, decision, why — so this record does not go stale.

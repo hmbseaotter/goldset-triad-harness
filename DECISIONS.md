@@ -3514,12 +3514,25 @@ A parent-level settings file carrying an `allow` list sits entirely outside what
 check can see. D82's *correct rule, wrong universe*, with the universe being which settings
 files exist **above** the one enumerated.
 
+**Author's confirmation, which narrows what this finding is.** Asked directly, the author
+confirmed that *"it was known from the start that the guards only work if AI is launched from
+the project"*, and that **the current placement is correct**. So this is **not** a design
+defect and the rules are not moving. What was defective is narrower and still worth the
+entry: the precondition was known to the author and **written down nowhere**, so the
+attestation was run from the wrong root and recorded a PASS that a differently-rooted session
+silently reversed. A guard whose operating condition lives only in the author's memory is
+enforced by whoever remembers it — D67's thesis, applied to a configuration rather than a
+rule. The fix is therefore visibility, not relocation: state it early in the README, state it
+in the runbook, state it in the attestation's own method, and have the isolation command say
+when it does not hold.
+
 **Options considered**
 - **Rejected: fail the isolation check when an uncovered ancestor is found.** Where somebody
   opens their editor is not a property of this repository, and failing the build over it
   reports a working habit as a security defect — D65's lesson about guards people switch off.
 - **Rejected: copy the deny rules up into the workspace settings.** That edits a file
-  governing other projects, and it is the author's call, not the harness's.
+  governing other projects; the author has since confirmed the current placement is the
+  intended one, so this stays rejected on the merits rather than merely deferred.
 - **Decision ✅** — an advisory `[guard-reach]` line, reported whenever isolation is checked,
   naming the ancestor and its settings file. Excluded from `ok`, so the exit code never
   moves — the same construction D70 chose for durability, for the same reason. The
@@ -3636,6 +3649,107 @@ publication rule written about one split does not range over the others.** The q
 ask of any output is not *"is this a results file?"* but *"what does it let a reader
 reconstruct?"* Enforced by
 `test_repo_shipping.RepositoryShippingTests.test_no_scorecard_from_a_non_dev_split_is_tracked`.
+
+---
+
+## D94 — A byte-order mark is accepted, because Windows is first-class or it is not ✅
+
+**Fork:** The author, following this project's own runbook, hit:
+
+```
+error: findings artifact is not valid JSON: empty.json
+       (Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0))
+```
+
+The command that produced the file was `Out-File -Encoding utf8`, taken verbatim from the
+runbook written one commit earlier. **In Windows PowerShell 5.1 that writes a BOM despite its
+name** — verified: `EF BB BF`, where `-Encoding ascii` and `[IO.File]::WriteAllText` do not.
+So the documentation was wrong, and it was wrong in the direction that matters: a first-time
+user following the instructions exactly gets an error.
+
+**But fixing only the documentation would have missed the larger point.** The spec makes
+Windows and Linux **both first-class**, and Windows tooling adds a BOM freely — `Out-File`,
+Notepad's "UTF-8", numerous editors. An agent under test running on Windows can emit one just
+as easily as a human can. Refusing to score its findings over three bytes that carry no
+meaning is declining to do the work for a reason unrelated to the work. And the harness's own
+error message **named the fix it was not applying** (`decode using utf-8-sig`), which is a
+tool describing its own remedy and then not taking it.
+
+**Options considered**
+- **Rejected: fix the runbook and keep rejecting.** It leaves the harness first-class on
+  Windows with an asterisk, and leaves every future Windows-authored artifact one silent
+  trap away from an error about encoding rather than about accounting.
+- **Rejected: catch the BOM and report it better.** A clearer message about a condition that
+  need not be an error at all is polish on a decision that should be reversed.
+- **Decision ✅** — the shared reader (D77) decodes with **`utf-8-sig`**, which strips a BOM
+  when present and is identical to `utf-8` when it is not. One line, one place, because there
+  is only one function in the package that reads text.
+
+**What this does not weaken, checked rather than assumed.**
+- **D61 is satisfied.** Its rule was never "use utf-8"; it was *never rely on the platform
+  default*. `utf-8-sig` is explicitly named, and the AST guard tests for the presence of an
+  `encoding` keyword rather than its value.
+- **No digest changes.** Every fingerprint in this project hashes **raw bytes** via
+  `read_bytes` — the aggregate inputs digest (D27), the key, the index, the findings
+  artifact. A BOM'd file still digests differently from a clean one, which is correct: they
+  really are different files. What widened is what the harness **accepts**, not what it
+  treats as the same input. The test asserts exactly that, by comparing the two files' bytes
+  after both parse successfully.
+
+**Verified by execution.** A BOM'd findings artifact parses to the same object as a clean one
+and **scores end to end** through the CLI, not merely through the reader in isolation — the
+reader is not the path a user takes. 257 tests, pyright 0 errors.
+
+**Rule** — **when an error message names its own remedy, ask why the code is not applying
+it.** `"decode using utf-8-sig"` was in the output the whole time. A harness that states the
+fix and refuses to perform it has diagnosed the problem and declined to solve it. Enforced by
+`test_read_failures.OneReaderTests.test_a_leading_byte_order_mark_is_accepted` and
+`test_a_bom_artifact_scores_end_to_end`.
+
+---
+
+## D95 — A fence's language tag is invisible to the reader it was written for ✅
+
+**Fork:** Every command in this project's user-facing documentation is given twice, once for
+PowerShell and once for bash, distinguished only by the fenced block's language tag —
+` ```powershell ` and ` ```bash `. The author pointed out that **a rendered markdown viewer
+shows none of that.** On GitHub, the two blocks appear as two adjacent, unlabelled boxes of
+text, and a reader has to already know which one is theirs.
+
+**Why that is worse here than in most projects.** The convention exists precisely *because*
+the two shells differ — path separators, line continuations (`` ` `` versus `\`), environment
+syntax (`$env:X = 'v'` versus `X=v`). A reader who picks the wrong block does not get a
+graceful failure; they get a syntax error in a shell they may not know well, while following
+instructions written for them. The information distinguishing the blocks was present in the
+source and absent from the artifact anybody actually reads.
+
+**Decision ✅** — a visible bold label above every shell block:
+
+```
+**Windows — PowerShell:**
+**Linux / macOS — bash:**
+```
+
+Applied to all 68 shell blocks across `README.md`, `docs/RUNBOOK.md` and
+`ISOLATION_ATTESTATION.md`, by script rather than by hand — sixty-eight manual insertions is
+an invitation to miss one, and the miss would be invisible for exactly the reason the change
+exists. The script tracks fence state so a ``` inside a code block is never mistaken for an
+opening fence, and preserves a blockquote prefix so labels inside a `>` block stay inside it.
+`goldset-triad-secret` is deliberately out of scope, per the author: it is the author's own
+tier and not user-facing.
+
+**And it is checked, because a documentation convention with no check is a convention until
+somebody adds a block.** `ShellLabelTests` walks the same three documents and fails on any
+`bash` or `powershell` fence whose preceding non-blank line is not the matching label. The
+document list is **named rather than globbed** — "whatever markdown happens to exist" is not
+a universe (D82), so a new user-facing document has to be added deliberately.
+
+**Rule** — **check what the reader sees, not what the source says.** A language tag, a
+comment, an HTML attribute: anything the renderer consumes is invisible to the audience the
+document was written for, and documentation is judged on the rendered artifact. The same
+shape as D60's finding that a `null` metric needed to state *why* it was null — the
+information was present and the reader was left to supply it. Enforced by
+`tests/test_published_claims.ShellLabelTests`.
 
 ---
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 
 class DatasetError(Exception):
@@ -42,6 +42,23 @@ class DatasetError(Exception):
     ``from .dataset import DatasetError`` continues to name this class."""
 
 
+#: UTF-8, tolerating a leading byte-order mark (D94).
+#:
+#: `utf-8-sig` strips a BOM when one is present and behaves exactly like `utf-8` when it is
+#: not, so this widens what the harness accepts without loosening what it means. It is still
+#: an explicitly named encoding, which is what D61 requires — the rule was never "utf-8", it
+#: was "never the platform default".
+#:
+#: Why tolerate it at all: Windows is first-class here by constraint, and Windows tooling
+#: adds a BOM freely — Notepad's "UTF-8", `Out-File -Encoding utf8` on PowerShell 5.1, and
+#: plenty of editors. An agent under test running there can emit one, and rejecting its
+#: findings over three bytes that carry no meaning is refusing to score work for a reason
+#: unrelated to the work. Nothing is weakened: every digest in this project hashes RAW BYTES
+#: via `read_bytes`, so a BOM'd artifact still fingerprints differently from a clean one, as
+#: it should — the two really are different files.
+_ENCODING: Final = "utf-8-sig"
+
+
 def read_text_file(path: Path, what: str) -> str:
     """Read ``path`` as UTF-8, naming existence, permission and encoding failures apart.
 
@@ -52,7 +69,7 @@ def read_text_file(path: Path, what: str) -> str:
     if not path.is_file():
         raise DatasetError(f"{what} not found or unreadable: {path}")
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding=_ENCODING)
     except UnicodeDecodeError as exc:
         # Ordered before OSError deliberately: UnicodeDecodeError is a ValueError, so
         # the two are disjoint and this could sit either way -- but reading it first is

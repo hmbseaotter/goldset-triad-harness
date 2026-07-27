@@ -40,6 +40,14 @@ venv/
 build/
 dist/
 
+# --- Scratch files the runbook tells a reader to create ---------------------------
+# docs/RUNBOOK.md §2.6 has the reader write a throwaway findings artifact in the repo
+# root to try scoring. Anchored to the root and named exactly, so a real fixture living
+# deeper in the tree is unaffected: an ignore rule that quietly excluded something the
+# repository must ship is the defect D42 and D44 were both about.
+/empty.json
+/findings.json
+
 # --- Session / tooling artifacts -------------------------------------------------
 # Written per project by the Claude Code session tooling: a timestamp and a
 # `claude --resume <id>` command. Machine- and session-specific, so it is useless to

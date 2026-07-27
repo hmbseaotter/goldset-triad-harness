@@ -28,6 +28,7 @@ from pathlib import Path
 from tests import support
 from goldset_triad.cli import main
 from goldset_triad.dataset import DatasetError, load_dataset
+from goldset_triad.jsonio import read_json_object
 
 PACKAGE = support.SRC / "goldset_triad"
 
@@ -176,6 +177,48 @@ class OneReaderTests(unittest.TestCase):
             f"call sites came to disagree and how the UnicodeDecodeError class survived "
             f"D61 (D77). Route it through jsonio.read_text_file / read_json_file.",
         )
+
+    def test_a_leading_byte_order_mark_is_accepted(self) -> None:
+        """A BOM is tolerated, and a clean file is unaffected (D94).
+
+        Windows is first-class here by constraint, and Windows tooling adds a BOM freely —
+        `Out-File -Encoding utf8` on PowerShell 5.1 does it despite the name, which is how
+        this surfaced: a documented command in this project's own runbook produced a file
+        the harness then refused. An agent under test running on Windows can emit one just
+        as easily, and rejecting its findings over three bytes that carry no meaning is
+        declining to score work for a reason unrelated to the work.
+
+        Both directions are asserted. A reader that only ever saw BOM'd input could have
+        been changed to something that mangles clean files and nothing would have said so."""
+        payload = '{"schema_version": "1", "findings": []}'
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            with_bom = td / "bom.json"
+            with_bom.write_bytes(b"\xef\xbb\xbf" + payload.encode("utf-8"))
+            self.assertEqual(read_json_object(with_bom, "findings artifact"),
+                             {"schema_version": "1", "findings": []})
+
+            without = td / "clean.json"
+            without.write_bytes(payload.encode("utf-8"))
+            self.assertEqual(read_json_object(without, "findings artifact"),
+                             {"schema_version": "1", "findings": []})
+
+            # The bytes still differ, so the two files still fingerprint differently --
+            # widening what is ACCEPTED must not widen what counts as the same input (D27).
+            self.assertNotEqual(with_bom.read_bytes(), without.read_bytes())
+
+    def test_a_bom_artifact_scores_end_to_end(self) -> None:
+        """The path a user actually takes, not just the reader in isolation."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            findings = td / "empty.json"
+            findings.write_bytes(
+                b"\xef\xbb\xbf" + b'{"schema_version": "1", "findings": []}'
+            )
+            rc = main(["score", "--dataset", "dev-zero-defect", "--datasets-root",
+                       str(support.DATASETS), "--findings", str(findings),
+                       "--out", str(td / "out")])
+            self.assertEqual(rc, 0, "a BOM'd findings artifact must score, not halt")
 
     def test_the_scan_would_notice_a_stray_read(self) -> None:
         """The premise. A scan that finds nothing proves nothing until it is shown to

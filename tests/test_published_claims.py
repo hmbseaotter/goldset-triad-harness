@@ -29,6 +29,72 @@ from goldset_triad.audit_key import _CAP, _FLOOR, _RATE
 
 README = support.REPO_ROOT / "README.md"
 
+#: Every document outside the secret tier that shows a reader a shell command. Named
+#: rather than globbed, because "whatever markdown happens to exist" is not a universe
+#: (D82) — a new user-facing document must be added here deliberately.
+COMMAND_DOCS = ("README.md", "docs/RUNBOOK.md", "ISOLATION_ATTESTATION.md")
+
+#: The visible labels. A fenced block's language tag drives the syntax highlighter and is
+#: invisible in every rendered markdown viewer, so a reader looking at the published page
+#: cannot tell which shell a command is for without opening the raw file (D95).
+SHELL_LABELS = {
+    "powershell": "**Windows — PowerShell:**",
+    "bash": "**Linux / macOS — bash:**",
+}
+_FENCE = re.compile(r"^(?P<prefix>\s*(?:>\s?)*)```(?P<lang>[a-zA-Z]*)\s*$")
+
+
+class ShellLabelTests(unittest.TestCase):
+    """Every shell block says, visibly, which shell it is for (D95).
+
+    The fence language is for the highlighter. GitHub renders nothing above the block, so
+    a reader of the published page has to *know* which of two adjacent blocks applies to
+    them — and this project gives every command twice, once per shell, which makes that
+    exactly the thing they cannot afford to guess."""
+
+    def test_every_shell_block_carries_a_visible_label(self) -> None:
+        unlabelled: list[str] = []
+        for name in COMMAND_DOCS:
+            path = support.REPO_ROOT / name
+            self.assertTrue(path.is_file(), f"{name} is missing")
+            lines = path.read_text(encoding="utf-8").split("\n")
+            inside = False
+            for number, line in enumerate(lines, start=1):
+                fence = _FENCE.match(line)
+                if fence and not inside:
+                    inside = True
+                    lang = fence.group("lang").lower()
+                    if lang not in SHELL_LABELS:
+                        continue
+                    previous = ""
+                    for earlier in reversed(lines[: number - 1]):
+                        stripped = earlier.strip().lstrip("> ").strip()
+                        if stripped:
+                            previous = stripped
+                            break
+                    if previous != SHELL_LABELS[lang]:
+                        unlabelled.append(f"{name}:{number} ({lang})")
+                elif fence and inside:
+                    inside = False
+        self.assertEqual(
+            unlabelled, [],
+            f"{len(unlabelled)} shell block(s) with no visible shell label: {unlabelled}. "
+            f"Add the matching line from SHELL_LABELS immediately above the fence — the "
+            f"language tag is invisible once the page is rendered (D95).",
+        )
+
+    def test_the_scan_would_notice_an_unlabelled_block(self) -> None:
+        """The premise: a scan that has only ever seen labelled blocks has not been shown
+        to look. Exercised on synthetic text rather than on the real documents, which are
+        (and must stay) fully labelled."""
+        lines = ["Some prose.", "```bash", "echo hi", "```"]
+        found = _FENCE.match(lines[1])
+        self.assertIsNotNone(found)
+        assert found is not None  # for the type checker; the assertion above is the gate
+        self.assertEqual(found.group("lang"), "bash")
+        self.assertNotEqual(lines[0], SHELL_LABELS["bash"],
+                            "the fixture must genuinely lack a label")
+
 
 def _flattened(text: str) -> str:
     """Prose with line wrapping and markdown quote markers collapsed to single spaces.

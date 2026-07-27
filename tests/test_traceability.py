@@ -444,6 +444,17 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     # D93: the premise for the held-out-scorecard check -- it must classify a held-out
     # filename as a leak and a dev one as fine, or it is a scan nobody has shown to look.
     "test_repo_shipping.RepositoryShippingTests.test_the_scorecard_check_would_catch_a_held_out_card",
+    # D94: a leading byte-order mark is accepted, and a clean file is unaffected. Widening
+    # what the reader TOLERATES, not what the harness treats as the same input -- the second
+    # test scores end to end, because the reader in isolation is not the path a user takes.
+    "test_read_failures.OneReaderTests.test_a_leading_byte_order_mark_is_accepted",
+    "test_read_failures.OneReaderTests.test_a_bom_artifact_scores_end_to_end",
+    # D95: a fenced block's language tag is invisible once the page is rendered, so every
+    # shell block carries a visible label saying which shell it is for. This project gives
+    # every command twice, once per shell, which makes that the one thing a reader of the
+    # published page cannot afford to guess.
+    "test_published_claims.ShellLabelTests.test_every_shell_block_carries_a_visible_label",
+    "test_published_claims.ShellLabelTests.test_the_scan_would_notice_an_unlabelled_block",
     "test_isolation.GuardReachTests.test_a_reach_warning_never_changes_the_exit_code",
     # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
     # file" — against a condition its own test could not reach. C72 scores ONE split, so

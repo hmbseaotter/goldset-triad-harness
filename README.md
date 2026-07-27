@@ -8,6 +8,24 @@ per-category precision and recall on expected discrepancies, plus an over-flaggi
 measured on a zero-defect control — in one command, reproducibly, with the answer key
 structurally unable to enter the agent's context.
 
+## Documentation
+
+| Start here | What it covers |
+|---|---|
+| **[docs/RUNBOOK.md](docs/RUNBOOK.md)** | **Step-by-step for a first-time user.** Prerequisites, the three repositories and which is which, every everyday command in **PowerShell and bash**, the held-out workflow end to end, regenerating the datasets, and the errors you will actually hit. |
+| [A worked example](#a-worked-example-what-you-give-it-and-what-you-get-back) | A real findings artifact and the real scorecard it produces — both halves, annotated. |
+| [docs/example-findings.json](docs/example-findings.json) | That artifact, shipped, so you can reproduce the documented output in one command. |
+| [ISOLATION_ATTESTATION.md](ISOLATION_ATTESTATION.md) | What is verified by code, what is attested by a human, and what neither can verify. |
+| [DECISIONS.md](DECISIONS.md) | Every fork, the options considered, the choice, and why — including the ones that turned out wrong. |
+
+> **⚠ If you are running an AI coding agent against this repository, launch it from *this
+> folder*.** The answer-key deny-guards live in `.claude/settings.json` **here**, and an
+> agent session loads permission settings from its own root — so a session opened at a
+> parent folder never reads them and the guards do not bind. Placement of the held-out split
+> outside this tree is the primary control and is unaffected either way, but the second layer
+> only exists when the session is rooted here (D91). `goldset-triad-check-isolation` prints a
+> `[guard-reach]` warning when it is not.
+
 ---
 
 ## Why this exists
@@ -34,31 +52,37 @@ first-class here and neither is the "real" one.
 
 **Install (editable, for the console scripts):**
 
+**Linux / macOS — bash:**
 ```bash
 python -m pip install -e .
 ```
 
+**Windows — PowerShell:**
 ```powershell
 python -m pip install -e .
 ```
 
 **Score an agent's findings against the shipped dev split:**
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score --dataset dev --findings ./findings.json --out ./scorecards
 ```
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score --dataset dev --findings .\findings.json --out .\scorecards
 ```
 
 **Verify a scorecard by recomputing it:**
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad verify --scorecard ./scorecards/scorecard-dev-20260727T050000Z.json \
   --dataset dev --findings ./findings.json
 ```
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad verify --scorecard .\scorecards\scorecard-dev-20260727T050000Z.json `
   --dataset dev --findings .\findings.json
@@ -66,21 +90,25 @@ goldset-triad verify --scorecard .\scorecards\scorecard-dev-20260727T050000Z.jso
 
 **Rebuild the run ledger from the scorecards alone:**
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad rebuild-ledger --out ./scorecards
 ```
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad rebuild-ledger --out .\scorecards
 ```
 
 **Check the answer key against an independent derivation, and check isolation:**
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad-audit-key --dataset dev
 goldset-triad-check-isolation
 ```
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad-audit-key --dataset dev
 goldset-triad-check-isolation
@@ -89,17 +117,15 @@ goldset-triad-check-isolation
 Without installing, every command also runs as `python -m goldset_triad.<module>` — but the
 package lives under `src/`, so that directory has to be on the import path:
 
+**Linux / macOS — bash:**
 ```bash
 PYTHONPATH=src python -m goldset_triad.check_isolation
 ```
 
+**Windows — PowerShell:**
 ```powershell
 $env:PYTHONPATH = 'src'; python -m goldset_triad.check_isolation
 ```
-
-**New here?** [`docs/RUNBOOK.md`](docs/RUNBOOK.md) is a step-by-step guide for someone who
-has never seen this project — prerequisites, the three repositories and which is which, how
-to regenerate the datasets, and the errors you will actually hit.
 
 ---
 
@@ -108,10 +134,12 @@ to regenerate the datasets, and the errors you will actually hit.
 Everything below is real output, produced by the file shipped at
 [`docs/example-findings.json`](docs/example-findings.json). You can reproduce it exactly:
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score --dataset dev --findings docs/example-findings.json --out ./scorecards
 ```
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score --dataset dev --findings docs\example-findings.json --out .\scorecards
 ```

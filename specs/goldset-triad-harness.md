@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.26.0
+- Spec version: 0.28.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -1126,6 +1126,29 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.28.0 (2026-07-27): **the reader sees what the renderer shows, not what the source says (D95)**. Every
+  command in the user-facing documentation is given twice, once per shell, distinguished only by the fenced
+  block's language tag — which a rendered markdown viewer does not display. On GitHub the two appear as two
+  adjacent unlabelled boxes, so a reader had to already know which was theirs, in a project where picking wrong
+  means a syntax error in a shell they may not know. All 68 shell blocks across the README, the runbook and the
+  attestation now carry a visible bold label, applied by script (sixty-eight hand insertions invites exactly the
+  one miss that would be invisible), and `ShellLabelTests` fails on any unlabelled block over a named document
+  list rather than a glob. `goldset-triad-secret` is out of scope by the author's call: it is not user-facing.
+  0 acceptance criteria added; 259 tests.
+- 0.27.0 (2026-07-27): **the documentation becomes findable, and a byte-order mark stops being an error
+  (D94)**. The runbook and the worked example existed but were first mentioned at README line 100, below the
+  fold — a GitHub visitor never saw them — so the README now opens with a documentation table. The
+  session-rooting precondition the author confirmed was *known from the start but written down nowhere* is
+  likewise stated early, in the README, the runbook and the attestation's own method, and D91 is corrected to
+  record that placement is deliberate and correct: the defect was visibility, not design. **D94** came from the
+  author following this project's own instructions and getting an error: `Out-File -Encoding utf8` writes a BOM
+  on PowerShell 5.1 despite its name, and the harness rejected it — while its own message named the fix
+  (`decode using utf-8-sig`) it was not applying. The shared reader now decodes `utf-8-sig`, which strips a BOM
+  when present and is identical to `utf-8` when absent. D61 is satisfied (its rule was never "utf-8", it was
+  never the platform default) and no digest moves, because every fingerprint hashes raw bytes: a BOM'd file
+  still fingerprints differently, as it should. Also records where a held-out scorecard may live — the
+  agent-denied tier, never `goldset-triad-holdout`, which the agent under test is deliberately allowed to read.
+  0 acceptance criteria added; 257 tests.
 - 0.26.0 (2026-07-27): **the guards were not in force, and the harness became usable (D91, D92)**.
   Re-running the isolation attestation on request produced the opposite of its dated record: the canary read
   **succeeded**, marker and all. The cause is not a broken rule but an unloaded one — the deny rules live in

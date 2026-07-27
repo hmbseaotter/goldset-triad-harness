@@ -11,6 +11,30 @@ you try anything real.
 - Lines beginning `#` are comments, not commands.
 - `>` output shown after a command is what you should expect to see.
 
+> ### ⚠ Read this before you start: launch AI agents from the harness folder
+>
+> The deny-guards that keep the answer key out of an agent's reach live in
+> `goldset-triad-harness/.claude/settings.json`. An agent session loads its permission
+> settings from **its own root directory**, so a session opened at a parent folder — a
+> workspace holding several projects — never reads them, and the guards do not bind.
+>
+> **Windows — PowerShell:**
+> ```powershell
+> cd D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness
+> claude
+> ```
+>
+> **Linux / macOS — bash:**
+> ```bash
+> cd ~/goldset-triad-harness
+> claude
+> ```
+>
+> `cd`-ing after launch does not help — the root is fixed when the session starts. Placement
+> of the held-out split outside this tree is the **primary** control and holds regardless;
+> this is the second layer. Run `goldset-triad-check-isolation` (§2.5) if in doubt: a
+> `[guard-reach]` line means the guards are not in force (D91).
+
 ---
 
 ## 0. Which repository is which
@@ -39,10 +63,12 @@ Nothing here touches the held-out data. You are running the public dev split.
 
 You need **Python 3.11 or newer**. Nothing else — the scorer has zero runtime dependencies.
 
+**Windows — PowerShell:**
 ```powershell
 python --version
 ```
 
+**Linux / macOS — bash:**
 ```bash
 python3 --version
 ```
@@ -58,11 +84,13 @@ on your system.
 `-e` means *editable*: the commands point back at your working copy, so edits take effect
 without reinstalling.
 
+**Windows — PowerShell:**
 ```powershell
 cd D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness
 python -m pip install -e .
 ```
 
+**Linux / macOS — bash:**
 ```bash
 cd ~/goldset-triad-harness
 python3 -m pip install -e .
@@ -80,10 +108,12 @@ The repository ships a worked example you can copy — see
 [README → *A worked example*](../README.md#a-worked-example-what-you-give-it-and-what-you-get-back).
 Save it as `findings.json`, then:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score --dataset dev --findings .\findings.json --out .\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score --dataset dev --findings ./findings.json --out ./scorecards
 ```
@@ -94,11 +124,13 @@ You should see a summary printed, ending with the path of the scorecard it wrote
 
 Re-score the same inputs and check the result can be reproduced:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad verify --scorecard .\scorecards\<the-file-it-just-wrote>.json `
   --dataset dev --findings .\findings.json
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad verify --scorecard ./scorecards/<the-file-it-just-wrote>.json \
   --dataset dev --findings ./findings.json
@@ -115,10 +147,12 @@ be recomputed.**
 
 ### 2.1 Score an agent's findings
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score --dataset dev --findings .\findings.json --out .\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score --dataset dev --findings ./findings.json --out ./scorecards
 ```
@@ -126,11 +160,13 @@ goldset-triad score --dataset dev --findings ./findings.json --out ./scorecards
 `--dataset` takes either a **name** (`dev`, `dev-synthetic`, `dev-zero-defect`) or a **path
 to a `manifest.json`**, which is how you reach the held-out split:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score --dataset D:\Claude_Stuff\goldset-triad-secret\held-out\manifest.json `
   --findings .\findings.json --out .\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score --dataset ~/goldset-triad-secret/held-out/manifest.json \
   --findings ./findings.json --out ./scorecards
@@ -138,11 +174,13 @@ goldset-triad score --dataset ~/goldset-triad-secret/held-out/manifest.json \
 
 ### 2.2 Verify a stored scorecard
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad verify --scorecard .\scorecards\scorecard-dev-20260727T090320Z.json `
   --dataset dev --findings .\findings.json
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad verify --scorecard ./scorecards/scorecard-dev-20260727T090320Z.json \
   --dataset dev --findings ./findings.json
@@ -163,11 +201,13 @@ A digest confirms identity; it cannot locate a file.
 
 To find *which* input file changed, give it a clean copy to compare against:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad verify --scorecard .\scorecards\<file>.json --dataset dev `
   --findings .\findings.json --baseline-inputs .\datasets\dev\inputs
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad verify --scorecard ./scorecards/<file>.json --dataset dev \
   --findings ./findings.json --baseline-inputs ./datasets/dev/inputs
@@ -178,20 +218,24 @@ goldset-triad verify --scorecard ./scorecards/<file>.json --dataset dev \
 The ledger (`run-ledger.jsonl`) is a convenience log of every run. It is derived, so deleting
 it loses nothing:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad rebuild-ledger --out .\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad rebuild-ledger --out ./scorecards
 ```
 
 ### 2.4 Check an answer key against an independent derivation
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad-audit-key --dataset dev
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad-audit-key --dataset dev
 ```
@@ -203,10 +247,12 @@ share an author, so it catches arithmetic slips and drift, not a shared misunder
 
 ### 2.5 Check the isolation guards
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad-check-isolation
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad-check-isolation
 ```
@@ -239,6 +285,7 @@ output is an ordinary `findings.json`, exactly the shape shown in the
 
 #### Step 2 — score it, writing the scorecard outside the repo
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad score `
   --dataset D:\Claude_Stuff\goldset-triad-secret\held-out\manifest.json `
@@ -246,6 +293,7 @@ goldset-triad score `
   --out D:\Claude_Stuff\agent-runs\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad score \
   --dataset ~/goldset-triad-secret/held-out/manifest.json \
@@ -277,11 +325,15 @@ Their null metrics mean the data lacks these cases, NOT that the agent handled t
 
 Reproduce that yourself with:
 
+**Windows — PowerShell:**
 ```powershell
-'{"schema_version":"1","findings":[]}' | Out-File -Encoding utf8 empty.json
+# `-Encoding ascii` avoids a byte-order mark. A BOM is accepted anyway (§5.6, D94),
+# but it changes the file's bytes and so its fingerprint -- keep it out on purpose.
+'{"schema_version":"1","findings":[]}' | Out-File -Encoding ascii empty.json
 goldset-triad score --dataset dev-synthetic --findings .\empty.json --out .\scorecards
 ```
 
+**Linux / macOS — bash:**
 ```bash
 echo '{"schema_version":"1","findings":[]}' > empty.json
 goldset-triad score --dataset dev-synthetic --findings ./empty.json --out ./scorecards
@@ -297,6 +349,7 @@ spells out the consequence in words rather than trusting you to notice.
 Held-out numbers are the ones that carry weight, so they are the ones most worth being able
 to re-derive:
 
+**Windows — PowerShell:**
 ```powershell
 goldset-triad verify `
   --scorecard D:\Claude_Stuff\agent-runs\scorecards\<file>.json `
@@ -304,6 +357,7 @@ goldset-triad verify `
   --findings D:\Claude_Stuff\agent-runs\findings.json
 ```
 
+**Linux / macOS — bash:**
 ```bash
 goldset-triad verify \
   --scorecard ~/agent-runs/scorecards/<file>.json \
@@ -316,10 +370,12 @@ exactly those bytes, and without them there is nothing left to recompute against
 
 ### 2.7 Run the test suite
 
+**Windows — PowerShell:**
 ```powershell
 python -m unittest discover -s tests -t .
 ```
 
+**Linux / macOS — bash:**
 ```bash
 python3 -m unittest discover -s tests -t .
 ```
@@ -345,12 +401,14 @@ run silently reverts hand edits.
 Make sure every repository is committed and clean, so the regeneration is a reviewable diff
 and you can undo it:
 
+**Windows — PowerShell:**
 ```powershell
 git -C D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness status --short
 git -C D:\Claude_Stuff\goldset-triad-holdout status --short
 git -C D:\Claude_Stuff\goldset-triad-secret status --short
 ```
 
+**Linux / macOS — bash:**
 ```bash
 git -C ~/goldset-triad-harness status --short
 git -C ~/goldset-triad-holdout status --short
@@ -362,11 +420,13 @@ empty output is what makes step 3.4 meaningful.
 
 ### 3.3 Run it
 
+**Windows — PowerShell:**
 ```powershell
 cd D:\Claude_Stuff\goldset-triad-secret\_generators
 python generate.py
 ```
 
+**Linux / macOS — bash:**
 ```bash
 cd ~/goldset-triad-secret/_generators
 python3 generate.py
@@ -381,10 +441,12 @@ python3 generate.py
 
 ### 3.4 Check what changed
 
+**Windows — PowerShell:**
 ```powershell
 git -C D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness status --short
 ```
 
+**Linux / macOS — bash:**
 ```bash
 git -C ~/goldset-triad-harness status --short
 ```
@@ -400,12 +462,14 @@ git -C ~/goldset-triad-harness status --short
 
 Re-run the audit and the suite, then commit all three repositories:
 
+**Windows — PowerShell:**
 ```powershell
 cd D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness
 goldset-triad-audit-key --dataset dev
 python -m unittest discover -s tests -t .
 ```
 
+**Linux / macOS — bash:**
 ```bash
 cd ~/goldset-triad-harness
 goldset-triad-audit-key --dataset dev
@@ -425,10 +489,12 @@ files themselves are just read.
 Keep it committed, for one specific reason: a scorecard embeds a digest of *exactly these
 bytes*, so if you lose them, every held-out result becomes permanently unverifiable.
 
+**Windows — PowerShell:**
 ```powershell
 git -C D:\Claude_Stuff\goldset-triad-holdout add -A; git -C D:\Claude_Stuff\goldset-triad-holdout commit -m "..."
 ```
 
+**Linux / macOS — bash:**
 ```bash
 git -C ~/goldset-triad-holdout add -A && git -C ~/goldset-triad-holdout commit -m "..."
 ```
@@ -458,10 +524,12 @@ The only thing you *run* here is the generator (§3).
 You are running from source without installing. The package lives under `src/`, which is not
 on Python's path by default. Either install it (§1.2) or set the path:
 
+**Windows — PowerShell:**
 ```powershell
 $env:PYTHONPATH = 'src'; python -m goldset_triad.check_isolation
 ```
 
+**Linux / macOS — bash:**
 ```bash
 PYTHONPATH=src python3 -m goldset_triad.check_isolation
 ```
@@ -493,7 +561,33 @@ wrong path. It names the file and the byte offset.
 By design. Any integrity failure stops the run and writes nothing: a distorted score is worse
 than no score. The message names the specific cause.
 
-### 5.6 Tests "skipped"
+### 5.6 A byte-order mark in your JSON — no longer a problem
+
+**A leading UTF-8 BOM is accepted** (D94). Windows tooling adds one freely — `Out-File
+-Encoding utf8` on PowerShell 5.1 does it despite the name, and so does Notepad's "UTF-8" —
+and the harness reads with `utf-8-sig`, which strips a BOM when present and changes nothing
+when it is not.
+
+This is listed because earlier versions rejected it with
+`findings artifact is not valid JSON: ... (Unexpected UTF-8 BOM)`. If you see that message,
+you are on a build from before this change; either update, or write the file without a BOM:
+
+**Windows — PowerShell:**
+```powershell
+'{"schema_version":"1","findings":[]}' | Out-File -Encoding ascii empty.json
+[IO.File]::WriteAllText("$PWD\empty.json", '{"schema_version":"1","findings":[]}')
+```
+
+**Linux / macOS — bash:**
+```bash
+echo '{"schema_version":"1","findings":[]}' > empty.json
+```
+
+Note that a BOM'd file and a clean one are genuinely **different bytes**, so they fingerprint
+differently in a scorecard. That is correct and deliberate: what widened is what the harness
+*accepts*, not what it treats as the same input.
+
+### 5.7 Tests "skipped"
 
 Expected when the secret tier is absent — those tests need out-of-tree data. A clone without
 it still passes the full suite.

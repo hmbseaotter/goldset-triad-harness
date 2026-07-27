@@ -124,37 +124,52 @@ def _read_scorecard(path: Path) -> dict[str, Any]:
     return raw
 
 
-def _differences(stored: Any, fresh: Any, path: str = "") -> list[str]:
+def _differences(
+    stored: Any,
+    fresh: Any,
+    path: str = "",
+    *,
+    left: str = "stored",
+    right: str = "recomputed",
+) -> list[str]:
     """Every value that differs, named by its key path.
 
     Recurses in sorted key order so two runs of verify report the same differences in
     the same order — the same reason the scorecard itself serializes with a stable key
     ordering (U4). A message names one field, so the reader is told *what* changed
-    rather than handed two documents."""
+    rather than handed two documents.
+
+    ``left`` and ``right`` name the two sides. They default to verify's own vocabulary,
+    and exist because this comparison has a second caller: CI's cross-platform job sets
+    them to the platform names. Reporting *"stored 4, recomputed 5"* for a difference
+    between Linux and Windows would name the wrong distinction entirely — a message that
+    misidentifies what it compared is the misdiagnosis D50 ruled worse than silence."""
     where = path or "<root>"
     if isinstance(stored, dict) and isinstance(fresh, dict):
         out: list[str] = []
         for key in sorted(set(stored) | set(fresh)):
             here = f"{path}.{key}" if path else str(key)
             if key not in stored:
-                out.append(f"{here}: absent from the stored scorecard, recomputed as {fresh[key]!r}")
+                out.append(f"{here}: absent from {left}, present in {right} as {fresh[key]!r}")
             elif key not in fresh:
-                out.append(f"{here}: stored as {stored[key]!r}, absent on recompute")
+                out.append(f"{here}: present in {left} as {stored[key]!r}, absent from {right}")
             else:
-                out.extend(_differences(stored[key], fresh[key], here))
+                out.extend(_differences(stored[key], fresh[key], here, left=left, right=right))
         return out
     if isinstance(stored, list) and isinstance(fresh, list):
         if len(stored) != len(fresh):
             return [
-                f"{where}: the stored scorecard holds {len(stored)} entr(y/ies), "
-                f"the recomputation holds {len(fresh)}"
+                f"{where}: {left} holds {len(stored)} entr(y/ies), "
+                f"{right} holds {len(fresh)}"
             ]
         out = []
         for position, (a, b) in enumerate(zip(stored, fresh)):
-            out.extend(_differences(a, b, f"{path}[{position}]"))
+            out.extend(
+                _differences(a, b, f"{path}[{position}]", left=left, right=right)
+            )
         return out
     if stored != fresh:
-        return [f"{where}: stored {stored!r}, recomputed {fresh!r}"]
+        return [f"{where}: {left} {stored!r}, {right} {fresh!r}"]
     return []
 
 

@@ -144,3 +144,138 @@ jobs:
       - name: pyright (standard mode, zero errors -- D39)
         shell: bash
         run: npx --yes pyright@1.1.411
+
+  # ---------------------------------------------------------------------------
+  # H17, observed rather than argued.
+  #
+  # "The harness SHALL produce identical scorecard content when run on Windows and
+  # on Linux" is this project's central portability claim, and until these two jobs
+  # existed it had never been TESTED -- only corroborated, hazard by hazard (D49,
+  # D61, D63, D27). Corroborating a mechanism is not observing a result, which is
+  # the whole argument D72 made for building CI first.
+  #
+  # Both legs pin the SAME Python version on purpose. The claim under test is about
+  # the platform, so leaving the interpreter free would confound the two: a
+  # difference could then be either, and the run could not say which.
+  # ---------------------------------------------------------------------------
+  scorecard:
+    name: scorecard (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Score the dev split
+        shell: bash
+        run: |
+          # The findings artifact is DERIVED from the shipped answer key rather than
+          # committed, for two reasons. A committed fixture is a second copy of the
+          # key's content that can drift from it (D46's lesson), and deriving it means
+          # the artifact's own bytes are part of what this compares: if they differed
+          # by platform, the findings fingerprint inside the scored body would differ
+          # and this job would say so.
+          python - <<'PY'
+          import json, pathlib
+          key = json.loads(
+              pathlib.Path("datasets/dev/dev_answer_key.json").read_text(encoding="utf-8")
+          )
+          findings = [
+              {k: e[k] for k in ("status", "category", "scope", "target")}
+              for e in key["expected_findings"]
+          ]
+          pathlib.Path("findings.json").write_text(
+              json.dumps({"schema_version": "1", "findings": findings},
+                         sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8", newline="\n",
+          )
+          PY
+          PYTHONPATH=src python -m goldset_triad.cli score \
+            --dataset dev --findings findings.json --out cards
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-${{ matrix.os }}
+          path: cards/
+          if-no-files-found: error
+
+  cross-platform:
+    name: cross-platform byte-identity (H17)
+    needs: [scorecard]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: The two platforms produced the same scorecard
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "src")
+          # The comparison reuses the SHIPPED definitions -- `deterministic_body` for what
+          # two runs must match, and verify's differ for naming where they do not. A second
+          # implementation of either could only drift from the one that ships, and drift is
+          # the condition this job exists to detect (D58's reasoning, applied here).
+          from goldset_triad.scorecard import deterministic_body
+          from goldset_triad.verify import _differences
+
+          roots = sorted(p for p in pathlib.Path("downloaded").iterdir() if p.is_dir())
+          if len(roots) != 2:
+              sys.exit(f"::error::expected two uploaded scorecard sets, found {[r.name for r in roots]}")
+
+          parsed, bodies, summaries = {}, {}, {}
+          for root in roots:
+              cards = sorted(root.glob("*.json"))
+              texts = sorted(root.glob("*.txt"))
+              if len(cards) != 1 or len(texts) != 1:
+                  sys.exit(f"::error::{root.name}: expected one scorecard pair, found "
+                           f"{[p.name for p in cards + texts]}")
+              card = json.loads(cards[0].read_text(encoding="utf-8"))
+              parsed[root.name] = card
+              bodies[root.name] = deterministic_body(card)
+              # The human summary too. It references no run_metadata, so it is wholly
+              # deterministic -- and D49 claims BOTH halves of the pair carry
+              # platform-independent bytes, which is only half-checked if only the JSON is.
+              summaries[root.name] = texts[0].read_bytes()
+
+          a, b = roots[0].name, roots[1].name
+          failed = False
+
+          if bodies[a] == bodies[b]:
+              print(f"scored bodies are byte-identical across {a} and {b} "
+                    f"({len(bodies[a])} bytes)")
+          else:
+              failed = True
+              print(f"::error::the scored bodies differ between {a} and {b}")
+              body_a = {k: v for k, v in parsed[a].items() if k != "run_metadata"}
+              body_b = {k: v for k, v in parsed[b].items() if k != "run_metadata"}
+              # Labelled with the PLATFORMS. Verify's default vocabulary is
+              # stored/recomputed, which would name the wrong distinction here.
+              for line in _differences(body_a, body_b, left=a, right=b)[:20]:
+                  print(f"::error::  {line}")
+
+          if summaries[a] == summaries[b]:
+              print(f"human summaries are byte-identical too ({len(summaries[a])} bytes)")
+          else:
+              failed = True
+              print(f"::error::the human summaries differ between {a} and {b}; D49 pins LF "
+                    f"on both halves of the pair, so this is a byte-level platform difference")
+
+          if failed:
+              sys.exit(1)
+          print("H17 observed: identical scorecard content outside run_metadata.")
+          PY

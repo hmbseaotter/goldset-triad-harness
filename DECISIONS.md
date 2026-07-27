@@ -2716,6 +2716,77 @@ asserting the real one does not.
 
 ---
 
+## D76 — H17 becomes an observed result, checked on every push ✅
+
+**Fork:** *"The harness SHALL produce identical scorecard content when run on Windows and on
+Linux"* is this project's central portability claim, and `H17` carried it as `MANUAL:
+platform-independent **by construction**`. D72 built CI so it could stop being that. How is
+the comparison actually made?
+
+**Options considered**
+- **(A) Run both by hand once and record a dated attestation** in D30's style. Cheapest, and
+  the weakest: it buys one snapshot of one commit, and the class of defect being guarded
+  against — a platform difference introduced by a later change — is precisely the one a
+  snapshot cannot see.
+- **(B) Compare the aggregate inputs digest alone**, which is what `H17`'s wording literally
+  names. Narrower and cheaper, but it leaves the rest of the scorecard's cross-platform
+  identity asserted by construction, which is the condition being escaped.
+- **(C) A `windows-latest` leg in CI, with a third job comparing the two scorecards.**
+
+**Decision ✅** — **(C).** Both platforms score the dev split and upload their scorecard; a
+comparison job asserts byte-identity. It runs on **every push** rather than once, which is
+the same argument D72 made for CI over a local Linux run.
+
+**Four details that decide whether the comparison means anything.**
+
+- **Both halves are compared, not just the JSON.** D49 claims *both* files in the pair carry
+  platform-independent bytes. The human summary references no `run_metadata` and is therefore
+  wholly deterministic, so comparing only the JSON would half-check a claim while reporting
+  it fully checked.
+- **One pinned Python version on both legs.** The claim under test is about the *platform*.
+  Leaving the interpreter free would confound the two, and a failure could then be either
+  with no way to say which.
+- **The findings artifact is derived from the shipped key, not committed.** A committed
+  fixture is a second copy of the key's content that can drift from it — D46's lesson — and
+  deriving it puts the artifact's *own bytes* inside what is compared: if they differed by
+  platform, the findings fingerprint in the scored body would differ and the job would say
+  so.
+- **The comparison reuses the shipped `deterministic_body` and verify's differ** rather than
+  reimplementing either. A second implementation of "what two runs must match" could only
+  drift from the one that ships, and drift is the condition this job exists to detect (D58).
+
+**A wording defect caught before it shipped.** Reusing verify's differ made the cross-platform
+report read *"stored 4, recomputed 5"* — verify's vocabulary, naming the wrong distinction
+entirely for a difference between two operating systems. `_differences` now takes the two
+side labels, defaulting to verify's own. A message that misidentifies what it compared is the
+misdiagnosis D50 ruled worse than silence, and it would have been read by whoever was
+debugging the project's most load-bearing claim.
+
+**`H17` stays `MANUAL:` in form, and that is honest rather than a shortfall.** A result
+produced by running on two operating systems cannot be produced by a single-platform unit
+suite, however it is written. What changed is its *content*: from "platform-independent by
+construction" to an observed comparison naming the job that performs it. The workflow's
+**configuration** is separately checked by `tests/test_ci_workflow.py`, because the spec
+makes claims about what CI does and D67 requires every claim to have a check — but that test
+deliberately does **not** carry the cross-platform criterion, since it shows the comparison
+is configured and not that it passed. Binding a result to a configuration check is D30's
+rejected reachability probe in new clothes.
+
+**The manual ceiling moves 5 → 6, deliberately.** A ceiling nudged upward whenever it binds
+is not a ceiling, so the raise is recorded with its reason. The sixth entry is `C74`, and
+every one of the six is generation-side, environment-level, or this same cross-platform
+observation. **None of the six is a criterion that could have been automated in the suite
+and was not.**
+
+**Rule** — **a claim asserted by construction is not verified until something observes the
+result, and the thing that observes it should run more than once.** Corroborating every
+hazard individually is what makes a claim plausible; a run is what makes it true, and a run
+that happens on every commit is what keeps it true. Enforced by the `cross-platform` job in
+`.github/workflows/ci.yml` and by `tests/test_ci_workflow.py`, which fails if that job stops
+naming two platforms.
+
+---
+
 ## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

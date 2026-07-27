@@ -54,10 +54,13 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("H16", "a digest mismatch reports which files diverged",
      "test_dataset_loading.DatasetLoadingTests.test_per_file_digest_locates_the_changed_file"),
     ("H17", "aggregate inputs digest identical on Windows and Linux",
-     "MANUAL: cross-platform ([P2] scope); the algorithm normalizes paths to forward "
-     "slashes over raw bytes and .gitattributes disables line-ending conversion, so it is "
-     "platform-independent by construction; determinism is asserted by "
-     "test_dataset_loading.DatasetLoadingTests.test_inputs_digest_stable_on_recompute."),
+     "MANUAL: OBSERVED, no longer by-construction (D76). The `cross-platform` job in "
+     ".github/workflows/ci.yml scores the dev split on ubuntu-latest and windows-latest at "
+     "one pinned Python version and asserts both the scored body and the human summary are "
+     "byte-identical; the inputs digest sits inside that body, so a platform difference in "
+     "it fails the job. Runs on every push rather than once. Its CONFIGURATION is checked "
+     "by test_ci_workflow.CiWorkflowTests.test_the_workflow_compares_scorecards_across_two_platforms; "
+     "the result itself can only come from a run, which is why this stays MANUAL."),
     ("H18", "zero-defect empty artifact: FP 0, rate 0, precision null",
      "test_scoring_engine.ScoringTests.test_zero_defect_empty_artifact_precision_and_recall_null"),
     ("H19", "tax overcharge scores as document-scoped TP; line-scoped does not match",
@@ -335,6 +338,17 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C72", "[P2] deleting the JSONL ledger and rebuilding it from the scorecard directory "
             "reproduces identical contents",
      "test_run_ledger.RunLedgerTests.test_deleting_and_rebuilding_reproduces_identical_contents"),
+    ("C73", "[P2] the CI workflow runs the pyright gate and the full test suite on push",
+     "test_ci_workflow.CiWorkflowTests.test_the_workflow_runs_both_gates_on_push"),
+    ("C74", "[P2] the same dataset and findings artifact yield identical scorecard content "
+            "on Windows and on Linux, outside run_metadata",
+     "MANUAL: a RESULT, and results live in runs. The `cross-platform` job in "
+     ".github/workflows/ci.yml scores the dev split on both platforms at one pinned Python "
+     "version and asserts the scored body and the human summary are byte-identical, on "
+     "every push. Binding this to a test that merely reads the workflow would claim more "
+     "than the test shows -- D30's rejected reachability probe in new clothes. The "
+     "configuration IS checked, by "
+     "test_ci_workflow.CiWorkflowTests.test_the_workflow_compares_scorecards_across_two_platforms."),
 ]
 
 
@@ -366,6 +380,12 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_run_ledger.RunLedgerTests.test_every_ledger_field_comes_from_the_scorecard",
     "test_run_ledger.RunLedgerTests.test_an_unwritable_ledger_warns_and_the_run_still_exits_zero",
     "test_run_ledger.RunLedgerTests.test_a_foreign_json_file_is_named_rather_than_silently_skipped",
+    # The workflow's configuration checks (D76). C73 maps the "both gates run" criterion
+    # here; these two check claims the workflow makes that no criterion states -- that the
+    # cross-platform comparison names TWO platforms rather than silently comparing a run to
+    # itself, and that the skip count is asserted rather than eyeballed.
+    "test_ci_workflow.CiWorkflowTests.test_the_workflow_compares_scorecards_across_two_platforms",
+    "test_ci_workflow.CiWorkflowTests.test_the_suite_skip_count_is_asserted_rather_than_eyeballed",
     # Positive controls: the converse of a criterion, proving a guard does not over-fire.
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",
@@ -608,7 +628,14 @@ class TraceabilityTests(unittest.TestCase):
         manual = [c for c in CRITERIA if c[2].startswith("MANUAL:")]
         # A visible summary; also guards against an empty map.
         self.assertGreaterEqual(len(automated), 60)
-        self.assertLessEqual(len(manual), 5)
+        # Raised 5 -> 6 by D76, deliberately and with a reason, because a ceiling nudged
+        # upward whenever it binds is not a ceiling. The sixth is C74, cross-platform
+        # byte-identity: it is a RESULT produced by running on two operating systems, which
+        # a single-platform unit suite cannot produce however it is written. Every other
+        # MANUAL entry is generation-side (H6, H14), environment-level (C2) or the same
+        # cross-platform observation (H17). None of the six is a criterion that *could*
+        # have been automated here and was not.
+        self.assertLessEqual(len(manual), 6)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ that is not obvious — see `test_run_order_survives_the_collision_ordinal`.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -18,7 +20,7 @@ from pathlib import Path
 
 from tests import support
 from goldset_triad import ledger
-from goldset_triad.cli import main
+from goldset_triad.cli import _reserve_scorecard_paths, main
 from goldset_triad.dataset import DatasetError
 
 #: A minimal scorecard body, used where the test is about the LEDGER's behaviour rather
@@ -133,6 +135,13 @@ class RunLedgerTests(unittest.TestCase):
         unwritable one cannot make a correct score wrong. Halting would report a valid run
         as a failure; silence would be the absence-nobody-is-told-about class D68 locked.
 
+        **The warning is asserted, not assumed (D81).** This test checked only that the
+        run exited zero and left a scorecard — both of which a *silent* append failure
+        also satisfies. D75 chose "warn and continue" over "fail silently" on the grounds
+        that an absence nobody is told about is a locked defect class, and then nothing
+        checked that anybody was told. A decision whose whole substance is a message is
+        not tested until the message is.
+
         The ledger path is occupied by a DIRECTORY, which makes the append fail on both
         Windows and Linux without touching file permissions, whose semantics differ."""
         with tempfile.TemporaryDirectory() as t:
@@ -140,9 +149,110 @@ class RunLedgerTests(unittest.TestCase):
             out = td / "out"
             out.mkdir()
             ledger.ledger_path(out).mkdir()  # now un-appendable, portably
-            rc = self._score_into(td, 1)
-            self.assertTrue(rc.is_dir())
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                scorecard_dir = self._score_into(td, 1)
+            self.assertTrue(scorecard_dir.is_dir())
             self.assertTrue(list(out.glob("*.json")), "the scorecard is still written")
+
+            warning = err.getvalue()
+            self.assertIn("warning:", warning, "the failure must be reported, not swallowed")
+            self.assertIn("run ledger could not be appended to", warning)
+            # The remedy travels with the warning. A warning that names a problem and not
+            # its fix leaves the reader with a scorecard they are unsure they can trust.
+            self.assertIn("rebuild-ledger", warning)
+            self.assertIn("the score is unaffected", warning)
+
+    def test_three_splits_in_one_second_keep_their_run_order(self) -> None:
+        """The condition the ordering guarantee actually broke on (D80).
+
+        `test_run_order_survives_the_collision_ordinal` uses one identifier, so its
+        ordinals are 1, 2, 10 and never tie. The ordinal was reserved per *stem*, and a
+        stem carries the identifier — so three splits scored inside one second all took
+        ordinal 1 and produced an identical sort key. Python's sort is stable, so order
+        fell through to `glob` order: name-ordered on NTFS, hash-ordered on ext4. The
+        rebuild would have reordered on Linux and held on the machine this was written
+        on, which is the worst shape a portability defect can take.
+
+        **The reservation is driven directly, with one fixed stamp.** Scoring three
+        splits and hoping they land inside the same second is a timing dependency wearing
+        a different hat — the class C62 locked — and it would skip on a slow machine,
+        which is the condition under which it most needs to run."""
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t)
+            stamp = "20260727T050000Z"
+            names: list[str] = []
+            for identifier in ("dev", "dev-synthetic", "dev-zero-defect"):
+                json_path, txt_path = _reserve_scorecard_paths(out, identifier, stamp)
+                _write_card(out, json_path.name, dataset__identifier=identifier)
+                txt_path.write_text("", encoding="utf-8", newline="\n")
+                names.append(json_path.name)
+
+            keys = [ledger.parse_scorecard_name(n).order_key for n in names]
+            self.assertEqual(
+                len(set(keys)), len(keys),
+                f"the sort key must be TOTAL within one second: {list(zip(names, keys))}",
+            )
+            self.assertEqual(
+                [k[1] for k in keys], [1, 2, 3],
+                "and CHRONOLOGICAL, not merely distinct: the nth run in this second "
+                "takes the nth ordinal, whatever split it scored",
+            )
+
+            # Appended in the order they were written, then rebuilt from the directory.
+            for name in names:
+                ledger.append_record(out, out / name)
+            appended = ledger.ledger_path(out).read_bytes()
+            ledger.ledger_path(out).unlink()
+            ledger.write_ledger(ledger.ledger_path(out), ledger.rebuild_text(out))
+            self.assertEqual(
+                appended, ledger.ledger_path(out).read_bytes(),
+                "appended chronologically and rebuilt from the directory must agree",
+            )
+
+    def test_a_hand_placed_duplicate_run_position_halts(self) -> None:
+        """A residual tie is refused rather than resolved. The harness cannot produce
+        one, so a tie means something else placed the file — and an order the ledger
+        cannot justify is not an order."""
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t)
+            _write_card(out, "scorecard-alpha-20260727T050000Z.json")
+            _write_card(out, "scorecard-beta-20260727T050000Z.json")
+            with self.assertRaises(DatasetError) as caught:
+                ledger.rebuild_text(out)
+            message = str(caught.exception)
+            self.assertIn("share run stamp", message)
+            self.assertIn("scorecard-alpha-20260727T050000Z.json", message)
+            self.assertIn("scorecard-beta-20260727T050000Z.json", message)
+
+    def test_a_null_run_timestamp_is_rejected_not_carried(self) -> None:
+        """Presence is not validity: `null` is present (D80). `_require` checked only
+        that the key existed, so a scorecard carrying `"run_timestamp": null` produced a
+        record with a null run timestamp — the field the whole run order rests on."""
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t)
+            card = _write_card(out, "scorecard-dev-20260727T050000Z.json",
+                               run_metadata__run_timestamp=None)
+            with self.assertRaises(DatasetError) as caught:
+                ledger.record_for(card)
+            self.assertIn("run_metadata.run_timestamp': null", str(caught.exception))
+
+    def test_a_null_ratio_is_carried_through(self) -> None:
+        """The converse, and the reason nullability had to be declared per field rather
+        than banned outright: D40 emits an UNDEFINED metric as `null` rather than as zero
+        or omitted, so a null precision is a value meaning "undefined on this split"."""
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t)
+            card = _write_card(out, "scorecard-dev-20260727T050000Z.json",
+                               metrics__overall__precision=None)
+            self.assertIsNone(ledger.record_for(card)["overall_precision"])
+
+    def test_a_missing_scorecard_directory_is_named_not_answered_with_nothing(self) -> None:
+        """An empty ledger and a mistyped path are not the same answer."""
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(DatasetError) as caught:
+                ledger.rebuild_text(Path(t) / "no_such_directory")
+            self.assertIn("scorecard directory not found", str(caught.exception))
 
     def test_a_foreign_json_file_is_named_rather_than_silently_skipped(self) -> None:
         """A file that is not a scorecard cannot be placed in run order, and guessing

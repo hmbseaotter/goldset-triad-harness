@@ -82,6 +82,18 @@ class NoTimingWaitTests(unittest.TestCase):
 #: presence checks for the ones that matter (D29 for tax fields, D50/D56 for correspondence
 #: rows) which fail loudly instead. Widening this to every container default is possible,
 #: but it would trade 8 reviewed justifications for 24 thinner ones.
+#:
+#: **That reasoning was right about two buckets and silent about a third (D82).** It weighed
+#: numeric defaults against empty-container defaults and concluded, correctly, that only the
+#: first needed individual justification. What it never considered is a default that is
+#: neither: a *substantive* value standing in for an absent declaration. There was exactly
+#: one — `raw.get("schema_version", SCHEMA_VERSION)` in `schema.py`, where an artifact
+#: declaring no version was read as declaring the current one, so absence became precisely
+#: the value that makes the artifact acceptable (D78). The scanner could not see it, because
+#: the scanner's universe was the *first* bucket while the rule's universe was all three.
+#: That is the fourth-and-fifth-time shape this project keeps finding — correct rule, wrong
+#: universe (D64a, D69, D73, D74) — and it was found inside the mechanism built to end it.
+#: Every site is now classified, and a site that fits no bucket fails.
 NUMERIC_DEFAULTS: dict[tuple[str, str], str] = {
     ("audit_key.py", "received.get(key, Decimal(0))"):
         "accumulator seed: `received[key] = received.get(key, 0) + qty` sums receipt lines, "
@@ -114,6 +126,13 @@ NUMERIC_DEFAULTS: dict[tuple[str, str], str] = {
         "inputs, so neither lookup can miss by the time the rate check runs (D50, D62)",
 }
 
+#: Sites whose default is a SUBSTANTIVE value — neither a number nor an empty container,
+#: so it supplies real content where a declaration was absent. Empty by design: the one
+#: instance that existed was removed rather than justified (D78), and a new one has to be
+#: argued for here before the suite goes green. Kept as a registry rather than a flat ban
+#: so that a future site with a genuine case has somewhere to make it.
+SUBSTANTIVE_DEFAULTS: dict[tuple[str, str], str] = {}
+
 _NUMERIC_DEFAULT = (ast.Constant, ast.Call, ast.Tuple)
 
 
@@ -131,28 +150,112 @@ def _is_numeric_default(node: ast.expr) -> bool:
     return False
 
 
+def _is_empty_container_default(node: ast.expr) -> bool:
+    """Whether a default is an empty list, dict, set, tuple or string.
+
+    A structural absence: the caller gets "nothing to iterate", not a value that means
+    something in the domain. These are the bucket the original scoping reasoned about and
+    deliberately left unjustified individually, and that judgement stands — what changed
+    is that the bucket is now *named*, so a default belonging to no bucket is visible."""
+    if isinstance(node, (ast.List, ast.Dict, ast.Set)):
+        return not (getattr(node, "elts", None) or getattr(node, "keys", None))
+    if isinstance(node, ast.Tuple):
+        return not node.elts
+    if isinstance(node, ast.Constant):
+        return node.value == ""
+    return False
+
+
+def _default_sites() -> list[tuple[str, int, str, ast.expr]]:
+    """Every two-argument ``.get()`` in shipped code: module, line, expression, default.
+
+    One enumeration, shared by every test below, so no test can quietly examine a
+    narrower set than another (D82)."""
+    sites: list[tuple[str, int, str, ast.expr]] = []
+    for path in sorted(PACKAGE.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and len(node.args) == 2):
+                sites.append((path.name, node.lineno, ast.unparse(node), node.args[1]))
+    return sites
+
+
+def _bucket_of(default: ast.expr) -> str:
+    """The bucket a default falls in. Every site lands in exactly one."""
+    if _is_numeric_default(default):
+        return "numeric"
+    if _is_empty_container_default(default):
+        return "empty-container"
+    return "substantive"
+
+
 class NumericDefaultTests(unittest.TestCase):
     def test_every_numeric_default_in_shipped_code_is_justified(self) -> None:
-        unjustified: list[str] = []
-        for path in sorted(PACKAGE.glob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if not (isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Attribute)
-                        and node.func.attr == "get"
-                        and len(node.args) == 2):
-                    continue
-                if not _is_numeric_default(node.args[1]):
-                    continue
-                expr = ast.unparse(node)
-                if (path.name, expr) not in NUMERIC_DEFAULTS:
-                    unjustified.append(f"{path.name}:{node.lineno} {expr}")
+        unjustified = [
+            f"{module}:{line} {expr}"
+            for module, line, expr, default in _default_sites()
+            if _bucket_of(default) == "numeric"
+            and (module, expr) not in NUMERIC_DEFAULTS
+        ]
         self.assertEqual(
             unjustified, [],
             f"{len(unjustified)} site(s) turn a missing key into a number with no recorded "
             f"justification: {unjustified}. Either the absence is genuinely zero in the "
             f"domain, or a prior check makes it unreachable, or it is the D50 defect - a "
             f"typo scored as data. Add an entry to NUMERIC_DEFAULTS saying which.",
+        )
+
+    def test_no_default_escapes_classification(self) -> None:
+        """The universe, asserted rather than assumed (D82).
+
+        The scanner used to `continue` past any default that was not numeric, so a
+        *substantive* default — a real value standing in for an absent declaration — was
+        not merely unjustified, it was invisible. There was one, and it decided whether a
+        findings artifact with no declared schema version was accepted (D78). A site that
+        fits no named bucket now fails, which is the difference between a rule that covers
+        a class and a scanner that covers the instances someone thought of."""
+        unclassified = [
+            f"{module}:{line} {expr}"
+            for module, line, expr, default in _default_sites()
+            if _bucket_of(default) == "substantive"
+            and (module, expr) not in SUBSTANTIVE_DEFAULTS
+        ]
+        self.assertEqual(
+            unclassified, [],
+            f"{len(unclassified)} site(s) default to a SUBSTANTIVE value — neither a "
+            f"number nor an empty container, so absence is being answered with real "
+            f"content: {unclassified}. That is how an undeclared schema version came to "
+            f"be read as the current one (D78). Remove the default and reject the "
+            f"absence by name, or record the case in SUBSTANTIVE_DEFAULTS.",
+        )
+
+    def test_the_classification_covers_every_site_and_the_buckets_are_populated(self) -> None:
+        """A census, printed by failing loudly if it stops adding up.
+
+        Two ways this lock could go quiet without anyone noticing: the AST pattern stops
+        matching (every bucket empties, and three tests pass over nothing), or a bucket
+        silently absorbs sites it should not. Both are caught by asserting the buckets
+        partition a non-trivial total."""
+        sites = _default_sites()
+        counts: dict[str, int] = {"numeric": 0, "empty-container": 0, "substantive": 0}
+        for _module, _line, _expr, default in sites:
+            counts[_bucket_of(default)] += 1
+        self.assertEqual(
+            sum(counts.values()), len(sites),
+            f"every site must land in exactly one bucket; census {counts} over "
+            f"{len(sites)} site(s)",
+        )
+        self.assertGreater(
+            len(sites), 10,
+            "the scan found almost nothing, so its pattern has probably stopped matching "
+            "and the three tests above are passing over an empty set (D73's shape)",
+        )
+        self.assertGreater(counts["numeric"], 0, "the numeric bucket must not be empty")
+        self.assertGreater(
+            counts["empty-container"], 0, "the empty-container bucket must not be empty"
         )
 
     def test_no_justification_outlives_its_site(self) -> None:

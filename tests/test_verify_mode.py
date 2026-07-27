@@ -19,7 +19,7 @@ from tests import support
 from goldset_triad.cli import main
 from goldset_triad.dataset import DatasetError
 from goldset_triad.scorecard import SCORECARD_SCHEMA_VERSION
-from goldset_triad.verify import Outcome, verify
+from goldset_triad.verify import MAX_REPORTED, Outcome, verify
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -121,6 +121,31 @@ class VerifyModeTests(unittest.TestCase):
                 "--datasets-root", str(support.DATASETS), "--findings", str(findings),
             ])
             self.assertNotEqual(rc, 0)
+
+    def test_a_wrong_typed_schema_version_is_unrecognised_not_a_scoring_difference(self) -> None:
+        """The same statement as E13, aimed at the coercion that defeated it (D78).
+
+        `str(stored["schema_version"])` stood at the gate, so a scorecard carrying the
+        int `2` passed the version check as if it carried `"2"` — and the raw value then
+        went on into the body comparison and surfaced as
+        `schema_version: stored 2, recomputed '2'` beneath the heading *"the same inputs
+        recompute to a different score"*. That is precisely the misdiagnosis D66 recorded
+        this feature to prevent, produced by a leniency nobody asked for, in the one
+        feature whose whole purpose is to say whether a score can be trusted."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            typed = json.loads(card.read_text(encoding="utf-8"))
+            typed["schema_version"] = 2  # an int, where this harness emits the string "2"
+            path = td / "int_version.json"
+            _write_json(path, typed)
+
+            result = self._verify(path, findings)
+            self.assertEqual(result.outcome, Outcome.SCHEMA_UNRECOGNISED)
+            joined = "\n".join(result.causes)
+            self.assertIn("int", joined)
+            self.assertIn("NOT a scoring discrepancy", joined)
+            self.assertNotIn("recompute to a different score", joined)
 
     def test_a_scorecard_declaring_no_schema_version_is_unrecognised_not_compared(self) -> None:
         """Absence is not version "0". A scorecard with no declared shape is a shape
@@ -231,6 +256,104 @@ class VerifyModeTests(unittest.TestCase):
             # Named, not merely listed: the untouched files must not be reported as
             # divergent, or the diagnosis is a directory listing wearing a verdict.
             self.assertNotIn("PO-3002.json", joined)
+
+    def test_naming_a_different_dataset_says_so_in_one_line(self) -> None:
+        """The likeliest operator error on a command taking three separate paths (D79).
+
+        The scorecard records the dataset identifier and version, and verify holds both
+        before it compares a single digest. It did not look — so pointing verify at the
+        wrong split produced three digest mismatches *and* a paragraph advising the
+        reader to fetch a pristine inputs directory, sending them to hunt a file that
+        never moved. The one-line answer was in hand the whole time, which is what makes
+        it the misdiagnosis D50 rules worse than silence."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            result = verify(
+                scorecard_path=card, dataset_ref="dev-zero-defect",
+                findings_path=findings, search_root=support.DATASETS,
+            )
+            self.assertEqual(result.outcome, Outcome.DATASET_MISMATCH)
+            joined = "\n".join(result.causes)
+            self.assertIn("dataset identifier", joined)
+            self.assertIn("'dev'", joined)
+            self.assertIn("'dev-zero-defect'", joined)
+            # None of the downstream noise. A digest of a different dataset differs for
+            # a reason that is not tampering, and --baseline-inputs would not help.
+            self.assertNotIn("--baseline-inputs", joined)
+            self.assertNotIn("sha256", joined)
+            self.assertNotIn("AGGREGATE", joined)
+
+    def test_an_absent_fingerprint_is_a_shape_defect_not_a_mismatch(self) -> None:
+        """A scorecard that omits a digest is malformed; a scorecard whose digest
+        disagrees with the artifact on disk is evidence. `.get()` collapsed the first
+        into the second and reported `the scorecard records None` — a scorecard being
+        described as holding a value it does not hold (D79). Exit 2, not 1: this is a
+        verification that could not happen, not one that failed."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            maimed = json.loads(card.read_text(encoding="utf-8"))
+            del maimed["fingerprints"]["answer_key_sha256"]
+            path = td / "no_key_digest.json"
+            _write_json(path, maimed)
+
+            with self.assertRaises(DatasetError) as caught:
+                self._verify(path, findings)
+            message = str(caught.exception)
+            self.assertIn("answer_key_sha256", message)
+            self.assertIn("does not have the shape it claims", message)
+            self.assertNotIn("None", message)
+            rc = main([
+                "verify", "--scorecard", str(path), "--dataset", "dev",
+                "--datasets-root", str(support.DATASETS), "--findings", str(findings),
+            ])
+            self.assertEqual(rc, 2)
+
+    def test_a_baseline_diagnosis_is_bounded(self) -> None:
+        """The branch a reader reaches only when something is already wrong is the one
+        that printed one line per file (D79). The score-difference list was capped and
+        this one was not, so a change across the whole inputs tree produced the diff
+        dump this module's docstring promises never to produce."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            copied_manifest = support.copy_dataset("dev", td / "d")
+            key = support.read_json(copied_manifest.parent / "dev_answer_key.json")
+            findings = td / "f.json"
+            _write_json(findings, {
+                "schema_version": "1",
+                "findings": [
+                    {k: e[k] for k in ("status", "category", "scope", "target")}
+                    for e in key["expected_findings"]
+                ],
+            })
+            out = td / "out"
+            self.assertEqual(0, main([
+                "score", "--dataset", str(copied_manifest), "--datasets-root",
+                str(support.DATASETS), "--findings", str(findings), "--out", str(out),
+            ]))
+            card = sorted(out.glob("*.json"))[0]
+
+            moved = 0
+            for path in sorted((copied_manifest.parent / "inputs").rglob("*")):
+                if path.is_file():
+                    path.write_bytes(path.read_bytes() + b" ")
+                    moved += 1
+            self.assertGreater(moved, MAX_REPORTED, "the premise: more files than the cap")
+
+            result = verify(
+                scorecard_path=card, dataset_ref=str(copied_manifest),
+                findings_path=findings, search_root=support.DATASETS,
+                baseline_inputs=support.DATASETS / "dev" / "inputs",
+            )
+            self.assertEqual(result.outcome, Outcome.FINGERPRINT_MISMATCH)
+            per_file = [c for c in result.causes if c.startswith("    ")]
+            self.assertLessEqual(len(per_file), MAX_REPORTED)
+            joined = "\n".join(result.causes)
+            # The count is still stated in full: bounding what is printed must not
+            # bound what is reported, or the cap becomes its own quiet omission.
+            self.assertIn(f"{moved} file(s) diverge", joined)
+            self.assertIn("further diverging file(s)", joined)
 
     def test_an_unreadable_scorecard_is_an_error_not_a_failed_verification(self) -> None:
         """A verification that never happened is not a verification that failed (D50).

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.22.0
+- Spec version: 0.23.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,8 +17,13 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.21.0 @ D72** — a full sweep over spec, decisions, build prompt, all four
-  datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
+- **Last swept: 2026-07-26 @ 0.23.0 @ D82** — an independent sweep over the `[P2]` surface (verify mode, the
+  run ledger, the CI workflow) and the mechanisms they register with, run by a session that did not build them.
+  Twenty-four findings, six decisions: D77 (one reader, named read failures), D78 (no coercion at a gate),
+  D79 (verify's reporting), D80 (a total run order), D81 (assert the message), D82 (a lock declares its
+  universe). It also found two closed items still sitting in the negative-space list below. The prior full
+  sweep was **0.21.0 @ D72** over spec, decisions, build prompt, all four datasets, the in-repo code, the
+  secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since the stamp above**, **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
   is deliberately **change-based, not calendar-based**: drift accumulates per decision, not per day. This spec
@@ -830,13 +835,22 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] A malformed findings artifact halts, exits non-zero, names the offending finding and field, and
   writes no scorecard.
 - [ ] [P1] A finding bearing a category outside the closed enumeration halts as a schema violation.
+- [ ] [P1] A findings artifact that declares no `schema_version`, or declares one of the wrong type, is
+  rejected naming the field: an undeclared version is never assumed to be the current one, and no gate
+  coerces a value it then reports un-coerced (D78).
 - [ ] [P1] A missing or unreadable dataset halts, exits non-zero, names the dataset, and writes no partial
   score.
 - [ ] [P1] An unreadable answer key halts and exits non-zero rather than passing by default.
+- [ ] [P1] A file the harness is pointed at that is not valid UTF-8 halts naming the artifact by its role and
+  the offending byte, on every read path — findings artifact, manifest, answer key, invoice index and stored
+  scorecard — and absent, unopenable and undecodable are reported as three distinct causes (D77).
 - [ ] [P1] A dataset containing a timestamp lacking the `Z` suffix or second precision is rejected as
   malformed.
 - [ ] [P2] Verify mode on a scorecard whose stored numbers have been altered detects the difference and
   exits non-zero.
+- [ ] [P2] Verify mode pointed at a dataset other than the one a scorecard records reports that as its own
+  outcome, naming the stored and the resolved identifier, and compares nothing further — neither fingerprints
+  nor scored body, since digests of a different dataset differ for a reason that is not tampering (D79).
 - [ ] [P2] Verify mode on a scorecard carrying an unrecognised schema version reports the version mismatch as
   its own outcome and does **not** present the resulting differences as a scoring discrepancy — the rule D66
   recorded before the feature existed, and which had a requirement in the `optional feature` block but no
@@ -1077,6 +1091,25 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.23.0 (2026-07-26): **an independent sweep over the `[P2]` surface: twenty-four findings, six decisions
+  (D77–D82)**. Run by a session that did not build phase 2, against green CI and a green suite — every finding
+  below was invisible to both. Three are defects a user meets: a file that is not UTF-8 produced a **traceback
+  rather than a named halt on five read paths** (D77), because D61 pinned every encoding and nothing named what
+  happens when a pinned encoding fails — `UnicodeDecodeError` is a `ValueError`, so `dataset`'s deliberate
+  `except OSError`, wrapped around a pinned read for exactly this class, missed it; a scorecard carrying
+  `"schema_version": 2` instead of `"2"` was **reported as a scoring difference**, which is precisely what D66
+  recorded verify mode to prevent, defeated by a `str()` at the gate (D78); and the run ledger's sort key
+  **was not total**, so two splits scored inside one second tied and the rebuild order fell through to
+  `os.scandir` — name-ordered on NTFS, hash-ordered on ext4 — meaning `[P2]`'s own regeneration guarantee would
+  have failed on Linux and held on the machine it was written on (D80). The rest are the project's stated
+  weakness with names attached: verify never checked it was pointed at the right *dataset*, and misdiagnosed the
+  commonest operator error as three digest mismatches plus advice to hunt a file that never moved (D79); six
+  checks asserted less than they claimed, including a CI step that could not fail, a test-count floor of 150
+  against a suite of 207, and D75's warn-and-continue decision whose warning nothing asserted (D81); and four
+  more instances of *correct rule, wrong universe*, one of them inside the mechanism built to end that class
+  (D82). 4 acceptance criteria added (E14–E16 and the `[P2]` dataset-identity outcome); 207 → 232 tests; pyright
+  0 errors. **`[P2]` remains 4 of 5: the README and methodology write-up is not built**, and is the one scope
+  item with no requirement and no acceptance criterion — which is why nothing failed while it was missing.
 - 0.22.0 (2026-07-26): **`[P2]`'s entry gate opened, and the first Linux run found a defect (D73)**. The CI
   workflow lands as D72 required — pyright and the full suite on `ubuntu-latest`, across Python 3.11 and 3.14,
   because 3.11 is the floor `pyproject.toml` declares and `pyrightconfig.json` targets while every verification

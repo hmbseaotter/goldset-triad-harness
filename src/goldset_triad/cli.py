@@ -8,17 +8,15 @@ code, writing no scorecard — a distorted score is worse than no score.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from datetime import datetime, timezone
-from decimal import Decimal
 from pathlib import Path
 
 from . import ledger
 from . import scorecard as sc
-from .dataset import DatasetError, LoadedDataset, load_dataset, sha256_file
-from .schema import SchemaError, parse_findings_artifact
+from .dataset import DatasetError, LoadedDataset, load_dataset, load_findings_artifact
+from .schema import SchemaError
 from .scoring import score
 from .verify import Outcome, verify
 
@@ -29,25 +27,16 @@ def _utc_now_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _load_findings(path: Path) -> tuple[object, str]:
-    if not path.is_file():
-        raise DatasetError(f"findings artifact not found: {path}")
-    text = path.read_text(encoding="utf-8")
-    try:
-        raw = json.loads(text, parse_float=Decimal)
-    except json.JSONDecodeError as exc:
-        raise SchemaError(f"findings artifact is not valid JSON: {exc}")
-    return raw, sha256_file(path)
-
-
 def run_score(args: argparse.Namespace) -> int:
     findings_path = Path(args.findings)
     search_root = Path(args.datasets_root)
 
     t0 = time.perf_counter()
     loaded: LoadedDataset = load_dataset(args.dataset, search_root)
-    raw_findings, findings_sha = _load_findings(findings_path)
-    agent = parse_findings_artifact(raw_findings)
+    # One loader, shared with verify's recompute path (D77). Two copies of this stood
+    # here and in `verify._recompute`, in the one feature whose premise is that it
+    # reproduces what scoring did.
+    agent, findings_sha = load_findings_artifact(findings_path)
     t1 = time.perf_counter()
 
     result = score(loaded.answer_key.expected_findings, agent, loaded.invoice_index.inventory)
@@ -75,7 +64,7 @@ def run_score(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = run_metadata.run_timestamp.replace(":", "").replace("-", "")
     json_path, txt_path = _reserve_scorecard_paths(
-        out_dir, f"scorecard-{loaded.manifest.identifier}-{stamp}"
+        out_dir, loaded.manifest.identifier, stamp
     )
     _write_new_file(json_path, card_json)
     _write_new_file(txt_path, summary)
@@ -150,6 +139,11 @@ def run_verify(args: argparse.Namespace) -> int:
             "  This is a shape mismatch, not a scoring difference. Re-score the inputs "
             "with this version of the harness to obtain a comparable scorecard (D66).\n"
         )
+    if result.outcome is Outcome.DATASET_MISMATCH:
+        stream.write(
+            "  Nothing about the score was checked. Re-run with --dataset naming the "
+            "split the scorecard records, which is printed above (D79).\n"
+        )
     return 1
 
 
@@ -169,16 +163,38 @@ def _write_new_file(path: Path, text: str) -> None:
         handle.write(text)
 
 
-def _reserve_scorecard_paths(out_dir: Path, base_stem: str) -> tuple[Path, Path]:
-    """Pick a stem whose .json and .txt are both free (D49).
+def _reserve_scorecard_paths(out_dir: Path, identifier: str, stamp: str) -> tuple[Path, Path]:
+    """Pick a stem whose .json and .txt are both free (D49), unique in its second (D80).
 
     The run stamp is second-precision, because every timestamp this harness writes
     is (D6) — so two runs inside the same second would otherwise derive the same
     filename and the second would silently destroy the first. An ordinal
     disambiguates without introducing a sub-second timestamp, which would break the
     second-precision rule. Both extensions are checked together so the pair never
-    straddles two stems."""
+    straddles two stems.
+
+    **The ordinal is reserved across the whole directory-second, not per stem (D80).**
+    It was per stem, and a stem carries the dataset identifier — so scoring `dev` and
+    `dev-zero-defect` inside one second gave *both* files ordinal 1. Filenames stayed
+    unique, which is all D49 asked for, but the ledger's `(stamp, ordinal)` run order
+    then had a tie it could not break, and fell through to directory order: name-ordered
+    on NTFS, hash-ordered on ext4. The ledger's regeneration guarantee would have failed
+    on Linux and held on the machine it was written on. Reserving per second makes the
+    ordinal mean *the nth run in this directory in this second*, which is what a run
+    order needs it to mean."""
+    base_stem = f"scorecard-{identifier}-{stamp}"
+    taken = {
+        parsed.ordinal
+        for parsed in (
+            ledger.parse_scorecard_name(p.name)
+            for p in out_dir.glob("scorecard-*.json")
+            if p.is_file()
+        )
+        if parsed.stamp == stamp
+    }
     for ordinal in range(1, 10_000):
+        if ordinal in taken:
+            continue
         stem = base_stem if ordinal == 1 else f"{base_stem}-{ordinal}"
         json_path = out_dir / f"{stem}.json"
         txt_path = out_dir / f"{stem}.txt"
@@ -186,7 +202,7 @@ def _reserve_scorecard_paths(out_dir: Path, base_stem: str) -> tuple[Path, Path]
             return json_path, txt_path
     raise DatasetError(
         f"cannot reserve a scorecard filename in {out_dir}: 9999 runs already share "
-        f"the stem '{base_stem}'"
+        f"the run stamp '{stamp}'"
     )
 
 

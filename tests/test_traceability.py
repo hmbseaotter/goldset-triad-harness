@@ -173,6 +173,15 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("E13", "[P2] an unrecognised scorecard schema version is its own outcome, not a "
             "scoring discrepancy (D66)",
      "test_verify_mode.VerifyModeTests.test_unrecognised_schema_version_is_its_own_outcome"),
+    ("E14", "a file that is not valid UTF-8 halts naming the artifact and the byte, on "
+            "every read path (D77)",
+     "test_read_failures.NonUtf8ReadTests.test_every_dataset_artifact_names_itself_by_role"),
+    ("E15", "an absent or wrong-typed findings schema_version is rejected naming the "
+            "field, never assumed to be the current one (D78)",
+     "test_port_schema.SchemaVersionDeclarationTests.test_an_absent_schema_version_is_rejected_not_assumed"),
+    ("E16", "[P2] verify pointed at a different dataset says so in one line and compares "
+            "nothing further (D79)",
+     "test_verify_mode.VerifyModeTests.test_naming_a_different_dataset_says_so_in_one_line"),
     # --- constraint validation ---
     ("C1", "same inputs scored twice: byte-identical apart from run_metadata",
      "test_cli_end_to_end.CliEndToEndTests.test_two_runs_byte_identical_apart_from_run_metadata"),
@@ -380,12 +389,61 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_run_ledger.RunLedgerTests.test_every_ledger_field_comes_from_the_scorecard",
     "test_run_ledger.RunLedgerTests.test_an_unwritable_ledger_warns_and_the_run_still_exits_zero",
     "test_run_ledger.RunLedgerTests.test_a_foreign_json_file_is_named_rather_than_silently_skipped",
+    # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
+    # file" — against a condition its own test could not reach. C72 scores ONE split, so
+    # its ordinals never tie; the tie needed two identifiers in one second, and it made
+    # the rebuild order filesystem-dependent, so the guarantee would have failed on Linux
+    # and held on the machine it was written on. The rest are the boundary the ordering
+    # rests on: a residual tie halts, a null in a load-bearing field is refused, a null
+    # in a metric that D40 defines as nullable is carried, and a mistyped directory is
+    # named rather than answered with an empty ledger.
+    "test_run_ledger.RunLedgerTests.test_three_splits_in_one_second_keep_their_run_order",
+    "test_run_ledger.RunLedgerTests.test_a_hand_placed_duplicate_run_position_halts",
+    "test_run_ledger.RunLedgerTests.test_a_null_run_timestamp_is_rejected_not_carried",
+    "test_run_ledger.RunLedgerTests.test_a_null_ratio_is_carried_through",
+    "test_run_ledger.RunLedgerTests.test_a_missing_scorecard_directory_is_named_not_answered_with_nothing",
     # The workflow's configuration checks (D76). C73 maps the "both gates run" criterion
     # here; these two check claims the workflow makes that no criterion states -- that the
     # cross-platform comparison names TWO platforms rather than silently comparing a run to
     # itself, and that the skip count is asserted rather than eyeballed.
     "test_ci_workflow.CiWorkflowTests.test_the_workflow_compares_scorecards_across_two_platforms",
     "test_ci_workflow.CiWorkflowTests.test_the_suite_skip_count_is_asserted_rather_than_eyeballed",
+    # The two claims the workflow made that nothing held it to (D81): that the number of
+    # tests which ran is checked against something real rather than a typed-in floor, and
+    # that the line-ending step can actually fail. Both were configuration the workflow
+    # described itself as having; neither was true.
+    "test_ci_workflow.CiWorkflowTests.test_the_test_count_is_derived_rather_than_hand_maintained",
+    "test_ci_workflow.CiWorkflowTests.test_the_line_ending_check_can_fail",
+    # D79's two reporting invariants. E16 carries the dataset-identity criterion; these
+    # protect the two properties a report has to have to be worth reading: that an
+    # ABSENT field is reported as a defect in the scorecard rather than as a value it
+    # disagrees about, and that no cause list is unbounded. Neither is a criterion the
+    # spec states, and both decide whether verify's output is a diagnosis or a dump.
+    "test_verify_mode.VerifyModeTests.test_an_absent_fingerprint_is_a_shape_defect_not_a_mismatch",
+    "test_verify_mode.VerifyModeTests.test_a_baseline_diagnosis_is_bounded",
+    # D78's other two halves. E15 carries the criterion on an ABSENT declaration; these
+    # are the same rule on a wrong-typed one, on both sides of the project. The verify
+    # entry is deliberately not a second criterion: E13 already says an unrecognised
+    # schema version is its own outcome, and a scorecard whose version field is not even
+    # a string is unrecognised. What it adds is the reason E13 was silently violated —
+    # a `str()` at the gate that made the check pass and then let the raw value surface
+    # below as a scoring difference.
+    "test_verify_mode.VerifyModeTests.test_a_wrong_typed_schema_version_is_unrecognised_not_a_scoring_difference",
+    "test_port_schema.SchemaVersionDeclarationTests.test_a_wrong_typed_schema_version_names_the_type",
+    "test_port_schema.SchemaVersionDeclarationTests.test_an_unsupported_version_is_still_reported_as_unsupported",
+    # The shared reader's other read paths and its lock (D77). E14 carries the criterion
+    # on the dataset-side artifacts; these are the same statement on the two runtime
+    # artifacts, the three-causes-apart distinction, and — the one that matters — the AST
+    # lock that stops a sixth reader arriving with its own subset of guards. Asserting
+    # today's call sites is a snapshot; asserting that only one function reads text is
+    # what makes the class stay closed (D68's shape, applied to a read).
+    "test_read_failures.NonUtf8ReadTests.test_a_non_utf8_findings_artifact_halts_naming_it",
+    "test_read_failures.NonUtf8ReadTests.test_a_non_utf8_scorecard_halts_rather_than_failing_verification",
+    "test_read_failures.NonUtf8ReadTests.test_the_three_read_failures_are_reported_apart",
+    "test_read_failures.OneReaderTests.test_only_the_shared_reader_reads_text",
+    "test_read_failures.OneReaderTests.test_the_scan_would_notice_a_stray_read",
+    "test_read_failures.OneReaderTests.test_the_findings_artifact_has_one_loader",
+    "test_read_failures.WriteDestinationTests.test_a_ledger_destination_that_cannot_be_written_is_named",
     # Positive controls: the converse of a criterion, proving a guard does not over-fire.
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",
@@ -454,6 +512,15 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_claim_coverage.ClaimSymmetryTests.test_every_claim_is_checked_on_every_known_split",
     "test_defect_classes.NumericDefaultTests.test_no_justification_outlives_its_site",
     "test_defect_classes.NumericDefaultTests.test_every_justification_says_something",
+    # D82's two additions to the same lock: a default belonging to no named bucket fails
+    # rather than being skipped, and the buckets are asserted to partition a non-trivial
+    # total so the scan cannot go quiet. C63 carries the criterion; these keep its
+    # universe honest, which is the half that was missing.
+    "test_defect_classes.NumericDefaultTests.test_no_default_escapes_classification",
+    "test_defect_classes.NumericDefaultTests.test_the_classification_covers_every_site_and_the_buckets_are_populated",
+    # The third direction of the traceability map (D82): an exemption naming a test that
+    # no longer exists is a claim about nothing.
+    "test_traceability.TraceabilityTests.test_no_exemption_outlives_its_test",
     "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
     "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
     "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",
@@ -468,7 +535,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 122
+EXPECTED_SPEC_P1_CRITERIA = 124
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule
@@ -476,25 +543,36 @@ EXPECTED_SPEC_P1_CRITERIA = 122
 # phase the mechanism had been written during. A `[P2]` criterion could have been added
 # to the spec with no map entry and nothing would have said so — which is precisely how
 # D66's criterion went missing from the spec for two versions while its requirement sat
-# in the `optional feature` block. Not every entry is mapped yet: the ledger, CI-workflow
-# and cross-platform criteria are mapped as their items land, and this number is what
-# makes that a visible debt rather than a silent one.
-EXPECTED_SPEC_P2_CRITERIA = 6
+# in the `optional feature` block.
+#
+# All seven are mapped. The note that stood here — "not every entry is mapped yet, the
+# ledger, CI-workflow and cross-platform criteria are mapped as their items land" —
+# described a debt that was paid two commits later and then went on describing it, which
+# is the same stale-restatement class the 0.22.0 sweep removed three instances of.
+EXPECTED_SPEC_P2_CRITERIA = 7
 
 
 def _spec_criteria(tag: str) -> list[str]:
+    """Every criterion carrying ``tag``, ticked or not (D82).
+
+    The pattern was `^- \\[ \\] \\[{tag}\\]` — an unticked box, literally. So the moment
+    anyone ticked one off, the count dropped and the guard failed with *"the spec now has
+    5 [P2] criteria but this map expects 6 ... Add the missing entries"*, telling a reader
+    that a criterion had been deleted when it had been satisfied. A checklist whose guard
+    breaks when you use it as a checklist is a guard that misdiagnoses, which is the
+    class this whole file exists to close."""
     spec = (Path(__file__).resolve().parents[1] / "specs" / "goldset-triad-harness.md").read_text(
         encoding="utf-8"
     )
     acceptance = spec.split("## acceptance criteria", 1)[1].split("\n---", 1)[0]
-    return re.findall(rf"^- \[ \] \[{tag}\] (.+)$", acceptance, re.M)
+    return re.findall(rf"^- \[[ xX]\] \[{tag}\] (.+)$", acceptance, re.M)
 
 
 def _spec_p1_criteria() -> list[str]:
     return _spec_criteria("P1")
 
 
-def _all_test_methods() -> set[str]:
+def all_test_methods() -> set[str]:
     found: set[str] = set()
     tests_dir = Path(__file__).resolve().parent
     for path in sorted(tests_dir.glob("test_*.py")):
@@ -601,12 +679,28 @@ class TraceabilityTests(unittest.TestCase):
         """test -> map. The map was one-directional: it caught a criterion with no test,
         never a test with no criterion, so five cross-artifact tests sat unmapped (D54)."""
         mapped = {c[2] for c in CRITERIA if not c[2].startswith("MANUAL:")}
-        unaccounted = sorted(_all_test_methods() - mapped - EXEMPT_TESTS)
+        unaccounted = sorted(all_test_methods() - mapped - EXEMPT_TESTS)
         self.assertEqual(
             unaccounted, [],
             f"{len(unaccounted)} test(s) are neither mapped to a criterion nor exempt: "
             f"{unaccounted}. Map each to the criterion it verifies, or add it to "
             f"EXEMPT_TESTS with a reason.",
+        )
+
+    def test_no_exemption_outlives_its_test(self) -> None:
+        """map -> tests, the third direction (D82).
+
+        `EXEMPT_TESTS` is a parallel list with no staleness check, so deleting or renaming
+        a test left its exemption behind forever — and an exemption for a test that does
+        not exist is a claim about nothing, which is exactly what
+        `test_registry_has_no_stale_entries` exists to prevent for the claims registry one
+        file away. The two lists are the same shape; only one of them was guarded."""
+        stale = sorted(EXEMPT_TESTS - all_test_methods())
+        self.assertEqual(
+            stale, [],
+            f"{len(stale)} exemption(s) name a test that no longer exists: {stale}. Each "
+            f"was a deliberate statement that some test answers to no criterion; with the "
+            f"test gone the statement is about nothing. Remove them.",
         )
 
     def test_every_named_test_resolves(self) -> None:

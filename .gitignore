@@ -19,7 +19,9 @@ _generators/
 
 # --- Run ledger (D9) ------------------------------------------------------------
 # Derived, local-only, and regenerable from the scorecard directory, so losing it
-# costs nothing. The exact filename is fixed in [P2]; adjust if it differs.
+# costs nothing. `[P2]` fixed the filename as `run-ledger.jsonl` (D75); the bare name
+# with no slash matches at any depth, so the ledger is ignored wherever the scorecard
+# directory is put.
 run-ledger.jsonl
 *.ledger.jsonl
 

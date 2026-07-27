@@ -25,15 +25,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
 
-from .schema import Finding, SchemaError, Scope, parse_finding
+#: `DatasetError` is imported, not defined, from here on. It moved to `jsonio` with the
+#: reader that raises it (D77) — five modules raise it now, and it was never specific to
+#: a *dataset*. Importing it here keeps every existing `from .dataset import
+#: DatasetError` naming the same class.
+from .jsonio import DatasetError, read_json_file, read_json_object, read_text_file
+from .schema import Finding, SchemaError, Scope, parse_finding, parse_findings_artifact
 from .scoring import LineInventory
 
 _TIMESTAMP_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-
-
-class DatasetError(Exception):
-    """A dataset is missing, unreadable, or malformed. Every instance names its
-    specific cause, so a halt message is never generic (N-observability)."""
 
 
 # ---------------------------------------------------------------------------
@@ -42,21 +42,30 @@ class DatasetError(Exception):
 
 
 def _read_json(path: Path, what: str) -> Any:
-    if not path.is_file():
-        raise DatasetError(f"{what} not found or unreadable: {path}")
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise DatasetError(f"{what} not readable: {path} ({exc})") from exc
-    try:
-        # parse_float=Decimal so no monetary value is ever a float (D-value).
-        return json.loads(text, parse_float=Decimal)
-    except json.JSONDecodeError as exc:
-        raise DatasetError(f"{what} is not valid JSON: {path} ({exc})") from exc
+    """The shared reader (D77), kept under its local name so this module's many call
+    sites read unchanged. Existence, permission, encoding and syntax failures are each
+    named separately there; `parse_float=Decimal` is pinned there too, so no monetary
+    value can become a float on any path (D3)."""
+    return read_json_file(path, what)
 
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_findings_artifact(path: Path) -> tuple[tuple[Finding, ...], str]:
+    """Read, validate and digest an agent's findings artifact — in one place (D77).
+
+    There were two copies of this, four lines each: one in `cli.run_score` and one in
+    `verify._recompute`. That is the drift surface D58's reasoning condemns, and it sat
+    at the worst possible place for it: **verify's entire premise is that it reproduces
+    what scoring did.** A rejection added to one copy and not the other would mean the
+    recompute path accepted an artifact the scoring path would have refused, and verify
+    would report a difference between two runs whose inputs it had validated
+    differently. The digest is returned alongside the parse because the scorecard
+    fingerprints the artifact's *bytes* and both callers need both."""
+    findings = parse_findings_artifact(read_json_file(path, "findings artifact"))
+    return findings, sha256_file(path)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -132,7 +141,7 @@ def generator_digest(generator_dir: Path) -> str:
         rel = path.relative_to(generator_dir).as_posix()
         # splitlines() handles CR, LF and CRLF alike; rejoining with "\n" makes the digest
         # depend on the source's content and not on how a checkout happened to store it.
-        text = path.read_text(encoding="utf-8")
+        text = read_text_file(path, f"generator source {rel}")
         normalized = "\n".join(text.splitlines())
         entries.append((rel, sha256_bytes(normalized.encode("utf-8"))))
     entries.sort(key=lambda e: e[0].encode("utf-8"))
@@ -219,12 +228,11 @@ def load_answer_key(path: Path) -> AnswerKey:
 
     The scorer uses only the expected findings; the correspondence exists for the
     key-audit command (D22) and is carried through but never consulted here."""
-    if not path.is_file():
-        # A missing/unreadable key must halt, never be treated as a pass (I4).
-        raise DatasetError(f"answer key is unreadable: {path}")
-    raw = _read_json(path, "answer key")
-    if not isinstance(raw, dict):
-        raise DatasetError(f"answer key is not a JSON object: {path}")
+    # A missing, unopenable, undecodable or non-object key must halt, never be treated
+    # as a pass (I4). The shared reader names which of the four it is (D77); the
+    # presence check that stood here duplicated its first branch and reported an ABSENT
+    # key as "unreadable", conflating the wrong path with the unopenable file.
+    raw = read_json_object(path, "answer key")
     findings_raw = raw.get("expected_findings")
     if not isinstance(findings_raw, list):
         raise DatasetError("answer key must carry an 'expected_findings' list")
@@ -260,11 +268,7 @@ def load_invoice_index(path: Path) -> InvoiceIndex:
     Builds the :class:`LineInventory` that target validation needs, covering clean
     lines as well as discrepant ones, and checks each invoice's timestamp and the
     presence of its tax field (D29, D34)."""
-    if not path.is_file():
-        raise DatasetError(f"structured invoice index is unreadable: {path}")
-    raw = _read_json(path, "invoice index")
-    if not isinstance(raw, dict):
-        raise DatasetError(f"invoice index is not a JSON object: {path}")
+    raw = read_json_object(path, "invoice index")
     invoices = raw.get("invoices")
     if not isinstance(invoices, list) or not invoices:
         raise DatasetError("invoice index must carry a non-empty 'invoices' list")

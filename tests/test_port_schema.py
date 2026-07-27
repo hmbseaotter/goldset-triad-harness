@@ -68,5 +68,44 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(findings, ())
 
 
+class SchemaVersionDeclarationTests(unittest.TestCase):
+    """The port's version is declared, never assumed, and never coerced (D78).
+
+    Two defects lived in one line, `raw.get("schema_version", SCHEMA_VERSION)`:
+
+    * **absence became the current version**, so an artifact declaring nothing was read
+      as declaring exactly the value that makes it acceptable — while verify mode, one
+      module away, had decided the opposite for the same question about a scorecard
+      (D66: absence is not a version). Two opposite answers is one too many;
+    * **the comparison did not check the type**, so `{"schema_version": 1}` produced
+      *"unsupported schema_version '1'; this harness scores v1"* — a message that reads
+      as a contradiction, because an int and a str render identically inside quotes.
+    """
+
+    def test_an_absent_schema_version_is_rejected_not_assumed(self) -> None:
+        with self.assertRaises(SchemaError) as ctx:
+            parse_findings_artifact({"findings": []})
+        self.assertEqual(ctx.exception.field, "schema_version")
+        self.assertIn("declares no schema_version", str(ctx.exception))
+        self.assertIn("will not assume", str(ctx.exception))
+
+    def test_a_wrong_typed_schema_version_names_the_type(self) -> None:
+        """The reader is told the artifact declared a number where a string was
+        required, rather than left to wonder why v1 is unsupported by a harness that
+        scores v1."""
+        with self.assertRaises(SchemaError) as ctx:
+            parse_findings_artifact({"schema_version": 1, "findings": []})
+        self.assertEqual(ctx.exception.field, "schema_version")
+        self.assertIn("must be a string, not int", str(ctx.exception))
+
+    def test_an_unsupported_version_is_still_reported_as_unsupported(self) -> None:
+        """The converse: a correctly-typed version this harness does not score is a
+        different finding from a malformed declaration, and keeps its own message."""
+        with self.assertRaises(SchemaError) as ctx:
+            parse_findings_artifact({"schema_version": "9", "findings": []})
+        self.assertEqual(ctx.exception.field, "schema_version")
+        self.assertIn("unsupported schema_version '9'", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

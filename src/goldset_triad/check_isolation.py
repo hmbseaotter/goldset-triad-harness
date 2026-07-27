@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from .jsonio import read_json_object
+
 # Repo root is two levels up from this file's package: src/goldset_triad/ -> repo.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PATH = REPO_ROOT / ".claude" / "settings.json"
@@ -137,7 +139,10 @@ def _permission_lists(root: Path) -> dict[str, list[str]]:
         raise FileNotFoundError(
             f"guard settings not found at {settings_path}; the deny-guards are unconfigured"
         )
-    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    # The shared reader (D77). This site guarded nothing: a settings file that was not
+    # valid JSON, or not UTF-8, produced a traceback from the guard checker -- the one
+    # command whose whole job is to report on configuration it was pointed at.
+    data = read_json_object(settings_path, "guard settings")
     permissions = data.get("permissions", {})
     if not isinstance(permissions, dict):
         return {}

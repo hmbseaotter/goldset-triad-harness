@@ -25,16 +25,28 @@ that applies and stops:
    a scoring discrepancy would be the misdiagnosis this project keeps finding —
    aimed, here, at the one feature whose entire purpose is to say whether a score
    can be trusted.
-2. **A fingerprint differs.** The inputs moved. That is not the same statement as
+2. **This is not the dataset the scorecard scored** (D79). The scorecard records the
+   dataset identifier and version, so verify can say *"you named a different split"*
+   in one line. Without this the commonest operator error on a three-path command
+   surfaced as three digest mismatches plus advice to fetch a pristine inputs
+   directory — a reader sent to hunt a file that never moved.
+3. **A fingerprint differs.** The inputs moved. That is not the same statement as
    "the score is wrong", and reporting the latter would send a reader to audit
    arithmetic when the answer is that they scored different data (D50).
-3. **The scored body differs** on identical inputs. This is the real discrepancy:
+4. **The scored body differs** on identical inputs. This is the real discrepancy:
    same inputs, different numbers.
-4. **Identical.**
+5. **Identical.**
 
 Every one of those is a halt naming a specific cause, never a diff dump — which is
 why differences are reported as `metrics.per_category.PRICE_VARIANCE.recall:
-stored X, recomputed Y` rather than as two blobs for the reader to compare.
+stored X, recomputed Y` rather than as two blobs for the reader to compare, and why
+every list of them is bounded by ``MAX_REPORTED`` with a count of the remainder.
+
+**A missing field is a shape defect, not a difference.** Blocks and the fields inside
+them are fetched with :func:`_required_field`, never with ``.get()``: a scorecard that
+omits a fingerprint is malformed, while a scorecard whose fingerprint disagrees with the
+artifact on disk is evidence, and reading the first through a default turned it into the
+second and reported *"the scorecard records None"* (D79).
 """
 
 from __future__ import annotations
@@ -50,10 +62,10 @@ from .dataset import (
     DatasetError,
     LoadedDataset,
     load_dataset,
+    load_findings_artifact,
     per_file_digests,
-    sha256_file,
 )
-from .schema import SchemaError, parse_findings_artifact
+from .jsonio import read_json_object
 from .scorecard import (
     SCORECARD_SCHEMA_VERSION,
     Provenance,
@@ -85,14 +97,68 @@ _FINGERPRINT_FIELDS: Final = (
     ("inputs_aggregate_sha256", "the dataset inputs"),
 )
 
+#: Stored-vs-resolved dataset identity, checked before any digest (D79). Identifier
+#: first: naming the wrong split is a different mistake from scoring a split that has
+#: since been re-versioned, and the first is far commoner.
+_DATASET_FIELDS: Final = (
+    ("identifier", "dataset identifier"),
+    ("version", "dataset version"),
+)
+
 
 class Outcome(Enum):
     """What verify concluded. Distinct outcomes, never collapsed into "it differs"."""
 
     IDENTICAL = "identical"
     SCHEMA_UNRECOGNISED = "schema-unrecognised"
+    DATASET_MISMATCH = "dataset-mismatch"
     FINGERPRINT_MISMATCH = "fingerprint-mismatch"
     SCORE_DIFFERS = "score-differs"
+
+
+def _bounded(causes: list[str], noun: str) -> list[str]:
+    """At most ``MAX_REPORTED`` lines, then a count of the rest (D79).
+
+    Applied at every site that can produce an unbounded list, because two of the four
+    did not have it: the score-difference list was capped and the with-baseline per-file
+    divergence list was not, so a one-byte change across a 150-file inputs tree printed
+    one line per file — the diff dump this module's own docstring promises never to
+    produce, in the branch a reader reaches only when something is already wrong."""
+    if len(causes) <= MAX_REPORTED:
+        return causes
+    return [*causes[:MAX_REPORTED], f"... and {len(causes) - MAX_REPORTED} further {noun}"]
+
+
+def _required_block(
+    stored: dict[str, Any], name: str, path: Path, version: str
+) -> dict[str, Any]:
+    """A top-level block the declared schema promises, or a named shape failure."""
+    block = stored.get(name)
+    if not isinstance(block, dict):
+        raise DatasetError(
+            f"scorecard {path} declares schema version {version!r} but carries no "
+            f"{name} block, so it does not have the shape it claims"
+        )
+    return block
+
+
+def _required_field(
+    block: dict[str, Any], block_name: str, field: str, path: Path, version: str
+) -> Any:
+    """A field inside a block, or a named shape failure — never a `None` stand-in.
+
+    Separate from a *difference*, and that separation is the whole point. A scorecard
+    that omits a fingerprint is malformed; a scorecard whose fingerprint disagrees with
+    the artifact on disk is evidence. Reading the first through `.get()` turned it into
+    the second and printed `the scorecard records None`, which is a scorecard being
+    described as holding a value it does not hold (D79)."""
+    if field not in block:
+        raise DatasetError(
+            f"scorecard {path} declares schema version {version!r} but its {block_name} "
+            f"block has no {field!r}, so it does not have the shape it claims. An absent "
+            f"field is a defect in the scorecard, not a disagreement between two values"
+        )
+    return block[field]
 
 
 @dataclass(frozen=True)
@@ -106,22 +172,15 @@ class VerifyResult:
 
 
 def _read_scorecard(path: Path) -> dict[str, Any]:
-    """Load a stored scorecard, naming any way it fails to be one.
+    """Load a stored scorecard, naming any way it fails to be one (D77).
 
-    ``parse_float=Decimal`` is pinned even though a well-formed scorecard contains no
-    JSON floats — every monetary value and ratio is emitted as an exact string (D37)
-    and every count as an integer. It matters precisely for the ill-formed case: a
-    doctored scorecard whose ratio was edited from `"0.9000"` into `0.9` is then read
-    as a `Decimal` rather than silently becoming a float on the comparison path."""
-    if not path.is_file():
-        raise DatasetError(f"scorecard not found or unreadable: {path}")
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
-    except json.JSONDecodeError as exc:
-        raise DatasetError(f"scorecard {path} is not valid JSON: {exc}")
-    if not isinstance(raw, dict):
-        raise DatasetError(f"scorecard {path} is not a JSON object")
-    return raw
+    The shared reader pins ``parse_float=Decimal`` for every caller. It matters here
+    precisely for the ill-formed case: a well-formed scorecard contains no JSON floats
+    — every monetary value and ratio is emitted as an exact string (D37) and every
+    count as an integer — but a doctored scorecard whose ratio was edited from
+    `"0.9000"` into `0.9` is then read as a `Decimal` rather than silently becoming a
+    float on the comparison path."""
+    return read_json_object(path, f"scorecard {path}")
 
 
 def _differences(
@@ -185,10 +244,7 @@ def _inputs_diagnosis(inputs_dir: Path, baseline_inputs: Path | None) -> list[st
     which is what ``--baseline-inputs`` is for."""
     current = per_file_digests(inputs_dir)
     if baseline_inputs is None:
-        listing = [f"    {rel}  {digest}" for rel, digest in current[:MAX_REPORTED]]
-        remainder = len(current) - len(listing)
-        if remainder > 0:
-            listing.append(f"    ... and {remainder} more file(s)")
+        listing = _bounded([f"    {rel}  {digest}" for rel, digest in current], "file(s)")
         return [
             "the scorecard stores only the AGGREGATE inputs digest (D27 chose that over "
             "a per-file list in every durable record), so verify cannot say which file "
@@ -219,29 +275,31 @@ def _inputs_diagnosis(inputs_dir: Path, baseline_inputs: Path | None) -> list[st
             f"the aggregate differs from the stored one — so the inputs that were SCORED "
             f"are not the inputs either directory now holds"
         ]
-    return [f"these files diverge from the baseline at {baseline_inputs}:", *causes]
+    return [
+        f"{len(causes)} file(s) diverge from the baseline at {baseline_inputs}:",
+        *_bounded(causes, "diverging file(s)"),
+    ]
 
 
 def _recompute(
     dataset_ref: str, findings_path: Path, search_root: Path
 ) -> tuple[dict[str, Any], LoadedDataset]:
-    if not findings_path.is_file():
-        raise DatasetError(f"findings artifact not found: {findings_path}")
+    """Score again, through exactly the code the original run went through.
+
+    `load_findings_artifact` is shared with `cli.run_score` rather than reimplemented
+    (D77). A second copy stood here, and this is the worst place in the project for one:
+    if the two ever validated differently, verify would compare a scorecard against a
+    recomputation whose inputs it had accepted on different terms, and report the
+    disagreement as a scoring difference."""
     loaded = load_dataset(dataset_ref, search_root)
-    try:
-        raw_findings = json.loads(
-            findings_path.read_text(encoding="utf-8"), parse_float=Decimal
-        )
-    except json.JSONDecodeError as exc:
-        raise SchemaError(f"findings artifact is not valid JSON: {exc}")
-    agent = parse_findings_artifact(raw_findings)
+    agent, findings_sha = load_findings_artifact(findings_path)
     result = score(
         loaded.answer_key.expected_findings, agent, loaded.invoice_index.inventory
     )
     provenance = Provenance(
         dataset_identifier=loaded.manifest.identifier,
         dataset_version=loaded.manifest.version,
-        findings_artifact_sha256=sha256_file(findings_path),
+        findings_artifact_sha256=findings_sha,
         answer_key_sha256=loaded.answer_key.sha256,
         invoice_index_sha256=loaded.invoice_index.sha256,
         inputs_aggregate_sha256=loaded.inputs_aggregate_sha256,
@@ -273,7 +331,28 @@ def verify(
                 f"scoring differences (D66).",
             ),
         )
-    stored_version = str(stored["schema_version"])
+    # No `str()` here, and that is the point (D78). It stood here, and it made the gate
+    # accept `{"schema_version": 2}` as if it were `"2"` -- after which the RAW value
+    # went on into the body comparison below and surfaced as
+    # `schema_version: stored 2, recomputed '2'` under the heading "the same inputs
+    # recompute to a different score". A shape defect reported as a scoring difference
+    # is the exact outcome D66 recorded this feature to prevent, produced by a coercion
+    # that existed to be lenient. A gate that normalises what it accepts must carry the
+    # normalised value forward or not normalise at all; this one does neither, so it
+    # does not normalise.
+    stored_version = stored["schema_version"]
+    if not isinstance(stored_version, str):
+        return VerifyResult(
+            Outcome.SCHEMA_UNRECOGNISED,
+            (
+                f"{scorecard_path} declares its schema version as "
+                f"{type(stored_version).__name__} {stored_version!r}; this harness emits "
+                f"it as the string {SCORECARD_SCHEMA_VERSION!r}. A scorecard whose "
+                f"version field is not even the right type is not a shape this harness "
+                f"recognises, so no comparison was attempted and this is NOT a scoring "
+                f"discrepancy (D66, D78).",
+            ),
+        )
     if stored_version != SCORECARD_SCHEMA_VERSION:
         return VerifyResult(
             Outcome.SCHEMA_UNRECOGNISED,
@@ -288,20 +367,52 @@ def verify(
 
     recomputed, loaded = _recompute(dataset_ref, findings_path, search_root)
 
-    stored_fingerprints = stored.get("fingerprints")
-    if not isinstance(stored_fingerprints, dict):
-        raise DatasetError(
-            f"scorecard {scorecard_path} declares schema version {stored_version!r} but "
-            f"carries no fingerprints block, so it does not have the shape it claims"
+    # 2. Whether this is even the dataset the scorecard scored (D79). The scorecard
+    #    records the identifier and version, verify holds both before it compares a
+    #    single digest, and it did not look. Naming the wrong split -- the likeliest
+    #    operator error on a command taking three separate paths -- produced three
+    #    digest mismatches and a paragraph advising the reader to fetch a pristine
+    #    inputs directory, sending them to hunt a file that never moved. The one-line
+    #    answer was in hand the whole time, which is what makes this the misdiagnosis
+    #    D50 rules worse than silence rather than merely a thin report.
+    stored_dataset = _required_block(stored, "dataset", scorecard_path, stored_version)
+    fresh_dataset = recomputed["dataset"]
+    dataset_causes: list[str] = []
+    for field, what in _DATASET_FIELDS:
+        was = _required_field(stored_dataset, "dataset", field, scorecard_path, stored_version)
+        now = fresh_dataset[field]
+        if was != now:
+            dataset_causes.append(
+                f"the {what} does not match: the scorecard was produced from "
+                f"{was!r}, and --dataset {dataset_ref!r} resolves to {now!r}"
+            )
+    if dataset_causes:
+        return VerifyResult(
+            Outcome.DATASET_MISMATCH,
+            (
+                "this is not the dataset the scorecard was produced from, so nothing "
+                "below it was compared -- fingerprints included, since digests of a "
+                "different dataset differ for a reason that is not tampering:",
+                *dataset_causes,
+            ),
         )
 
-    # 2. Whether the same inputs were scored at all. Reported before any body
+    # 3. Whether the same inputs were scored at all. Reported before any body
     #    comparison, because "you scored different data" and "the numbers are wrong"
     #    are different findings and only one of them is about scoring (D50).
+    stored_fingerprints = _required_block(
+        stored, "fingerprints", scorecard_path, stored_version
+    )
     fingerprint_causes: list[str] = []
     fresh_fingerprints = recomputed["fingerprints"]
     for field, what in _FINGERPRINT_FIELDS:
-        was = stored_fingerprints.get(field)
+        # `_required_field`, never `.get()`. An ABSENT digest was read as `None` and
+        # reported as "the scorecard records None, the artifact on disk digests to
+        # '9f3...'" -- a scorecard missing a required field, described as though it held
+        # one and disagreed. The block was shape-checked and its members were not (D79).
+        was = _required_field(
+            stored_fingerprints, "fingerprints", field, scorecard_path, stored_version
+        )
         now = fresh_fingerprints[field]
         if was != now:
             fingerprint_causes.append(
@@ -315,7 +426,7 @@ def verify(
     if fingerprint_causes:
         return VerifyResult(Outcome.FINGERPRINT_MISMATCH, tuple(fingerprint_causes))
 
-    # 3. Same inputs, so any remaining difference IS a scoring difference. The
+    # 4. Same inputs, so any remaining difference IS a scoring difference. The
     #    `run_metadata` envelope is excluded on both sides: it holds exactly the
     #    non-deterministic fields, and excluding it alone is what makes two runs
     #    comparable at all (D9, D10, D18).
@@ -329,15 +440,13 @@ def verify(
     fresh_body = {k: v for k, v in recomputed.items() if k != "run_metadata"}
     differences = _differences(stored_body, fresh_body)
     if differences:
-        shown = differences[:MAX_REPORTED]
-        if len(differences) > len(shown):
-            shown.append(f"... and {len(differences) - len(shown)} further difference(s)")
         return VerifyResult(
             Outcome.SCORE_DIFFERS,
             (
-                "the same inputs recompute to a different score, so the stored scorecard "
-                "does not report what it claims to report:",
-                *shown,
+                f"the same inputs recompute to a different score in {len(differences)} "
+                f"place(s), so the stored scorecard does not report what it claims to "
+                f"report:",
+                *_bounded(differences, "difference(s)"),
             ),
         )
 

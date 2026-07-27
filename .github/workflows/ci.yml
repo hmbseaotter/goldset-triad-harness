@@ -71,12 +71,33 @@ jobs:
         run: |
           python --version
           git --version
-          echo "H17's mechanism, observed on Linux -- line-ending attributes on every"
-          echo "dataset artifact. Anything other than 'text: unset' means a checkout"
-          echo "here holds different bytes from a Windows one, which would move the"
-          echo "aggregate inputs digest and present as tampering (D27):"
-          git ls-files 'datasets/*' | xargs -n1 git check-attr text -- \
-            | sed 's/.*: text: /text: /' | sort | uniq -c | sed 's/^/  /'
+
+      # H17's mechanism, ASSERTED on Linux rather than printed (D81). This step read the
+      # attributes and piped them into `uniq -c` for a human to notice, while its own
+      # comment said that anything but `text: unset` means a checkout here holds
+      # different bytes from a Windows one -- which would move the aggregate inputs
+      # digest (D27) and present as tampering. An observation nobody is required to read
+      # is not a check.
+      - name: Every dataset artifact is exempt from line-ending translation
+        shell: bash
+        run: |
+          files=$(git ls-files 'datasets/*')
+          if [ -z "$files" ]; then
+            echo "::error::git ls-files matched no dataset artifact, so this check would"
+            echo "::error::have passed without examining anything"
+            exit 1
+          fi
+          count=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
+          attrs=$(printf '%s\n' "$files" | xargs -n1 git check-attr text -- \
+            | sed 's/.*: text: //' | sort -u)
+          echo "line-ending attribute across $count dataset artifact(s): $attrs"
+          if [ "$attrs" != "unset" ]; then
+            echo "::error::expected 'text: unset' on every dataset artifact; found: $attrs."
+            echo "::error::A translated artifact holds different bytes on Linux and Windows,"
+            echo "::error::which moves the aggregate inputs digest and presents as tampering"
+            echo "::error::(D27, H17)"
+            exit 1
+          fi
 
       - name: Run the full test suite
         shell: bash
@@ -90,16 +111,23 @@ jobs:
             echo "::error::the suite produced no run summary at all"
             exit 1
           fi
-          ran=$(grep -oE '^Ran [0-9]+ tests' suite.log | grep -oE '[0-9]+')
+          ran=$(grep -oE '^Ran [0-9]+ tests' suite.log | grep -oE '[0-9]+' | head -1)
 
-          # A FLOOR, not an exact count. An exact number would be a second parallel
-          # list to keep in step with the suite, which is the shape D54 condemned.
-          # A floor still catches the failure that matters: discovery collapsing and
-          # `Ran 0 tests` reporting OK, which is a vacuous pass wearing a green tick.
-          # Same idiom as `_discover_dev_datasets()`'s floor in tests/support.py.
-          if [ "$ran" -lt 150 ]; then
-            echo "::error::only $ran tests ran; test discovery has collapsed and a green"
-            echo "::error::result here would mean nothing was checked"
+          # DERIVED, not typed (D81). A floor of 150 stood here while the suite held
+          # 207, so fifty-seven tests could have stopped running behind a green tick. A
+          # floor was the right instinct -- an exact literal would be a second list to
+          # keep in step with the suite, the shape D54 condemned -- but the answer is
+          # not a looser literal, it is no literal. The traceability map already
+          # enumerates every test method in the suite, under a check that fails when the
+          # enumeration falls behind, so CI asks that enumeration how many there should
+          # be. One list, one owner.
+          expected=$(PYTHONPATH=. python -c \
+            'from tests.test_traceability import all_test_methods; print(len(all_test_methods()))')
+          echo "traceability map enumerates $expected test method(s); the run reports $ran"
+          if [ "$ran" != "$expected" ]; then
+            echo "::error::$ran tests ran but the traceability map enumerates $expected."
+            echo "::error::Either discovery dropped tests -- a green result would then mean"
+            echo "::error::nothing was checked -- or the map is stale. Both are failures."
             exit 1
           fi
 

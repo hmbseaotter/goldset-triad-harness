@@ -33,6 +33,7 @@ from pathlib import Path
 
 from .constants import DOCUMENT_LINE_SENTINEL
 from .dataset import DatasetError, load_dataset, resolve_manifest
+from .jsonio import read_json_file
 
 _FLOOR = Decimal("0.05")
 _CAP = Decimal("25")
@@ -111,9 +112,10 @@ def _dec(value: object, what: str) -> Decimal:
 
 
 def _read(path: Path, what: str) -> object:
-    if not path.is_file():
-        raise DatasetError(f"{what} not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
+    """The shared reader (D77). This site previously guarded nothing beyond existence:
+    a key that was not valid JSON, or not UTF-8 at all, reached the audit as a
+    traceback rather than as a named halt."""
+    return read_json_file(path, what)
 
 
 @dataclass

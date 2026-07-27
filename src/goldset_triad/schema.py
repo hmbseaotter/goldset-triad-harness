@@ -261,6 +261,49 @@ def parse_finding(obj: Any, index: int) -> Finding:
     )
 
 
+def _check_schema_version(raw: dict[str, Any]) -> None:
+    """The port's version is declared, never assumed, and never coerced (D78).
+
+    **Absence.** `raw.get("schema_version", SCHEMA_VERSION)` stood here, so an artifact
+    that declared nothing was read as declaring the current version — and the value
+    absence became was precisely the one that makes the artifact acceptable. That is the
+    class D68 locked, and its scanner could not see this instance because the scanner's
+    universe was numeric defaults and this default is a string (D82). It is also the
+    opposite of what verify mode decided for the same question one module away: a
+    scorecard with no declared version is *unrecognised*, because absence is not a
+    version (D66, D74). Two opposite answers to "what does an undeclared version mean"
+    is one too many.
+
+    **Type.** A gate must not coerce. `version != SCHEMA_VERSION` compared without
+    checking the type, so `{"schema_version": 1}` was rejected — correctly — with the
+    message *"unsupported schema_version '1'; this harness scores v1"*, which reads as a
+    contradiction because `{version}` renders an int and a str identically. The type is
+    now named, so the reader is told the artifact declared a number where a string was
+    required rather than left to wonder why v1 is unsupported by a harness that scores
+    v1."""
+    if "schema_version" not in raw:
+        raise SchemaError(
+            f"findings artifact declares no schema_version; this harness scores "
+            f"v{SCHEMA_VERSION} and will not assume an undeclared artifact is one. "
+            f"Add \"schema_version\": {SCHEMA_VERSION!r}",
+            field="schema_version",
+        )
+    declared = raw["schema_version"]
+    if not isinstance(declared, str):
+        raise SchemaError(
+            f"schema_version must be a string, not {type(declared).__name__} "
+            f"({declared!r}); this harness scores v{SCHEMA_VERSION}, so the artifact "
+            f"should declare {SCHEMA_VERSION!r} and not {declared!r}",
+            field="schema_version",
+        )
+    if declared != SCHEMA_VERSION:
+        raise SchemaError(
+            f"unsupported schema_version {declared!r}; this harness scores "
+            f"v{SCHEMA_VERSION}",
+            field="schema_version",
+        )
+
+
 def parse_findings_artifact(raw: Any) -> tuple[Finding, ...]:
     """Validate a whole findings artifact into a tuple of :class:`Finding`.
 
@@ -271,12 +314,7 @@ def parse_findings_artifact(raw: Any) -> tuple[Finding, ...]:
         raise SchemaError(
             "findings artifact must be a JSON object with a 'findings' list"
         )
-    version = raw.get("schema_version", SCHEMA_VERSION)
-    if version != SCHEMA_VERSION:
-        raise SchemaError(
-            f"unsupported schema_version '{version}'; this harness scores v{SCHEMA_VERSION}",
-            field="schema_version",
-        )
+    _check_schema_version(raw)
     findings_raw = raw.get("findings")
     if not isinstance(findings_raw, list):
         raise SchemaError("'findings' must be a list", field="findings")

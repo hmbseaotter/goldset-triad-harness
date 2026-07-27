@@ -2787,6 +2787,352 @@ naming two platforms.
 
 ---
 
+## D77 — A pinned encoding needs a named failure, and five readers had none ✅
+
+**Fork:** Every module that loaded JSON had grown its own read-parse-validate sequence, and
+each guarded a different subset of the ways a read can fail. `dataset` checked existence and
+`OSError`; `cli` dropped the `OSError`; `ledger` dropped the existence check as well;
+`audit_key` and `check_isolation` guarded nothing. A caller could not know which protections
+applied without reading the callee, and the protections were nobody's subject, which is the
+condition under which copies drift.
+
+**The defect all five shared.** D61 required every text read to state its encoding, and every
+one of them did. Nothing said what happens when the stated encoding does not apply.
+`UnicodeDecodeError` is a `ValueError`, not an `OSError` — so `dataset`'s deliberate
+`except OSError`, placed *directly around a pinned-encoding read for exactly this class of
+problem*, caught the file being unreadable and missed the file not being text. Measured, on
+five paths:
+
+```
+score --findings <a PDF>          UNCAUGHT UnicodeDecodeError   (traceback, exit 1)
+verify --scorecard <a zip>        UNCAUGHT UnicodeDecodeError
+answer key / manifest / index     UNCAUGHT UnicodeDecodeError
+rebuild-ledger --ledger <no dir>  UNCAUGHT FileNotFoundError
+```
+
+Each is an ordinary operator error — a wrong path — reported as a defect in the harness, in
+a project whose failure policy is that **every halt names its specific cause and exits
+non-zero**. It also means acceptance criterion **E10** ("an unreadable answer key halts")
+was only ever covered for the *absent* case: its test deletes the file.
+
+**Options considered**
+- **Rejected: add `except UnicodeDecodeError` at each of the ten read sites.** It closes
+  today's instances and leaves the eleventh site free to omit it, which is how the five came
+  to disagree. The rule would still be enforced by whoever remembers it (D67's argument).
+- **Rejected: catch `Exception` in `cli.main`.** One blanket rescue would stop the traceback
+  and produce exactly the generic message the observability requirement forbids, converting a
+  named failure class into "something went wrong".
+- **Decision ✅** — one reader, `jsonio.read_text_file` / `read_json_file` /
+  `read_json_object`, used by all five modules, naming **absent**, **unopenable** and
+  **undecodable** as three separate causes, each carrying the artifact's *role* rather than
+  only its path. `parse_float=Decimal` is pinned there too, so no caller can forget it and
+  let a monetary value become a float (D3). `DatasetError` moved with it: five modules raise
+  it and it was never specific to a dataset. Two redundant presence checks went with the
+  change — one of them reported an *absent* answer key as `"unreadable"`, conflating the
+  wrong path with the unopenable file, which is the same conflation in miniature.
+
+**And the findings artifact had two loaders.** `cli.run_score` and `verify._recompute` each
+held a four-line copy. That is the drift surface D58's reasoning condemns, sitting at the
+worst place in the project for it: **verify's entire premise is that it reproduces what
+scoring did.** A rejection added to one copy and not the other would make verify compare a
+scorecard against a recomputation whose inputs it had validated on different terms — and
+report the disagreement as a scoring difference. Now `dataset.load_findings_artifact`, once.
+
+**Verified by execution.** All five paths halt at exit 2 naming the artifact and the byte
+offset; the three causes are asserted distinct. 232 tests, pyright 0 errors.
+
+**Rule** — **pinning a behaviour is half a decision; the other half is naming what happens
+when the pinned thing fails.** D61 pinned encodings and stopped there, so the project spent
+five modules and two phases with a failure mode it had explicitly thought about and not
+handled. Enforced by `tests/test_read_failures.py`, whose lock asserts that **exactly one
+function in the package reads text** — asserting today's call sites is a snapshot, asserting
+that a sixth reader cannot arrive is the class staying closed.
+
+---
+
+## D78 — A gate must not coerce what it then reports ✅
+
+**Fork:** Two modules normalised a value in order to *make a decision*, and then let the
+un-normalised value flow onward into a *report*. Both produced the exact misdiagnosis their
+own decision record forbids. They were found independently and are one defect.
+
+**(a) `verify`: `str(stored["schema_version"])`.** The coercion made the gate accept a
+scorecard carrying the int `2` as though it carried `"2"`. The raw value then reached the
+body comparison below and surfaced as:
+
+```
+outcome: score-differs
+  the same inputs recompute to a different score, so the stored scorecard does not
+  report what it claims to report:
+  schema_version: stored 2, recomputed '2'
+```
+
+A **shape** defect reported as a **scoring** difference — which is, word for word, what D66
+recorded this feature to prevent, aimed at the one feature whose entire purpose is to say
+whether a score can be trusted. The criterion existed (E13), the test existed, and both
+tested the *value* case while a `str()` three lines above defeated them on the *type* case.
+
+**(b) `schema`: `raw.get("schema_version", SCHEMA_VERSION)`.** Two defects in one line. An
+artifact declaring nothing was read as declaring the current version — absence becoming
+precisely the value that makes the artifact acceptable — so `{"findings": []}` **scored and
+exited zero**. And the comparison never checked the type, so `{"schema_version": 1}` was
+rejected with `unsupported schema_version '1'; this harness scores v1`, a message that reads
+as a contradiction because an int and a str render identically inside quotes.
+
+**The two are opposite answers to one question.** Verify decided, deliberately and in
+writing, that a scorecard with no declared version is *unrecognised*, because absence is not
+a version. The findings port decided that absence is the current version. One module apart,
+in the same codebase, with no note that the question had been answered twice.
+
+**Options considered**
+- **Rejected: keep the default and record a justification.** D68's scanner is the mechanism
+  for that, and it could not see this site — its universe is *numeric* defaults and this
+  default is a string (D82). Justifying it would have documented the leniency without
+  reconciling it with verify's opposite ruling.
+- **Rejected: coerce consistently — `str()` at the gate and carry the coerced value into the
+  comparison.** It would silence the misdiagnosis, and it would also mean a scorecard that is
+  not the shape this harness emits verifies clean. Leniency about a declaration is exactly
+  what a version declaration is for.
+- **Decision ✅** — neither gate coerces. A wrong-typed declaration is rejected naming the
+  type it found; an absent one is rejected naming the field; a correctly-typed unsupported
+  version keeps its own message. `verify` reports both the absent and the wrong-typed case as
+  `schema-unrecognised`, its own outcome, comparing nothing.
+
+**Verified by execution.** `{"schema_version": 2}` now reports `schema-unrecognised` and no
+longer surfaces as a scoring difference; `{"findings": []}` halts at exit 2 naming the field.
+232 tests, pyright 0 errors.
+
+**Rule** — **a gate either rejects a value or normalises it and carries the normalised value
+forward; it must never normalise for the decision and report the original.** Both instances
+here were leniencies nobody asked for, and both turned a malformed artifact into a false
+report about a well-formed one. Enforced by
+`tests/test_port_schema.SchemaVersionDeclarationTests` and
+`tests/test_verify_mode.VerifyModeTests.test_a_wrong_typed_schema_version_is_unrecognised_not_a_scoring_difference`.
+
+---
+
+## D79 — Verify names what it was pointed at, and bounds what it prints ✅
+
+**Fork:** D74 got verify's outcome *ranking* right and left three gaps in what the report
+actually says. Each is the same failure at a different scale: the report describes something
+other than what happened.
+
+**(a) It never checked it was looking at the right dataset.** A scorecard records the dataset
+identifier and version, and verify holds both before it compares a single digest. Pointing it
+at the wrong split — the likeliest operator error on a command taking three separate paths —
+produced three digest mismatches *and* a paragraph advising the reader to obtain a pristine
+inputs directory and re-run with `--baseline-inputs`, sending them to hunt a file that never
+moved. The one-line answer was in hand the whole time, which is what makes it the
+misdiagnosis D50 rules worse than silence rather than merely a thin report.
+
+- **Rejected: fold it into the fingerprint outcome.** "The answer key digest differs" is true
+  when you name the wrong split, and useless: it is true *because* you named the wrong split.
+- **Decision ✅** — a new outcome, `dataset-mismatch`, ranked **above** fingerprints and below
+  schema. It names the stored identifier and the resolved one and compares nothing further.
+
+**(b) An absent fingerprint was reported as a value.** `stored_fingerprints.get(field)`
+returned `None` for a missing digest, and the report read *"the scorecard records None, the
+artifact on disk digests to '9f3…'"* — a scorecard described as holding a value it does not
+hold. The fingerprints **block** was shape-checked; its **members** were not. A scorecard
+that omits a digest is malformed; a scorecard whose digest disagrees with disk is evidence.
+`.get()` collapsed the first into the second.
+
+- **Decision ✅** — `_required_field` throughout, never `.get()`. An absent field raises
+  naming the field and the shape it claims, and exits 2: a verification that could not
+  happen, not one that failed.
+
+**(c) One of the four cause lists was unbounded.** `MAX_REPORTED` capped the score-difference
+list and the no-baseline per-file listing; the *with-baseline* divergence list had no cap.
+Measured at 15 lines against a cap of 10 on the four-file dev split — on the held-out split's
+75–150 inputs it is one line per file, which is the diff dump this module's own docstring
+promises never to produce, in the branch a reader reaches only when something is already
+wrong.
+
+- **Decision ✅** — one `_bounded` helper at every site. The **count is still stated in
+  full** (`"31 file(s) diverge …"`) and only the enumeration is capped: bounding what is
+  printed must not bound what is reported, or the cap becomes its own quiet omission.
+
+**Verified by execution.** Naming a different split now reports `dataset-mismatch` with no
+digest noise and no `--baseline-inputs` advice; a scorecard missing `answer_key_sha256` halts
+at exit 2 with no `None` in the message; a whole-tree divergence prints ten lines and a
+remainder count. 232 tests, pyright 0 errors.
+
+**Rule** — **a diagnostic tool is only as good as the thing it names, so it must name the
+most upstream cause it can already see, never describe an absence as a value, and never
+answer a question with a dump.** All three failures here were the report drifting away from
+what the code actually knew. Enforced by `tests/test_verify_mode.py`.
+
+---
+
+## D80 — The ledger's run order was not a total order ✅
+
+**Fork:** D75 identified that filename order is not run order — the D49 ordinal sorts
+lexicographically, so a naive sort yields run 10, run 2, run 1 — and fixed it with the sort
+key `(stamp, ordinal)`. That key is not total, and D75 did not notice because its test uses
+one dataset identifier.
+
+**The measurement.** Three splits scored into one directory inside one second:
+
+```
+scorecard-dev-20260727T050000Z.json               ordinal 1
+scorecard-dev-synthetic-20260727T050000Z.json     ordinal 1
+scorecard-dev-zero-defect-20260727T050000Z.json   ordinal 1
+distinct sort keys: 1 of 3
+```
+
+The ordinal was reserved **per stem**, and a stem carries the identifier — so filenames were
+unique, which is all D49 asked for, while the sort key tied. Python's sort is stable, so
+order then fell through to `Path.glob` order: `os.scandir` order, **name-ordered on NTFS and
+hash-ordered on ext4**. Appends happen chronologically. So a rebuild could reorder on Linux
+and hold on Windows, and *"delete the ledger, rebuild it, get the same file"* — the `[P2]`
+criterion C72, the guarantee that makes the ledger safe to delete — would fail on a platform
+nobody had run it on. That is the worst shape a portability defect can take, and it is the
+same shape D73 was.
+
+**Options considered**
+- **Rejected: add the filename as a final tie-break.** It makes the key total and *not*
+  chronological, so the rebuild would produce a stable order that is not the append order —
+  C72 would still fail, now deterministically.
+- **Rejected: detect the tie and state the limit** in D74's honest-account style. Honest, and
+  it leaves the project's own guarantee conditionally false when the condition is "score two
+  splits in a shell loop".
+- **Decision ✅** — the ordinal is reserved across the whole **directory-second** rather than
+  per stem, so it means *the nth run in this directory in this second*, which is what a run
+  order needs it to mean. The three splits above now take ordinals 1, 2, 3; the key is total
+  **and** chronological; appended and rebuilt ledgers are byte-identical. A residual tie can
+  still be constructed by hand-placing files, so it **halts naming both files**: an order the
+  ledger cannot justify is not an order.
+
+**Two smaller things in the same module.** `_stamp_of` and `_ordinal_of` each re-ran the same
+regex and raised a different message for the identical failure — and which one a reader saw
+depended on the order Python evaluated a sort-key tuple, so the more helpful of the two, the
+one naming the expected filename shape, was **unreachable from every path that existed**. One
+`parse_scorecard_name` now. And `_require` checked *presence* and called that validation, so
+`"run_timestamp": null` passed straight into the ledger — the field the whole run order rests
+on. Nullability is now declared per field, because three ratios genuinely may be null: D40
+emits an undefined metric as `null` rather than as zero, so a null precision is a value
+meaning "undefined on this split", while a null timestamp is not a value at all.
+
+**Verified by execution.** Ordinals 1, 2, 3 across three identifiers in one fixed second;
+append equals rebuild byte-for-byte; a hand-placed duplicate halts naming both files. The
+ordering test drives the reservation **directly with a fixed stamp** rather than scoring
+three splits and hoping they land inside one second — that would be a timing dependency
+wearing a different hat, the class C62 locked, and it would skip on a slow machine, which is
+when it most needs to run. 232 tests, pyright 0 errors.
+
+**Rule** — **a derived view must state its order, and the order must be a total one; a sort
+key that ties hands the tie to the filesystem.** D75 stated the order and got it half right,
+and the half it missed was invisible on the machine it was written on. Enforced by
+`tests/test_run_ledger.py`.
+
+---
+
+## D81 — A decision whose substance is a message is not tested until the message is ✅
+
+**Fork:** Six checks across the ledger and the CI workflow asserted something weaker than
+what they claimed, and in every case the untested half was the **output**: the warning text,
+the error path, the thing a human reads. The project is consistently strong at deciding and
+weaker at exposing, and this is that pattern with names attached.
+
+**What was measured**
+
+| Where | What it claimed | What it checked |
+|---|---|---|
+| `test_an_unwritable_ledger_warns…` | D75's warn-and-continue | exit code and a scorecard — both true of a **silent** failure |
+| `assertIn("on:", text)` | the push trigger exists | matched `runs-on:`, `python-version:`, `node-version:` — 8 lines, none the trigger |
+| `assertIn("ubuntu-latest", text)` | the matrix names two platforms | `ubuntu-latest` is on three other `runs-on:` lines, so narrowing to Windows passes |
+| `assertNotIn("npx --yes pyright\n")` | pyright is version-pinned | a bare `npx pyright` sails past |
+| the `git check-attr` step | *"anything but `text: unset` means the platforms hold different bytes"* | printed a `uniq -c` summary; **could not fail** |
+| `if [ "$ran" -lt 150 ]` | discovery has not collapsed | a floor of 150 against a suite of 207 — 57 tests could vanish |
+
+The ledger row is the sharpest. D75 chose "warn and continue" over "fail silently" **on the
+explicit grounds that an absence nobody is told about is a locked defect class (D68)** — and
+then nothing checked that anybody was told.
+
+**Options considered**
+- **Rejected for the test count: raise the floor to 200.** A looser literal is the same
+  parallel list D54 condemned, one sweep further from drifting.
+- **Decision ✅** — assert the messages, anchor the patterns, make the observation step
+  fail, and derive the count. The suite floor becomes `ran == len(all_test_methods())`,
+  asked of the traceability map, which already enumerates every test method under a check
+  that fails when the enumeration falls behind. One list, one owner. The pyright pin is
+  asserted **positively** (`npx --yes pyright@\d+\.\d+\.\d+`) rather than by excluding one
+  spelling of the defect, and the platform matrix is read **off the `os:` entry** rather than
+  searched for in the file.
+
+**Verified by execution.** Both new CI steps were run locally against this checkout before
+being committed: `check-attr` reports `unset` across 31 dataset artifacts and would exit 1 on
+anything else; the derived count reports 232 and matches what the suite runs. 232 tests,
+pyright 0 errors.
+
+**Rule** — **if a decision's substance is a message, the test asserts the message; if a step
+exists to observe something, it must be able to fail.** An observation nobody is required to
+read is not a check, which is the distinction D30 drew about the reachability probe, arriving
+here as a `uniq -c` in a green log. Enforced by `tests/test_ci_workflow.py`, which now checks
+that the workflow's own checks can fire.
+
+---
+
+## D82 — Every lock declares the universe it scans, and asserts it ✅
+
+**Fork:** *Correct rule, wrong universe* is this project's most-repeated defect. D64a, D69,
+D73 and D74 are each an instance, and each was closed individually. This sweep found four
+more — one of them **inside the mechanism built to end the class** — which says the
+individual closures are not converging and the shape itself needs a rule.
+
+**The four**
+
+1. **The absence-default scanner.** `NUMERIC_DEFAULTS` scans `X.get(k, <numeric>)` and
+   `continue`s past everything else. Its scoping comment weighed numeric defaults against
+   empty-container defaults and concluded, correctly, that only the first needs individual
+   justification. It never considered a third bucket: a **substantive** default, a real value
+   standing in for an absent declaration. There was exactly one — `schema.py`'s
+   `raw.get("schema_version", SCHEMA_VERSION)` — and it decided whether an artifact declaring
+   no version was accepted (D78). The scanner's universe was one bucket while the rule's was
+   three, so the instance was not merely unjustified, it was **invisible**.
+2. **`test_audit_not_imported_by_any_scoring_module`** iterated a hand-written tuple of six
+   module names, written when those were all the modules. `verify`, `ledger` and `jsonio`
+   were never in it. It also scanned raw **text**, so it could not tell an import from a
+   mention — widening it immediately caught `__init__.py`'s module docstring, which names the
+   audit command while describing the separation D35 requires.
+3. **`EXEMPT_TESTS`** is a parallel list with no staleness check, so a deleted or renamed test
+   leaves its exemption behind forever. The claims registry one file away has
+   `test_registry_has_no_stale_entries` for exactly this; the two lists are the same shape and
+   only one was guarded.
+4. **`_spec_criteria`** matched `^- \[ \] \[{tag}\]` — an **unticked** box, literally. Ticking
+   a criterion off would drop the count and fail with *"the spec now has 5 [P2] criteria but
+   this map expects 6 … Add the missing entries"*, reporting a satisfied criterion as a
+   deleted one. A checklist whose guard breaks when you use it as a checklist.
+
+**Options considered**
+- **Rejected: fix the four and move on.** That is what was done for D64a, D69, D73 and D74,
+  and the class has now recurred four more times including inside its own mechanism.
+- **Rejected: one scanner over everything.** The original scoping was right that 8 reviewed
+  justifications beat 24 thin ones. The problem was never the exemption, it was that the
+  exemption was unnamed.
+- **Decision ✅** — a lock **names its buckets and fails on anything that fits none**. The
+  default scanner classifies every two-argument `.get()` into `numeric` (justified
+  individually), `empty-container` (justified once, as a bucket) or `substantive` (empty
+  registry — the one instance was removed rather than justified), and a census test asserts
+  the buckets partition a non-trivial total, so the scan cannot go quiet. The module list is
+  discovered from the package and checked over parsed imports. `EXEMPT_TESTS` gets its
+  staleness check. The criteria pattern accepts a ticked box.
+
+**Verified by execution.** The classifier was exercised on nine default expressions:
+`get(k, SCHEMA_VERSION)` and `get(k, True)` classify as substantive and fail;
+`[] {} "" ()` as empty-container; `0` and `Decimal(0)` as numeric. 21 sites classified, 8
+numeric, 13 empty-container, 0 substantive. 232 tests, pyright 0 errors.
+
+**Rule** — **a lock must declare the universe it scans and assert that the universe is
+covered, because a scanner silently skipping what it does not recognise is indistinguishable
+from a scanner finding nothing.** Every instance of this class has the same signature: the
+rule generalises and the enforcement stays at the boundary of whatever someone enumerated
+once. Enforced by `tests/test_defect_classes.NumericDefaultTests`,
+`tests/test_traceability.TraceabilityTests.test_no_exemption_outlives_its_test` and
+`tests/test_key_audit.py`.
+
+---
+
 ## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
@@ -2820,20 +3166,21 @@ iterate only the dev splits" was true, deliberate and unrecorded.** The next rea
   what is unreached is the mechanism, which is D64a's shape inside the mechanism built to end D64a's shape.
   Closing it means discovery scanning a scorecard built in memory rather than read from a split — a change to
   D67, so it gets its own decision rather than riding along with verify mode.
-- **The cross-platform digest COMPARISON** — narrowed by D73, not closed, and this bullet is kept honest
-  between sweeps rather than at one (the stamp above still names the last sweep, D72). A real Linux run now
-  exists: the suite and the pyright gate both run there, and the very first one returned D73 — the encoding
-  class (D61) had reached the suite through a Windows-only failure mode, and this was its mirror image, a probe
-  that only ever worked on Windows. What still has **never** happened is the comparison `H17` actually names:
-  an aggregate inputs digest computed on Windows set beside one computed on Linux. CI computes digests on Linux
-  and the suite asserts they are stable on recompute, but no value has yet been carried across platforms, so
-  `H17` stays `MANUAL:` until `[P2]`'s cross-platform item does exactly that.
+- ~~**The cross-platform digest COMPARISON.**~~ **Closed by D76.** The `cross-platform` job scores the dev
+  split on `ubuntu-latest` and `windows-latest` at one pinned interpreter and compares the scored bodies, which
+  carry the aggregate inputs digest — so a value computed on Windows is now set beside one computed on Linux on
+  every push, which is exactly what this bullet said had never happened. It went on saying it for two
+  decisions after D76 made it false, which is this section's own failure mode: a negative-space list that keeps
+  a closed item is not a conservative record, it is a wrong one, and it sends the next reader to work that is
+  already done. Found by the D77–D82 sweep.
 - **Whether the secret tier's remote actually has the commits.** D70 reads `[ahead N]` from local git, which
   reflects the last fetch rather than the remote's true state. A tier that is level with a *stale* tracking ref
   reports clean. Closing that means talking to the remote, which the check deliberately does not do.
-- **The `goldset-triad-holdout` inputs directory.** The third tier — agent-readable held-out inputs — is not a git
-  repository at all, so nothing in D70 covers it and no digest binds it beyond the aggregate inputs hash inside a
-  scorecard. It is the one tier with no independent durability story.
+- **The `goldset-triad-holdout` inputs directory.** ~~Not a git repository at all~~ — **D71 made it one**, and
+  this bullet went on describing the state D71 had already changed, in the same section and the same pass as the
+  cross-platform bullet above. What remains open is narrower and still real: the tier has exactly one commit and
+  no remote, so D70's `[ahead N]` durability check has nothing to compare against, and no digest binds those
+  bytes beyond the aggregate inputs hash inside a scorecard.
 
 ---
 
@@ -2847,7 +3194,9 @@ range and fails on a duplicate or a gap, which is a mechanism rather than a sent
 Attribution by session: D37–D41 by the phase-1 build; D42–D44 by the first consistency pass; D45–D48 by the
 pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57 formalizing the behaviours
 that had lived only in code; D58–D71 closing the post-build review's open issues and the two sweeps after it;
-D72 gating `[P2]` on a Linux CI run; **D73 by that run itself, on its first attempt.**
+D72 gating `[P2]` on a Linux CI run; **D73 by that run itself, on its first attempt.** D74–D76 by the `[P2]`
+build; **D77–D82 by an independent sweep over that build**, run by a session that did not write it, against a
+green suite and green CI — which is the only reason those twenty-four findings were findable at all.
 
 Spec emitted at `specs/goldset-triad-harness.md`; build prompts at
 `specs/goldset-triad-harness.build-prompt.md` (phase 1) and

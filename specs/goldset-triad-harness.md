@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.23.0
+- Spec version: 0.24.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -976,6 +976,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
 - [ ] [P2] Running the same dataset and findings artifact on Windows and on Linux yields identical scorecard
   content outside `run_metadata`.
+- [ ] [P2] The published README states only what is verified about isolation — placement and guard configuration
+  checked automatically, harness enforcement attested with a dated record rather than tested by executing code,
+  and a determined subprocess outside deny coverage by design — and claims nowhere that enforcement is verified
+  by an automated probe (D30, D84).
 - [ ] [P3] A roughly 75-invoice dataset scores in under 10 seconds; when the threshold is breached a warning
   appears and the exit code remains zero.
 - [ ] [P3] Under lenient matching, a finding with the right category but the wrong line identifier scores as a
@@ -1091,6 +1095,21 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.24.0 (2026-07-27): **the README ships, and the requirement governing it finally gets a criterion (D84)**.
+  `[P2]`'s last unbuilt item is the portfolio-facing write-up: golden-dataset framing, the isolation story, the
+  held-out rationale, the matching methodology with its reasoning, and an explicit account of what the harness
+  does **not** do. Writing it exposed a gap of the D66 shape. D30 has required since `[P1]` that *published
+  claims about isolation SHALL state only what is verified* — and that requirement had **no acceptance
+  criterion**, because for two phases nothing was published, so it could not fail. It went live the moment a
+  README existed. The criterion now exists and binds the README's isolation claims to the three things actually
+  verified, and to the one claim D30 forbids. Four further checks ride along, following D53's precedent that a
+  published number is bound to the shipped constant rather than restated: the materiality floor, cap and
+  percentage are derived from `audit_key`'s constants, the industry-norm disclaimer is required (D16), every
+  command named must be one the package declares (D59), and each is given for both shells. **D83** also lands,
+  found reviewing the sweep: D80's ordinal reservation let the ledger's filename grammar halt a *scoring* run —
+  refusing the durable record because of an unrelated neighbouring file, and blaming a derived view the caller
+  never invoked — which crosses the line D75 drew for the ledger's file and D80 crossed through its grammar. 2
+  acceptance criteria added; 239 tests.
 - 0.23.0 (2026-07-26): **an independent sweep over the `[P2]` surface: twenty-four findings, six decisions
   (D77–D82)**. Run by a session that did not build phase 2, against green CI and a green suite — every finding
   below was invisible to both. Three are defects a user meets: a file that is not UTF-8 produced a **traceback

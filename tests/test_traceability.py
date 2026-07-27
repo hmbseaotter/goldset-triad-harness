@@ -358,6 +358,9 @@ CRITERIA: list[tuple[str, str, str]] = [
      "than the test shows -- D30's rejected reachability probe in new clothes. The "
      "configuration IS checked, by "
      "test_ci_workflow.CiWorkflowTests.test_the_workflow_compares_scorecards_across_two_platforms."),
+    ("C75", "[P2] the published README states only what isolation verifies, and never "
+            "claims enforcement is verified by an automated probe",
+     "test_published_claims.PublishedIsolationClaimTests.test_the_readme_states_only_what_isolation_verifies"),
 ]
 
 
@@ -392,6 +395,19 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     # D83: the reservation path skips what it cannot parse while the ledger still refuses
     # it. An internal invariant about which subsystem a failure may reach, not a criterion.
     "test_run_ledger.RunLedgerTests.test_a_neighbour_this_harness_did_not_emit_does_not_block_scoring",
+    # The README's other published claims (D84). C75 maps the isolation claim, which is the
+    # one D30 states as a requirement. These four bind the rest: the materiality numbers to
+    # the shipped constants (D53's pattern, applied to prose rather than to a policy file);
+    # the absence of an industry-norm claim (D16); that every command named is one that
+    # exists (D59's rule, wider audience); and that each is given for both shells. The last
+    # test is the flattener's own premise -- a phrase scan on a wrapped document
+    # under-reports (D55), which is how the industry-norm disclaimer was written and
+    # matched nothing.
+    "test_published_claims.PublishedIsolationClaimTests.test_the_readme_threshold_matches_the_shipped_rule",
+    "test_published_claims.PublishedIsolationClaimTests.test_the_readme_does_not_claim_the_thresholds_are_an_industry_norm",
+    "test_published_claims.PublishedCommandTests.test_every_command_the_readme_names_is_one_that_exists",
+    "test_published_claims.PublishedCommandTests.test_every_documented_command_is_given_for_both_shells",
+    "test_published_claims.WrappedPhraseScanTests.test_a_wrapped_phrase_is_found_after_flattening_and_not_before",
     # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
     # file" — against a condition its own test could not reach. C72 scores ONE split, so
     # its ordinals never tie; the tie needed two identifiers in one second, and it made
@@ -552,7 +568,7 @@ EXPECTED_SPEC_P1_CRITERIA = 124
 # ledger, CI-workflow and cross-platform criteria are mapped as their items land" —
 # described a debt that was paid two commits later and then went on describing it, which
 # is the same stale-restatement class the 0.22.0 sweep removed three instances of.
-EXPECTED_SPEC_P2_CRITERIA = 7
+EXPECTED_SPEC_P2_CRITERIA = 8
 
 
 def _spec_criteria(tag: str) -> list[str]:

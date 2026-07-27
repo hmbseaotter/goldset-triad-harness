@@ -3194,6 +3194,61 @@ which asserts both halves.
 
 ---
 
+## D84 — The README is a published claim, and the rule governing it had no criterion ✅
+
+**Fork:** `[P2]`'s last item is the portfolio-facing write-up. What binds it to the truth?
+
+**The gap it exposed, which is older than the README.** D30 has required since `[P1]` that
+*"published claims about isolation SHALL state only what is verified — that placement and
+guard configuration are checked automatically, that enforcement is attested manually, and
+that a determined subprocess is outside deny coverage by design."* Checking the acceptance
+criteria for it turned up **none**. The requirement had sat for two phases with nothing able
+to fail, for the honest reason that nothing was published yet — and it went live the instant
+a README existed. That is exactly D66's shape: a rule recorded before the artifact it
+governs, waiting for the artifact to arrive and for somebody to remember. Nobody would have.
+
+**Options considered**
+- **Rejected: write the README carefully and rely on review.** The whole record argues
+  against this. D53 is the closest precedent: the published matching policy carried a
+  hand-written threshold while the real constants lived elsewhere, so changing one would have
+  left the policy promising the other with nothing to notice — and the fix was not care, it
+  was binding the published text to the shipped constant under a test.
+- **Rejected: one criterion covering the whole README.** Prose quality is not testable, and a
+  criterion that pretended otherwise would be the overstatement this decision is about.
+- **Decision ✅** — a `[P2]` criterion covering exactly what D30 states, bound to a test that
+  asserts the three required claims **and** the forbidden one, plus four supporting checks:
+  the materiality floor, cap and percentage **derived from `audit_key`'s constants** rather
+  than restated (D53's pattern applied to prose); the industry-norm disclaimer required
+  (D16); every command named must be one the package declares (D59's rule, wider audience);
+  and each given for both shells, counted in pairs so a block added for one shell alone
+  fails.
+
+**A defect in the check, found by the check.** The industry-norm assertion failed on a README
+that plainly contained the disclaimer — because the line wrap fell between *"not claimed"*
+and *"to represent"*, and a phrase scan on a wrapped document silently under-reports. **D55
+recorded that exact trap** after being caught by it on the spec, and the lesson had not
+reached this file. Every phrase assertion now runs against whitespace-collapsed prose, with
+its own premise test proving the raw form genuinely fails to match and the flattened form
+finds it. The direction that matters is the other one: a *forbidden* phrase could have
+slipped past `assertNotRegex` simply by being wrapped, and that failure would have been
+silent.
+
+**What the README claims, and does not.** It states the isolation position in D30's own
+terms and stops there; it publishes the thresholds with the reasoning that produced them and
+says outright they are **not** claimed to represent standard corporate practice; and it
+carries a *"what this harness does not do"* section covering reasoning quality, running the
+agent, parsing documents, the audit's bounded completeness, and durations being comparable
+only within one machine. A tool that hides its limits is asking to be trusted past them.
+
+**Verified by execution.** 239 tests, pyright 0 errors, `lint_spec` 0 errors.
+
+**Rule** — **a requirement about a published artifact needs its criterion written when the
+requirement is, not when the artifact is** — otherwise it waits, unfailable, for the one
+session that both creates the artifact and remembers the rule. Enforced by
+`tests/test_published_claims.py` and by criterion C75.
+
+---
+
 ## Not checked — as of 0.23.0 @ D82
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

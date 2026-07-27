@@ -25,6 +25,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 # Repo root is two levels up from this file's package: src/goldset_triad/ -> repo.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +75,12 @@ def _is_secret_name(name: str) -> bool:
     extension is still caught."""
     return name.lower().split(".", 1)[0] in _SECRET_STEMS
 
+
+# The generator stems whose Bash patterns must stay anchored (D65). Derived from the
+# artifact names above so a new generator file cannot be added here and forgotten there.
+GENERATOR_STEMS: Final = tuple(
+    sorted(n.split(".", 1)[0] for n in SECRET_ARTIFACT_NAMES if n.endswith(".py"))
+)
 
 SECRET_PATH_SEGMENTS = frozenset({SECRET_DIR_NAME, HELDOUT_INPUTS_DIR_NAME, "_generators"})
 
@@ -128,6 +135,26 @@ def check_guard_configuration(root: Path | None = None) -> list[str]:
     for label, needle in REQUIRED_COVERAGE.items():
         if needle not in joined:
             failures.append(f"deny rules do not cover the {label} (no rule mentions '{needle}')")
+    # Over-breadth is its own failure class, not a milder version of under-coverage
+    # (D65). An unanchored generator pattern such as `Bash(*generate.*)` matches the
+    # substring inside ordinary words -- `bash regenerate.sh`,
+    # `npm run pregenerate.build`, `git log --grep=generate.py` -- and "regenerate" is
+    # this project's own workflow verb. Such a rule leaks nothing; it obstructs, and a
+    # guard that obstructs routine work is one people switch off. Each generator stem
+    # must therefore be anchored on a separator or a space, never left bare.
+    for rule in rules:
+        if not rule.startswith("Bash("):
+            continue
+        pattern = rule[len("Bash("):-1]
+        for stem in GENERATOR_STEMS:
+            bare = f"*{stem}."
+            if pattern.startswith(bare):
+                failures.append(
+                    f"deny rule {rule!r} is unanchored: '{bare}*' also matches the stem "
+                    f"inside ordinary words (regenerate., pregenerate.), obstructing "
+                    f"routine commands. Anchor it on a separator or a space."
+                )
+
     # The trap: a rule that covers the held-out INPUTS would silently break
     # evaluation. Assert none does.
     for rule in rules:

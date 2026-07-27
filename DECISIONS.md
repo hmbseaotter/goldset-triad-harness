@@ -2098,9 +2098,95 @@ to compare, only a second chance to be silent.
 
 ---
 
+## D63 — The generator digest hashes normalized text, not raw bytes ✅
+
+**Fork:** D58's staleness stamp digested the generator's **raw source bytes**. Which representation?
+
+**Demonstrated defect.** Converting the generator's line endings — and proving the result AST-identical to the
+original — changed the digest. The staleness check would then report a **stale dataset** when the source was
+semantically unchanged. That is a misdiagnosis in the alarming direction, which **D50** and **D59** both hold to
+be worse than staying silent.
+
+**Why D27's answer does not transfer.** The inputs digest hashes raw bytes and relies on `.gitattributes` to
+stop line endings diverging between machines. The generator lives **outside the repository** (D14, D17), so
+git attributes cannot reach it: nothing prevents a transport, restore or cross-platform move from rewriting
+those bytes. Raw bytes are right for dataset inputs — they include binary PDFs and are read byte-for-byte by an
+agent. For *source*, semantic content is the thing and a line ending is transport.
+
+**Decision ✅** — digest `"\n".join(text.splitlines())` per file. `splitlines()` handles CR, LF and CRLF alike,
+so the digest depends on what the source says rather than how a checkout stored it. Verified in both
+directions: stable across a line-ending rewrite, and still moves when a materiality constant changes.
+
+**Consequence** — every manifest stamp was reissued under the new definition.
+
+---
+
+## D64 — The two remaining unverified drift paths are closed ✅
+
+**Fork:** Two artifacts declared an authority that nothing enforced.
+
+**(a) The held-out stamp was never compared.** All three staleness checks iterate the *dev* splits, so the
+held-out manifest carried a `generator_sha256` that nothing read. That is the split whose numbers carry weight —
+the ground on which **D60** added coverage reporting — and a stale held-out key is D58's failure in its most
+costly form: confidently wrong scores on the evaluation that matters, with the key self-consistent and all four
+fingerprints verifying.
+
+**(b) The stamped guard was never compared to its template.** The template declares itself the source of truth
+and instructs *"edit here and re-stamp; never hand-edit the repo copy"* — while the isolation check reads only
+the stamped copy. The instruction **was** the enforcement, so editing the template and forgetting to re-stamp
+left the repository guarded by older rules with nothing noticing.
+
+**Decision ✅** — both are checked, using D58's established two-halves pattern: run when the secret tier is
+present, **skip cleanly when it is absent**, since D14 requires the whole suite to pass from a clone. An
+explicit env override that fails to resolve is an error rather than a skip, because reporting "skipped" to
+someone who believes the check ran is the same misdiagnosis D50 names. Neither check reads answer-key content:
+one reads a digest, the other reads deny rules. The held-out check was proven to fire by mutating a copied
+stamp.
+
+---
+
+## D65 — Over-blocking is its own failure class, and now checked ✅
+
+**Fork:** The generator Bash rules were written unanchored — `Bash(*generate.*)`.
+
+**Demonstrated over-block.** That pattern denies `bash regenerate.sh`, `npm run pregenerate.build`,
+`echo 'we regenerate. now'` and `git log --grep=generate.py`, because the stem appears **inside ordinary
+words** — and *regenerate* is this project's own workflow verb, so the rule obstructs the very task the
+generator exists for.
+
+**Why this is not a minor cousin of under-coverage.** An over-broad rule leaks nothing; it obstructs. D14
+already recorded that a guard scoped wrongly can break evaluation rather than protect it, and the guard-config
+check has asserted since D30 that no rule covers the held-out inputs — but that was the only over-block tested,
+as though it were the only one possible. **A guard that obstructs routine work is one people switch off**, which
+converts a protection into a nuisance and then into nothing.
+
+**Decision ✅** — anchor every generator pattern on a separator or a space, and have
+`check_guard_configuration` reject any bare `*<stem>.` pattern. The stems are derived from the artifact names
+already declared, so a new generator file cannot be added in one place and forgotten in the other. Tested in
+both directions: the anchored rules still deny every real invocation, and no longer deny the innocent words.
+
+---
+
+## D66 — The scorecard's schema version is a rule, not just a constant ✅
+
+**Fork:** D60 changed the scored body's shape and bumped `SCORECARD_SCHEMA_VERSION` to `"2"`. Nothing required
+a scorecard to carry a version, or required the version to move when the shape did.
+
+**Why it becomes load-bearing at `[P2]`.** Verify mode recomputes a stored scorecard and diffs it against what
+is on disk. Without a declared shape, a **shape change and a scoring difference are indistinguishable** — verify
+would report a schema migration as a scoring discrepancy, which is the misdiagnosis pattern this project keeps
+finding, aimed at the one feature whose entire purpose is to say whether a score can be trusted.
+
+**Decision ✅** — the scorecard SHALL carry a schema version, incremented whenever the scored body's shape
+changes; and verify mode SHALL report an unrecognised version as its own outcome rather than as a scoring
+difference. Recorded now, before `[P2]` is designed, so verify mode is built against a rule instead of
+inventing one.
+
+---
+
 ## Document status
 
-Decisions **D0–D62** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
+Decisions **D0–D66** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
 D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57
 formalizing the behaviours that had lived only in code; D58 onward closing the post-build review's open
 issues). Spec emitted at

@@ -31,6 +31,20 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(parsed["dataset"]["identifier"], "dev")
         self.assertIn("Scorecard", sc.human_summary(card, result))
 
+    def test_scorecard_declares_its_schema_version(self) -> None:
+        """D66 — the shape of the scored body is versioned, and the version travels with it.
+
+        D60 changed the body's shape and bumped the constant, but nothing required a version
+        to be present or to move. That matters at [P2]: verify mode recomputes a stored
+        scorecard and diffs it, so a shape change and a scoring difference are
+        indistinguishable unless the card says which shape it is."""
+        result, prov, _ = _score_dev()
+        card = sc.build_scorecard(result, prov, sc.RunMetadata("2026-07-26T10:00:00Z", 1, 2, 3))
+        self.assertIn("schema_version", card)
+        self.assertEqual(card["schema_version"], sc.SCORECARD_SCHEMA_VERSION)
+        # A version is only useful if it is a stable scalar, not a structure.
+        self.assertIsInstance(card["schema_version"], str)
+
     def test_records_dataset_identifier_and_version(self) -> None:
         result, prov, ld = _score_dev()
         card = sc.build_scorecard(result, prov, sc.RunMetadata("2026-07-26T10:00:00Z", 1, 2, 3))

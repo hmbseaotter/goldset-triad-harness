@@ -75,6 +75,57 @@ def _manifest(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+class HeldOutStalenessTests(unittest.TestCase):
+    """The held-out split needs the same check, and needs it most (D64).
+
+    Every other staleness check iterates the dev splits, so the held-out manifest carried
+    a stamp that nothing compared. That is the split whose numbers carry weight — the one
+    D60 added coverage reporting for on exactly that ground — and a stale held-out key is
+    D58's failure in its most costly form: confidently wrong scores on the evaluation that
+    matters, with the key self-consistent and every fingerprint verifying.
+
+    It cannot run in CI, since D14 puts the whole split out of tree. It can run for whoever
+    holds the tier, which is who regenerates. Reading the manifest leaks nothing: a stamp
+    is a digest, and the paths it names are not the answers."""
+
+    def setUp(self) -> None:
+        secret = support.find_secret_dir()
+        if secret is None:
+            self.skipTest("no secret tier on this machine; the held-out split is out of reach")
+        manifest = secret / "held-out" / "manifest.json"
+        if not manifest.is_file():
+            self.skipTest(f"secret tier present but no held-out manifest at {manifest}")
+        self.manifest = json.loads(manifest.read_text(encoding="utf-8"))
+
+    def test_held_out_manifest_records_its_generator(self) -> None:
+        stamp = self.manifest.get("generator_sha256")
+        self.assertIsNotNone(
+            stamp, "the held-out manifest has no generator_sha256, so its staleness "
+                   "cannot be detected at all")
+        self.assertRegex(str(stamp), r"^[0-9a-f]{64}$")
+
+    def test_held_out_stamp_agrees_with_the_dev_splits(self) -> None:
+        """All four splits come from one generator, so one stamp should describe them all.
+        A divergence means some split was regenerated and another was not."""
+        dev_stamps = {name: _manifest(name).get("generator_sha256") for name in support.DEV_DATASETS}
+        held = self.manifest.get("generator_sha256")
+        disagreeing = {n: s for n, s in dev_stamps.items() if s != held}
+        self.assertEqual(
+            disagreeing, {},
+            f"the held-out stamp {str(held)[:12]}... disagrees with {disagreeing}: "
+            f"{REGENERATE_HINT}",
+        )
+
+    def test_held_out_stamp_matches_the_current_generator(self) -> None:
+        generator = find_generator_dir()
+        if generator is None:
+            self.skipTest("no generator on this machine")
+        self.assertEqual(
+            self.manifest.get("generator_sha256"), generator_digest(generator),
+            f"the held-out split is stale: {REGENERATE_HINT}",
+        )
+
+
 class GeneratorStampTests(unittest.TestCase):
     """The half that needs no generator, so it runs everywhere."""
 

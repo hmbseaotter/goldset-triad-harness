@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,35 @@ class IsolationTests(unittest.TestCase):
             failures = ci.check_guard_configuration()
         self.assertTrue(any("held-out INPUTS" in f for f in failures))
 
+    def test_unanchored_generator_rule_is_rejected_as_over_broad(self) -> None:
+        """D65 — over-blocking is its own failure class, not a milder under-coverage.
+
+        `Bash(*generate.*)` denied `bash regenerate.sh`, `npm run pregenerate.build` and
+        `git log --grep=generate.py`, because the stem appears inside ordinary words — and
+        "regenerate" is this project's own workflow verb. Such a rule leaks nothing; it
+        obstructs, and a guard that obstructs routine work is one people switch off."""
+        over_broad = [r for r in ci._deny_rules(support.REPO_ROOT)
+                      if not r.startswith("Bash(*generate.")] + ["Bash(*generate.*)"]
+        with mock.patch.object(ci, "_deny_rules", return_value=over_broad):
+            failures = ci.check_guard_configuration()
+        self.assertTrue(any("unanchored" in f for f in failures), failures)
+
+    def test_shipped_rules_deny_the_generator_but_allow_innocent_words(self) -> None:
+        """Positive control alongside the negative: anchoring must not have broken the
+        coverage it exists to preserve."""
+        import fnmatch
+        patterns = [r[len("Bash("):-1] for r in ci._deny_rules(support.REPO_ROOT)
+                    if r.startswith("Bash(")]
+        def denied(cmd: str) -> bool:
+            return any(fnmatch.fnmatch(cmd, p) for p in patterns)
+
+        for cmd in ("python generate.py", "python _generators/generate.py",
+                    r"python D:\Claude_Stuff\goldset-triad-secret\_generators\gen_rules.py"):
+            self.assertTrue(denied(cmd), f"should still be denied: {cmd}")
+        for cmd in ("bash regenerate.sh", "npm run pregenerate.build",
+                    "git log --grep=generate.py", "echo 'we regenerate. now'"):
+            self.assertFalse(denied(cmd), f"should not be denied: {cmd}")
+
     def test_placement_passes_on_clean_tree(self) -> None:
         self.assertEqual(ci.check_placement(), [])
 
@@ -61,6 +91,47 @@ class IsolationTests(unittest.TestCase):
         # check_isolation must not attempt to open the canary to prove refusal.
         src = (support.SRC / "goldset_triad" / "check_isolation.py").read_text(encoding="utf-8")
         self.assertNotIn("throwaway.json", src)
+
+
+class GuardTemplateDriftTests(unittest.TestCase):
+    """The stamped guard must still match its source of truth (D64).
+
+    The template declares itself authoritative and instructs "edit here and re-stamp;
+    never hand-edit the repo copy" — but the isolation check reads only the stamped copy,
+    so editing the template and forgetting to re-stamp left the repository guarded by the
+    older rules with nothing noticing. The instruction was the whole enforcement.
+
+    Skips without the secret tier, as D14 requires the suite to pass from a clone. Reading
+    the template leaks nothing: it contains deny rules, not answers."""
+
+    def setUp(self) -> None:
+        secret = support.find_secret_dir()
+        if secret is None:
+            self.skipTest("no secret tier on this machine; the template is out of reach")
+        template = secret / "_guard-template.settings.json"
+        if not template.is_file():
+            self.skipTest(f"secret tier present but no guard template at {template}")
+        self.template_rules = json.loads(
+            template.read_text(encoding="utf-8"))["permissions"]["deny"]
+        self.stamped_rules = json.loads(
+            (support.REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )["permissions"]["deny"]
+
+    def test_stamped_guard_matches_the_template(self) -> None:
+        only_template = [r for r in self.template_rules if r not in self.stamped_rules]
+        only_stamped = [r for r in self.stamped_rules if r not in self.template_rules]
+        self.assertEqual(
+            (only_template, only_stamped), ([], []),
+            "the stamped .claude/settings.json has drifted from its source of truth; "
+            "re-stamp from the template rather than hand-editing the copy. "
+            f"only in template: {only_template}; only in stamped: {only_stamped}",
+        )
+
+    def test_rule_order_matches_too(self) -> None:
+        """Order is not semantically load-bearing for deny rules, but an identical list in
+        a different order means one file was hand-edited, which is what the drift check
+        exists to catch."""
+        self.assertEqual(self.template_rules, self.stamped_rules)
 
 
 class RepoRootResolutionTests(unittest.TestCase):

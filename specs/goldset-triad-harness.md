@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.17.0
+- Spec version: 0.18.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.13.0 @ D57** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.18.0 @ D66** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -481,6 +481,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   hash the concatenation of path and file-digest pairs in that order (D27).
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
   load, score and total durations in milliseconds, and nothing else.
+- [P1] The scorecard SHALL carry a schema version, and that version SHALL be incremented whenever the shape
+  of the scored body changes, so a reader — and `[P2]` verify mode, which recomputes a stored scorecard and
+  diffs it — can tell a shape change from a scoring difference rather than reporting one as the other (D66).
+- [P1] WHERE verify mode meets a scorecard whose schema version it does not recognise, it SHALL report the
+  version mismatch as its own outcome and SHALL NOT present the resulting differences as a scoring
+  discrepancy (D66).
 - [P1] WHEN a run completes, the harness SHALL record the invoice count and the finding count in the
   scorecard's scored body, not in `run_metadata`, because both are deterministic and therefore SHALL fall
   under the byte-identical comparison (D18).
@@ -810,6 +816,8 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   instead of protecting it.
 - [ ] [P1] The full acceptance suite passes using **only** the dev split shipped in the repository, with no
   out-of-tree path configured — proving CI can verify the harness without access to the held-out split.
+- [ ] [P1] The scorecard carries a schema version, and the version in the code matches the one the emitted
+  scorecard declares (D66).
 - [ ] [P1] A `MATCH` entry on a line that carries an expected discrepancy yields no true positive, leaves the
   expectation recorded as a miss, and is still not a false positive — the wrong assertion counted exactly once
   (D55).
@@ -993,6 +1001,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.18.0 (2026-07-26): fifth sweep — reviewing the fourth's work found eight issues, five of them defects.
+  **D63:** the generator staleness digest hashed raw bytes of source that lives outside git, so a
+  line-ending-only change — proven AST-identical — reported a stale dataset; it now digests normalized text.
+  **D64:** two artifacts declared an authority nothing enforced — the held-out stamp was never compared
+  (the split whose numbers carry weight), and the stamped guard was never compared to the template that calls
+  itself the source of truth; both now checked under D58's skip-when-absent pattern. **D65:** the generator
+  Bash deny rules were unanchored, denying `regenerate.sh` and `git log --grep=generate.py` — over-blocking is
+  its own failure class, since a guard that obstructs routine work is one people switch off; patterns anchored
+  and the check now rejects a bare stem. **D66:** the scorecard schema version becomes a requirement, recorded
+  before `[P2]` designs verify mode, so a shape change cannot be reported as a scoring difference. Also removed
+  a vestigial 1.05s sleep the neighbouring test criticised, and distinguished `[P1]` console-script declaration
+  from `[P5]` publishable packaging. 2 acceptance criteria added.
 - 0.17.0 (2026-07-26): **the audit refuses what the scorer refuses (D62)**, plus **explicit encodings (D61)**.
   `audit()` never called the loader, so every validator a scoring run applies was skipped on the audit path. This
   was ranked *last* of the four review issues on the belief that its failure mode was a confusing message —

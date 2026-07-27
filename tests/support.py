@@ -7,6 +7,7 @@ passes with no out-of-tree path configured (the CI constraint, D14).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from decimal import Decimal
@@ -73,6 +74,34 @@ def _discover_dev_datasets() -> tuple[str, ...]:
 
 #: Every in-repo dataset. Never includes the held-out split, which lives out of tree.
 DEV_DATASETS: tuple[str, ...] = _discover_dev_datasets()
+
+
+#: The secret tier, when this machine has it. Absence is a skip, never a failure: D14
+#: requires the whole suite to pass from a clone, which by construction has no secret
+#: tier. An explicit override that does not resolve IS a failure, because reporting
+#: "skipped" to someone who believes the check ran is the misdiagnosis D50 warns about.
+SECRET_ENV_VAR = "GOLDSET_TRIAD_SECRET_DIR"
+CONVENTIONAL_SECRET_DIR = REPO_ROOT.parents[1] / "goldset-triad-secret"
+
+
+def find_secret_dir() -> Path | None:
+    """The secret tier's root, or None when unavailable on this machine.
+
+    Reading from it here is consistent with the generator-staleness check and leaks
+    nothing: the artifacts these checks read are a digest and a set of deny rules, never
+    answer-key content."""
+    override = os.environ.get(SECRET_ENV_VAR)
+    if override:
+        candidate = Path(override)
+        if not candidate.is_dir():
+            raise AssertionError(
+                f"{SECRET_ENV_VAR}={override!r} is not a directory; unset it to skip the "
+                f"secret-tier checks, or point it at the secret tier"
+            )
+        return candidate
+    if CONVENTIONAL_SECRET_DIR.is_dir():
+        return CONVENTIONAL_SECRET_DIR
+    return None
 
 
 def read_json(path: Path) -> dict:

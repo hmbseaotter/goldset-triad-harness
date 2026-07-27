@@ -281,6 +281,14 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_audit_score_parity.ValidityParityTests.test_everything_score_refuses_the_audit_also_refuses_by_name"),
     ("C53", "sharing the loader has not made the audit defer to the key",
      "test_audit_score_parity.ValidityParityTests.test_audit_still_derives_independently"),
+    ("C46", "the scorecard declares its schema version (needed by [P2] verify)",
+     "test_scorecard_repro.ScorecardTests.test_scorecard_declares_its_schema_version"),
+    ("C47", "an unanchored generator deny rule is rejected as over-broad",
+     "test_isolation.IsolationTests.test_unanchored_generator_rule_is_rejected_as_over_broad"),
+    ("C48", "the held-out stamp agrees with the dev splits and the current generator",
+     "test_generator_staleness.HeldOutStalenessTests.test_held_out_stamp_agrees_with_the_dev_splits"),
+    ("C49", "the stamped guard still matches its source-of-truth template",
+     "test_isolation.GuardTemplateDriftTests.test_stamped_guard_matches_the_template"),
 ]
 
 
@@ -315,6 +323,12 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_ground_truth.RoundingTests.test_ratio_rounds_half_up_not_banker",
     "test_isolation.IsolationTests.test_no_shipped_check_claims_to_test_enforcement_by_code",
     "test_constraints_scan.ConstraintScanTests.test_loader_reads_no_invoice_pdf",
+    # Supporting halves of criteria mapped above: each is the second direction of a check
+    # whose primary assertion carries the criterion (D64, D65).
+    "test_generator_staleness.HeldOutStalenessTests.test_held_out_manifest_records_its_generator",
+    "test_generator_staleness.HeldOutStalenessTests.test_held_out_stamp_matches_the_current_generator",
+    "test_isolation.GuardTemplateDriftTests.test_rule_order_matches_too",
+    "test_isolation.IsolationTests.test_shipped_rules_deny_the_generator_but_allow_innocent_words",
     # The other two directions of the D59 entry-point check, and the remaining branches
     # of root resolution. C46 and C47 each name one direction; these are the converses,
     # which is the same relationship the positive controls above have to their criteria.
@@ -345,7 +359,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 110
+EXPECTED_SPEC_P1_CRITERIA = 111
 
 
 def _spec_p1_criteria() -> list[str]:

@@ -113,14 +113,19 @@ class CliEndToEndTests(unittest.TestCase):
                 self.assertNotIn(b"\r\n", path.read_bytes(), f"{path.name} carries CRLF")
 
     def test_two_runs_byte_identical_apart_from_run_metadata(self) -> None:
+        """No sleep: D49 made distinct run stamps unnecessary for distinct files.
+
+        This test used to sleep 1.05s to force a distinct second, which is what let the
+        same-second overwrite defect hide — the sibling test above says so. Once
+        scorecards were given collision-free names the sleep became vestigial, and
+        leaving it would keep a second of wall-clock and a false suggestion that
+        distinct stamps are required for two runs to coexist."""
         with tempfile.TemporaryDirectory() as td:
             fp = Path(td) / "f.json"
             _write_findings(fp, self._perfect_findings())
             out = Path(td) / "o"
             main(["score", "--dataset", "dev", "--datasets-root", str(support.DATASETS),
                   "--findings", str(fp), "--out", str(out)])
-            import time
-            time.sleep(1.05)  # ensure a distinct run stamp
             main(["score", "--dataset", "dev", "--datasets-root", str(support.DATASETS),
                   "--findings", str(fp), "--out", str(out)])
             cards = sorted(out.glob("*.json"))

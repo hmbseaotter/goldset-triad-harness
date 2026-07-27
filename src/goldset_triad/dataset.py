@@ -108,7 +108,16 @@ def generator_digest(generator_dir: Path) -> str:
     Defined with the same care as the inputs digest (D27) and for the same reason — two
     machines must agree: source files only, ``__pycache__`` excluded (bytecode is derived
     and its name carries an interpreter version), paths relative and forward-slashed, sorted
-    byte-wise, raw bytes hashed.
+    byte-wise.
+
+    Unlike D27 this digests **normalized text, not raw bytes** (D63). The generator lives
+    outside the repository, so `.gitattributes` — the mitigation D27 leans on to stop line
+    endings diverging between machines — cannot reach it. Hashing raw bytes therefore made a
+    line-ending-only change alter the digest, and the staleness check would report a stale
+    dataset when the source was semantically identical: a misdiagnosis in the alarming
+    direction, which D50 and D59 both hold to be worse than staying silent. Raw bytes are
+    right for dataset inputs, which include binary PDFs and are read byte-for-byte by an
+    agent; for *source*, the semantic content is the thing, and a line ending is transport.
 
     This helper is imported BY the generator rather than reimplemented there. It is a
     mechanical digest, not a domain rule, so the deliberate independence of D35 does not
@@ -121,7 +130,11 @@ def generator_digest(generator_dir: Path) -> str:
         if "__pycache__" in path.parts:
             continue
         rel = path.relative_to(generator_dir).as_posix()
-        entries.append((rel, sha256_bytes(path.read_bytes())))
+        # splitlines() handles CR, LF and CRLF alike; rejoining with "\n" makes the digest
+        # depend on the source's content and not on how a checkout happened to store it.
+        text = path.read_text(encoding="utf-8")
+        normalized = "\n".join(text.splitlines())
+        entries.append((rel, sha256_bytes(normalized.encode("utf-8"))))
     entries.sort(key=lambda e: e[0].encode("utf-8"))
     joined = "\n".join(f"{rel}:{digest}" for rel, digest in entries)
     return sha256_bytes(joined.encode("utf-8"))

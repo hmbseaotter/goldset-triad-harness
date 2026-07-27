@@ -4,7 +4,7 @@
 Code at the tool-call layer, plus placement of the entire held-out split outside
 the repository tree.
 
-**What is verified automatically** (run `python -m goldset_triad.check_isolation`):
+**What is verified automatically** (run `goldset-triad-check-isolation`, or `python -m goldset_triad.check_isolation` from a source checkout — D59 declared the console script so the advertised command exists; both routes run the same checks):
 
 - **Guard-configuration check** — the deny rules exist, parse, and cover every path
   in the secret tier (the secret directory, the held-out answer-key filename, the

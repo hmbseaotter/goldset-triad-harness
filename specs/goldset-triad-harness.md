@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.18.0
+- Spec version: 0.19.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.18.0 @ D66** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.19.0 @ D69** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -288,7 +288,7 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 | Metrics & undefined values | ubiquitous · event-driven · state-driven · unwanted behavior |
 | Fingerprints & integrity | ubiquitous · event-driven · unwanted behavior |
 | Ground-truth artifacts | ubiquitous · event-driven · state-driven · unwanted behavior · non-functional |
-| Isolation | unwanted behavior · non-functional |
+| Isolation | ubiquitous · unwanted behavior · non-functional |
 | Generation | ubiquitous · event-driven · optional feature · non-functional |
 
 > **Note on the non-functional block:** its items are written `- Security: [P1] …` rather than `- [P1] …`, so
@@ -373,6 +373,26 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] The staleness stamp SHALL live in the manifest, which sits outside the inputs directory, so re-stamping
   SHALL NOT alter the aggregate inputs digest and SHALL NOT invalidate any scorecard already emitted (D58, D27).
 
+*Claim coverage and defect-class locks (D67, D68)*
+- [P1] Every field in which an artifact asserts something about other state SHALL be registered against the
+  check that compares it, and a field matching the declared claim-shaped naming SHALL fail the suite when
+  unregistered — because four separate decisions (D58, D59, D64) were one class: an artifact declaring an
+  authority nothing held it to (D67).
+- [P1] Any property asserted of "every dataset split" SHALL iterate one shared enumeration that includes the
+  held-out split whenever it is reachable, and SHALL NOT iterate the in-repo splits alone, because a check
+  cannot inspect a set it does not enumerate and no amount of review finds that (D67, D64).
+- [P1] A registered claim covering fewer than all known splits SHALL state a reason, and the registry SHALL
+  fail when it names a field that exists on no split, so the register itself cannot go stale (D67).
+- [P1] The harness SHALL contain no timing wait, because scoring is deterministic and single-threaded, so a
+  wait is either concealing a defect or tolerating a race (D68, D49).
+- [P1] Every site in shipped code where a missing key yields a numeric value SHALL record why that is sound —
+  domain-zero, unreachable by a prior check, or otherwise — because a missing value that becomes a number
+  enters arithmetic and changes a verdict silently (D68, D50).
+- [P1] No permission rule in any rule list SHALL be anchored on a bare stem, because a stem matches inside
+  ordinary words and a guard that obstructs routine work is one people switch off (D68, D65).
+- [P1] The ordering SHALL be asserted wherever one validator's correctness depends on another running first,
+  rather than left to a comment a later reader must find (D68, D50).
+
 *Portability and shared validity (D61, D62)*
 - [P1] Every text read and write in the repository SHALL name its encoding explicitly, every text write SHALL pin
   its newline, and a check SHALL fail on any call that does not — because the platform default differs between the
@@ -394,7 +414,8 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   null (D60, D25).
 - [P1] The scorecard SHALL carry a schema version, and that version SHALL be raised whenever the scored body's
   shape changes, because byte-identity is promised between runs on the same inputs and never across schema
-  versions (D60).
+  versions, so a reader — and `[P2]` verify mode, which recomputes a stored scorecard and diffs it — can tell a
+  shape change from a scoring difference rather than reporting one as the other (D60, D66).
 
 *Command-line surface (D59)*
 - [P1] Every module exposing a `main` entry point SHALL be declared as a console script, and the name a command
@@ -481,12 +502,6 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   hash the concatenation of path and file-digest pairs in that order (D27).
 - [P1] WHEN a run completes, the harness SHALL record in `run_metadata` the run timestamp and the elapsed
   load, score and total durations in milliseconds, and nothing else.
-- [P1] The scorecard SHALL carry a schema version, and that version SHALL be incremented whenever the shape
-  of the scored body changes, so a reader — and `[P2]` verify mode, which recomputes a stored scorecard and
-  diffs it — can tell a shape change from a scoring difference rather than reporting one as the other (D66).
-- [P1] WHERE verify mode meets a scorecard whose schema version it does not recognise, it SHALL report the
-  version mismatch as its own outcome and SHALL NOT present the resulting differences as a scoring
-  discrepancy (D66).
 - [P1] WHEN a run completes, the harness SHALL record the invoice count and the finding count in the
   scorecard's scored body, not in `run_metadata`, because both are deterministic and therefore SHALL fall
   under the byte-identical comparison (D18).
@@ -600,6 +615,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 ### optional feature (WHERE — behind a flag / config)
 - [P2] WHERE verify mode is requested, the harness SHALL compare recomputed results against the stored
   scorecard and exit non-zero on any mismatch.
+- [P2] WHERE verify mode meets a scorecard whose schema version it does not recognise, it SHALL report the
+  version mismatch as its own outcome and SHALL NOT present the resulting differences as a scoring
+  discrepancy (D66).
 - [P3] WHERE a document tier has no reliable text layer, the round-trip parse-back SHALL be recorded as
   inapplicable and agreement SHALL rest on single-source construction alone (D36).
 - [P3] WHERE lenient matching is enabled, the harness SHALL drop only the **line** component from the match
@@ -888,6 +906,19 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   fault rather than a traceback, a bare exception repr, or a key-divergence report (D62).
 - [ ] [P1] Sharing the loader has not made the audit defer to the key: a mis-targeted expectation on a structurally
   valid dataset is still reported as a divergence (D62).
+- [ ] [P1] A claim-shaped field planted on an artifact with no registered check fails the suite, and a registry
+  entry naming a field that exists on no split fails too (D67).
+- [ ] [P1] With the secret tier present, the split enumeration includes the held-out split; dropping it fails,
+  reproducing the exact shape of the defect where staleness checks iterated the dev splits alone (D67).
+- [ ] [P1] The published matching policy is compared to the shipped rule on every known split, not on `dev`
+  alone, and each key's declared version and identifier match its manifest's (D67).
+- [ ] [P1] No timing wait exists anywhere in the package or the suite, and a newly introduced one fails (D68).
+- [ ] [P1] Every numeric absence-default in shipped code carries a recorded justification; an unjustified new one
+  fails, and a justification whose site has gone fails too (D68).
+- [ ] [P1] No rule in any permission list is anchored on a bare stem, and the shipped guard-configuration check
+  still rejects that shape (D68).
+- [ ] [P1] Reference resolution is asserted to run before the multi-purchase-order rate check, so the ordering
+  the unreachable defaults depend on is protected on purpose (D68).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -1001,6 +1032,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.19.0 (2026-07-26): **the recurring classes get mechanisms instead of memory (D67, D68, D69)** — a response
+  to the observation that two sessions reviewing each other kept re-finding the same shapes. The diagnosis is in
+  D67: **D59 stated the rule "every claim gets a check" and the same commit shipped two unchecked claims**, which
+  the next session found as D64. The failure is not carelessness; a rule living in prose is applied by memory, and
+  memory is per-session. **D67** adds a claim registry — every claim-shaped field bound to the check that compares
+  it — and, more importantly, one shared `known_splits()` enumeration, because D64a's gap was *structural*: every
+  staleness check iterated the dev splits, so no amount of care could inspect the held-out one. Writing it
+  surfaced three more instances of its own class: both policy checks read `datasets/dev` alone, leaving the
+  published rule uncompared on the other three splits including held-out. **D68** locks four recurring classes
+  with scanners — timing waits (at zero as of one commit ago; a `sleep(1.05)` had survived four sweeps *while a
+  neighbouring docstring criticised it*), numeric absence-defaults, unanchored patterns across every rule list,
+  and order-dependent correctness. **D69** closes a live collision found while wiring this up: two sessions
+  appended to the criteria map concurrently and both took C46–C49, so four ids each named two criteria — the
+  duplicate-numbering rule existed and its enforcement had never reached a Python list. A `## Not checked`
+  section now records what a sweep deliberately left, and the linter requires it to be stamped current.
+  Two numbered sets collided in this one session, in fact: the criteria ids, and **this changelog's own version
+  numbers**, where both sessions minted a `0.18.0`. `lint_spec.py` now checks changelog versions for uniqueness
+  and descending order as well. 15 acceptance criteria added; 178 tests.
 - 0.18.0 (2026-07-26): fifth sweep — reviewing the fourth's work found eight issues, five of them defects.
   **D63:** the generator staleness digest hashed raw bytes of source that lives outside git, so a
   line-ending-only change — proven AST-identical — reported a stale dataset; it now digests normalized text.

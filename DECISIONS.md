@@ -9,6 +9,19 @@ Kept so the reasoning behind the design is always reviewable — not just the ou
 - **Status:** decisions accrue during the `/specify` interview; finalized alongside the spec.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
+<!-- rules-required-from: D67 -->
+
+Every decision from **D67** onward ends in a **Rule** naming what enforces it — a test, a scan, or the
+explicit words *judgment, not checkable*. `lint_spec.py` fails the build otherwise. The floor exists because
+retroactive enforcement would be theatre: of the 67 entries written before it, **5** carried an extractable
+rule, so demanding one from D0 would mean inventing 62 rules from paragraphs and calling that rigour. Earlier
+entries get a rule when a sweep next touches them.
+
+The reason for the requirement is D67's own history: the rule *"anything a tool says about itself is a claim,
+and every claim gets a check"* was written in D59 **and violated in the same commit**, by its own author. The
+next session found both violations as fresh defects (D64). A rule recorded as prose is enforced by whoever
+remembers it.
+
 ---
 
 ## D0 — Name & identity
@@ -2184,9 +2197,152 @@ inventing one.
 
 ---
 
+## D67 — Every claim is registered against the check that compares it, on every split ✅
+
+**Fork:** Four decisions were the same defect in different clothes: **D58** (the generator declared the rules
+the data was authored under; nothing compared them), **D59** (`--help` declared a command name that did not
+exist), **D64a** (the held-out manifest carried a stamp nothing read), **D64b** (the guard template declared
+itself the source of truth and nothing compared the stamped copy). Four sweeps, one class.
+
+**Why attention cannot fix this.** D59 stated the rule outright — *anything a tool says about itself is a claim,
+and every claim gets a check* — and the same commit shipped two unchecked claims. Its author wrote the rule and
+broke it within minutes. So the failure is not carelessness; it is that a rule living in prose is applied by
+memory, and memory is per-session. Two sessions reviewing each other converge eventually, but one instance at a
+time.
+
+**D64a is the sharper lesson: the gap was structural, not attentional.** Every staleness check iterated
+`DEV_DATASETS`, so the held-out split sat *outside the loop's universe*. No amount of care inspects a set you did
+not enumerate. Re-reading the checks would never have found it; only re-reading the *enumeration* would.
+
+**Options considered**
+- **(A) Mine the existing decisions into a checklist.** **Rejected on measurement:** only **5 of 67** entries
+  carry an extractable `**Rule**` line, and all five were written in one recent session. The other 62 bury the
+  lesson in paragraphs, so "extract the rules" would mean inventing them.
+- **(B) Rely on the two-session review.** It works — it produced D63–D66 — but it scales one instance per pass
+  and never terminates.
+- **(C) A registry of claims, each bound to the check that compares it, plus one enumeration of splits used by
+  every split-level check.**
+
+**Decision ✅** — **(C).** `tests/test_claim_coverage.py` holds a `REGISTRY` of (artifact, field, what it
+asserts, checks). Two halves:
+
+1. **Discovery** — every claim-shaped field on disk (name containing `sha256`, `digest`, `generator`) must be
+   registered. Adding a stamp without registering a check fails. This half needs nobody to remember anything.
+2. **Symmetry** — every registered claim is checked on **every split `known_splits()` can see**, held-out
+   included. Narrower coverage must state a reason.
+
+`support.known_splits()` becomes the single enumeration for split-level properties, so a dev-only loop is no
+longer expressible without saying so. `DEV_DATASETS` stays correct for exercising behaviour on a mutable copy;
+the division is stated where both are defined.
+
+**It found three more instances of its own class while being written.** Both `PolicyTests` read
+`datasets/dev/matching_policy.json` alone, so the policy published beside `dev-synthetic`, `dev-zero-defect` and
+**held-out** was never compared to the shipped rule. All four come from one generator run and are identical
+today — an assumption nothing asserted. An agent competes against the policy shipped with the split it is scored
+on, so a drifted held-out policy would judge it against a threshold it was never told. Both checks now iterate
+`known_splits()`. Also closed: the key's `dataset_version` and `dataset_identifier` were compared to the
+manifest's by nothing at all, on any split.
+
+**Proven to fire**, both halves, on copies: planting an unregistered `policy_sha256` fails discovery, and
+dropping held-out from the universe while the secret tier is present fails the symmetry premise — D64a's exact
+shape, reproduced deliberately and caught.
+
+**Rule** — **a claim gets a registry entry naming its check, and any property of "every split" iterates one
+shared enumeration.** Enforced by `test_claim_coverage.py`: discovery fails on an unregistered claim, and
+`test_the_held_out_split_is_in_the_universe_when_present` fails if the enumeration silently narrows.
+
+---
+
+## D68 — Each recurring defect class is locked by a scanner, at the moment it reaches zero ✅
+
+**Fork:** Four classes have been found, fixed, and found again: timing waits, absence-becoming-a-number,
+unanchored patterns, and correctness that depends on call order. Each fix addressed an instance; the class stayed
+open.
+
+**The specimen worth remembering.** A `time.sleep(1.05)` existed to force a distinct run stamp. **D49** removed
+its reason by giving scorecards collision-free names — and the sleep survived roughly four further sweeps, *while
+the neighbouring test's own docstring criticised it in writing*: "Note this test has NO sleep: an earlier
+reproducibility test slept 1.05s to…". The knowledge sat in the repository, in prose, beside the defect, for four
+sweeps. **A comment recording a problem is not a mechanism.**
+
+**Decision ✅** — `tests/test_defect_classes.py`, one scanner per class:
+
+- **Timing waits → zero, pinned.** The cheapest moment to lock a class is when it reaches zero, which it did one
+  commit ago. Scoring is deterministic and single-threaded, so a sleep is always a symptom: hiding a defect, as
+  the 1.05s wait hid the collision D49 fixed, or tolerating a race.
+- **Absence becoming a number → justified per site.** Scope is deliberately **numeric defaults only** (8 sites),
+  not every container default (24). A missing value that becomes a number enters arithmetic and changes a verdict
+  silently — that is what D50 was. A missing value that becomes `""` or `[]` is a structural absence, and the
+  loader already rejects the ones that matter loudly (D29, D50, D56). Eight reviewed justifications beat
+  twenty-four thin ones; widening later is a decision, not an oversight.
+- **Unanchored patterns → checked across every rule list**, not only `deny`, so adding an `allow` or `ask` list
+  cannot reopen D65.
+- **Order-dependent correctness → asserted.** Two `facts.get(..., (Decimal(0), Decimal(0)))` defaults are
+  unreachable only because reference resolution runs first. Verified load-bearing: swapping the calls resurrects
+  D50's misdiagnosis. One existing test happened to catch the swap; the dependency is now asserted directly, so
+  it is protected on purpose rather than by luck.
+
+**The justification requirement caught its own author.** Two entries were first written as "same as X above"; the
+check that a justification exceeds a minimum length rejected both, and they were rewritten to say why.
+
+**Rule** — **when a defect class reaches zero, lock it there in the same change that empties it**, and where a
+default or an ordering is deliberate, record why at the site rather than in a comment a later reader must find.
+Enforced by `test_defect_classes.py`, which fails on a new sleep, an unjustified numeric default, a bare-stem
+pattern in any rule list, or a reordering of the two validators.
+
+---
+
+## D69 — Criterion ids are a numbered set, and now checked like one ✅
+
+**Fork:** Two sessions appended to the acceptance-criteria map concurrently. Both reached for the next four ids,
+so **C46, C47, C48 and C49 each named two unrelated criteria** — found live while wiring D67 up.
+
+**Why it survived.** The rule was already stated and already generalized: *any numbered set should be unique and
+contiguous, because a duplicate makes every reference ambiguous and a gap usually means an entry was deleted.*
+The linter enforces it for decision numbers, phase tags and markdown ordered lists. It never reached these ids,
+because they live in a **Python list** rather than in markdown the linter parses. So the rule held in principle
+and lapsed in practice, at exactly the boundary of what the existing tool could read — which is the same shape
+as D64a: correct rule, wrong universe.
+
+**Decision ✅** — the later-committed entries renumber (never reuse), and `CriteriaNumberingTests` asserts
+uniqueness across the C, H and E series plus contiguity of the C numbers, with suffixed ids (`C25a`/`C25b`)
+counted once. The check lives beside the list, not in the linter, for the reason the subject-index check lives
+beside the index: a second implementation would have to parse Python to find these, and would drift.
+
+**Rule** — **when a rule is generalized to "any X", enumerate the X that exist and confirm the enforcement
+reaches each one.** A generalization is only as wide as the places it can actually see. Enforced by
+`CriteriaNumberingTests` for this project's fourth numbered set; the other three are enforced by `lint_spec.py`.
+
+---
+
+## Not checked — as of 0.19.0 @ D69
+
+What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
+finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
+iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here.
+
+- **The 16 non-numeric absence defaults** in shipped code (`.get(k, "")`, `.get(k, [])`, `.get(k, {})`). Scoped
+  out of D68 with reasoning, not overlooked — but not individually reviewed either. `dataset.py`'s
+  `raw.get("po_number", po_path.name)` is the one to look at first: it identifies a purchase order by
+  **filename** when the field is absent, so a file whose name and contents disagree would be silently reconciled
+  in favour of the name.
+- **`.claude/settings.json` beyond the deny list.** Pattern anchoring is now checked on every rule list, but
+  nothing asserts which lists may exist. An `allow` list appearing there would be scanned for anchoring and
+  otherwise unremarked.
+- **The generator's own correctness.** The secret tier has no test suite; `generate.py` asserts each computed
+  finding against the line's stated intent at generation time, and that is the only check on it. A rule change
+  that is self-consistently wrong would pass.
+- **`[P2]` verify mode against the D66 schema rule.** D66 recorded the rule before the feature exists, so
+  nothing yet enforces that verify reports an unrecognised version as its own outcome.
+- **Cross-platform behaviour on a real Linux run.** Still `[P2]`, still asserted by construction only (`H17`) —
+  and the encoding class (D61) reached the suite through a Windows-only failure mode, which is precisely the
+  asymmetry that argues for running it once for real.
+
+---
+
 ## Document status
 
-Decisions **D0–D66** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
+Decisions **D0–D68** recorded (D37–D41 by the phase-1 build session; D42–D44 by the first consistency pass;
 D45–D48 by the pre-phase-2 sweep; D49–D54 by the second sweep over code, data and generator; D55–D57
 formalizing the behaviours that had lived only in code; D58 onward closing the post-build review's open
 issues). Spec emitted at

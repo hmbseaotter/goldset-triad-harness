@@ -281,14 +281,36 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_audit_score_parity.ValidityParityTests.test_everything_score_refuses_the_audit_also_refuses_by_name"),
     ("C53", "sharing the loader has not made the audit defer to the key",
      "test_audit_score_parity.ValidityParityTests.test_audit_still_derives_independently"),
-    ("C46", "the scorecard declares its schema version (needed by [P2] verify)",
+    # D63-D66, renumbered from C46-C49: two sessions appended to this list concurrently and
+    # both reached for the next four ids, so C46-C49 each named two different criteria. The
+    # duplicate-numbering rule was already generalized to "any numbered set" -- but its
+    # enforcement reached decision numbers, phase tags and markdown ordered lists, and never
+    # these ids, which live in a Python list. CriteriaNumberingTests below closes that.
+    ("C54", "the scorecard declares its schema version (needed by [P2] verify)",
      "test_scorecard_repro.ScorecardTests.test_scorecard_declares_its_schema_version"),
-    ("C47", "an unanchored generator deny rule is rejected as over-broad",
+    ("C55", "an unanchored generator deny rule is rejected as over-broad",
      "test_isolation.IsolationTests.test_unanchored_generator_rule_is_rejected_as_over_broad"),
-    ("C48", "the held-out stamp agrees with the dev splits and the current generator",
+    ("C56", "the held-out stamp agrees with the dev splits and the current generator",
      "test_generator_staleness.HeldOutStalenessTests.test_held_out_stamp_agrees_with_the_dev_splits"),
-    ("C49", "the stamped guard still matches its source-of-truth template",
+    ("C57", "the stamped guard still matches its source-of-truth template",
      "test_isolation.GuardTemplateDriftTests.test_stamped_guard_matches_the_template"),
+    # Claim coverage and defect-class locks (D67, D68).
+    ("C58", "an unregistered claim-shaped field fails; a stale registry entry fails too",
+     "test_claim_coverage.ClaimDiscoveryTests.test_every_claim_shaped_field_on_disk_is_registered"),
+    ("C59", "the split enumeration includes held-out whenever the secret tier is present",
+     "test_claim_coverage.ClaimSymmetryTests.test_the_held_out_split_is_in_the_universe_when_present"),
+    ("C60", "each key's declared version and identifier match its manifest's, on every split",
+     "test_claim_coverage.ClaimSymmetryTests.test_key_version_matches_its_manifest"),
+    ("C61", "the published policy is compared to the shipped rule on every known split",
+     "test_ground_truth.PolicyTests.test_policy_numbers_match_the_shipping_rule_implementation"),
+    ("C62", "no timing wait exists anywhere, and a new one fails",
+     "test_defect_classes.NoTimingWaitTests.test_no_timing_wait_anywhere"),
+    ("C63", "every numeric absence-default in shipped code carries a justification",
+     "test_defect_classes.NumericDefaultTests.test_every_numeric_default_in_shipped_code_is_justified"),
+    ("C64", "no rule in any permission list is anchored on a bare stem",
+     "test_defect_classes.PatternAnchoringTests.test_no_rule_in_any_list_is_anchored_on_a_bare_stem"),
+    ("C65", "reference resolution is asserted to precede the rate check",
+     "test_defect_classes.OrderDependencyTests.test_reference_resolution_precedes_the_rate_check"),
 ]
 
 
@@ -353,13 +375,26 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_traceability.TraceabilityTests.test_coverage_summary",
     "test_traceability.TraceabilityTests.test_every_test_method_is_mapped_or_explicitly_exempt",
     "test_traceability.TraceabilityTests.test_spec_p1_criterion_count_is_unchanged",
+    # The numbering guards check this file's own list, so they answer to no criterion.
+    "test_traceability.CriteriaNumberingTests.test_no_criterion_id_is_used_twice",
+    "test_traceability.CriteriaNumberingTests.test_the_numeric_ids_are_contiguous",
+    "test_traceability.CriteriaNumberingTests.test_the_happy_path_and_edge_ids_are_also_unique",
+    # Converses and premises for the D67/D68 locks; each names the criterion it supports.
+    "test_claim_coverage.ClaimDiscoveryTests.test_registry_has_no_stale_entries",
+    "test_claim_coverage.ClaimDiscoveryTests.test_every_registered_check_resolves",
+    "test_claim_coverage.ClaimDiscoveryTests.test_partial_coverage_states_a_reason",
+    "test_claim_coverage.ClaimSymmetryTests.test_every_claim_is_checked_on_every_known_split",
+    "test_defect_classes.NumericDefaultTests.test_no_justification_outlives_its_site",
+    "test_defect_classes.NumericDefaultTests.test_every_justification_says_something",
+    "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
+    "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
 })
 
 # Checksum over the spec's [P1] acceptance criteria, in the tradition the 0.10.2 sweep
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 111
+EXPECTED_SPEC_P1_CRITERIA = 118
 
 
 def _spec_p1_criteria() -> list[str]:
@@ -381,6 +416,65 @@ def _all_test_methods() -> set[str]:
                     if attr.startswith("test_"):
                         found.add(f"{path.stem}.{name}.{attr}")
     return found
+
+
+class CriteriaNumberingTests(unittest.TestCase):
+    """These ids are a numbered set, and numbered sets must be unique and contiguous (D69).
+
+    Found live: two sessions appended to CRITERIA concurrently, both took the next four ids,
+    and C46-C49 each named two unrelated criteria. Every reference to them was ambiguous, and
+    nothing noticed — the linter enforces this rule for decision numbers, phase tags and
+    markdown ordered lists, and the generalization to "any numbered set" stopped at the edge of
+    the file it could parse. A python list was outside its reach and therefore outside the rule
+    in practice, though not in principle.
+
+    The check lives here, with the list, for the reason the subject-index check lives with the
+    index: the tool that owns a derivation owns its check. A second implementation in the linter
+    would need to parse Python to find these, and would drift."""
+
+    def _ids(self) -> list[str]:
+        return [c[0] for c in CRITERIA]
+
+    def test_no_criterion_id_is_used_twice(self) -> None:
+        counts: dict[str, int] = {}
+        for cid in self._ids():
+            counts[cid] = counts.get(cid, 0) + 1
+        dupes = sorted(f"{cid} (x{n})" for cid, n in counts.items() if n > 1)
+        self.assertEqual(
+            dupes, [],
+            f"criterion id(s) used more than once: {dupes}. Every citation of them is "
+            f"ambiguous. Renumber the later entries; never reuse an id (D69).",
+        )
+
+    def test_the_numeric_ids_are_contiguous(self) -> None:
+        """A gap usually means an entry was deleted and its criterion silently dropped.
+
+        Suffixed ids (C25a/C25b) are counted once, by their number, since a deliberate split of
+        one criterion is not a gap."""
+        numbers = sorted({
+            int(m.group(1)) for cid in self._ids()
+            if (m := re.match(r"^C(\d+)[a-z]?$", cid))
+        })
+        expected = list(range(numbers[0], numbers[-1] + 1))
+        missing = sorted(set(expected) - set(numbers))
+        self.assertEqual(
+            missing, [],
+            f"gap(s) in the criterion sequence: {[f'C{n}' for n in missing]} - an entry was "
+            f"probably removed, taking its criterion with it",
+        )
+
+    def test_the_happy_path_and_edge_ids_are_also_unique(self) -> None:
+        """The H and E series are numbered sets too, and were never checked either."""
+        for prefix in ("H", "E"):
+            with self.subTest(series=prefix):
+                ids = [c for c in self._ids() if re.match(rf"^{prefix}\d", c)]
+                counts: dict[str, int] = {}
+                for cid in ids:
+                    counts[cid] = counts.get(cid, 0) + 1
+                self.assertEqual(
+                    sorted(c for c, n in counts.items() if n > 1), [],
+                    f"duplicate id(s) in the {prefix} series",
+                )
 
 
 class TraceabilityTests(unittest.TestCase):

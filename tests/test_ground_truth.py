@@ -106,14 +106,28 @@ class PayableBasisTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    """Both checks below iterate `known_splits()`, not `dev` alone (D67).
+
+    They read `datasets/dev/matching_policy.json` and nothing else, so the policy published
+    beside `dev-synthetic`, `dev-zero-defect` and — the one that matters — the **held-out**
+    split was never compared to the shipped rule. All four are emitted by one generator run
+    and are identical today, but that was an assumption nothing asserted: precisely D64a's
+    shape, where a dev-only loop left the weightiest split outside the universe. An agent
+    competes against the policy published with the split it is scored on, so a held-out
+    policy that drifted would judge it against a threshold it was never told."""
+
     def test_matching_policy_publishes_every_rule(self) -> None:
-        policy = support.read_json(support.DATASETS / "dev" / "matching_policy.json")
-        text = json.dumps(policy).lower()
-        for needle in ("payable", "materiality", "price", "quantity", "tax", "cross-multipl"):
-            self.assertIn(needle, text)
-        self.assertEqual(set(policy["categories"]),
-                         {"PRICE_VARIANCE", "QTY_UNDER_SHIPMENT", "QTY_OVER_SHIPMENT",
-                          "QTY_INVOICE_INFLATED", "TAX_VARIANCE"})
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                policy = support.read_json(split.policy)
+                text = json.dumps(policy).lower()
+                for needle in ("payable", "materiality", "price", "quantity", "tax",
+                               "cross-multipl"):
+                    self.assertIn(needle, text, f"{split.name}: policy omits {needle!r}")
+                self.assertEqual(set(policy["categories"]),
+                                 {"PRICE_VARIANCE", "QTY_UNDER_SHIPMENT", "QTY_OVER_SHIPMENT",
+                                  "QTY_INVOICE_INFLATED", "TAX_VARIANCE"},
+                                 f"{split.name}: published categories differ")
 
     def test_policy_numbers_match_the_shipping_rule_implementation(self) -> None:
         """The published thresholds must equal the ones the shipped code applies (D53).
@@ -126,20 +140,23 @@ class PolicyTests(unittest.TestCase):
 
         An agent competes against the published rule; if it disagrees with the rule the
         harness scores by, the agent is judged against a threshold it was never told."""
-        policy = support.read_json(support.DATASETS / "dev" / "matching_policy.json")
-        stated = str(policy["materiality_threshold"])
         # Derived from the constants, never restated: floor and cap as dollar amounts,
         # rate as the percentage the policy renders.
         floor_token = f"${_FLOOR.normalize():f}"
         cap_token = f"${_CAP.normalize():f}"
         rate_pct = (_RATE * 100).normalize()
         rate_token = f"{rate_pct:f}%"
-        for token, label in ((floor_token, "floor"), (cap_token, "cap"), (rate_token, "rate")):
-            self.assertIn(
-                token, stated,
-                f"published policy does not state the {label} the shipped code uses "
-                f"({token}); policy says: {stated!r}",
-            )
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                policy = support.read_json(split.policy)
+                stated = str(policy["materiality_threshold"])
+                for token, label in ((floor_token, "floor"), (cap_token, "cap"),
+                                     (rate_token, "rate")):
+                    self.assertIn(
+                        token, stated,
+                        f"{split.name}: published policy does not state the {label} the "
+                        f"shipped code uses ({token}); policy says: {stated!r}",
+                    )
 
 
 class RoundingTests(unittest.TestCase):

@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -102,6 +103,56 @@ def find_secret_dir() -> Path | None:
     if CONVENTIONAL_SECRET_DIR.is_dir():
         return CONVENTIONAL_SECRET_DIR
     return None
+
+
+@dataclass(frozen=True)
+class Split:
+    """One dataset split and where each of its artifacts lives.
+
+    Artifact filenames differ between the public and held-out tiers (D42, D51), so they
+    are resolved from the manifest's own `key_path` / `invoice_index_path` rather than
+    guessed from the split's name. The manifest describes itself; nothing here restates
+    it."""
+
+    name: str
+    root: Path
+    manifest: Path
+    key: Path
+    index: Path
+    policy: Path
+    in_repo: bool
+
+
+def known_splits() -> tuple[Split, ...]:
+    """EVERY split this machine can see — in-repo and held-out alike (D67).
+
+    Use this, not ``DEV_DATASETS``, for any check of a *split-level property*. The
+    distinction is what D64 was about: every staleness check iterated the dev splits, so
+    the held-out manifest carried a stamp nothing compared — not through oversight but
+    structurally, because the loop's universe excluded it. The same asymmetry had left the
+    published matching policy checked on `dev` alone.
+
+    ``DEV_DATASETS`` remains correct for tests that mutate a copied dataset or assert
+    dev-specific content. The rule is: iterate DEV_DATASETS to exercise behaviour,
+    iterate known_splits() to assert a property every split must have."""
+    splits: list[Split] = []
+    roots: list[tuple[str, Path, bool]] = [(n, DATASETS / n, True) for n in DEV_DATASETS]
+    secret = find_secret_dir()
+    if secret is not None and (secret / "held-out" / "manifest.json").is_file():
+        roots.append(("held-out", secret / "held-out", False))
+    for name, root, in_repo in roots:
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        splits.append(Split(
+            name=name,
+            root=root,
+            manifest=manifest_path,
+            key=(root / str(manifest["key_path"])).resolve(),
+            index=(root / str(manifest["invoice_index_path"])).resolve(),
+            policy=root / "matching_policy.json",
+            in_repo=in_repo,
+        ))
+    return tuple(splits)
 
 
 def read_json(path: Path) -> dict:

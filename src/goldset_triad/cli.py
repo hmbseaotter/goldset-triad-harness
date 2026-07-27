@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+from . import ledger
 from . import scorecard as sc
 from .dataset import DatasetError, LoadedDataset, load_dataset, sha256_file
 from .schema import SchemaError, parse_findings_artifact
@@ -79,8 +80,42 @@ def run_score(args: argparse.Namespace) -> int:
     _write_new_file(json_path, card_json)
     _write_new_file(txt_path, summary)
 
+    # WHEN a run completes, one record is appended to the JSONL ledger. A failure here
+    # warns and the run still exits zero: D9 makes the ledger a derived, regenerable
+    # convenience view, so an unwritable one cannot make a correct score wrong. That is the
+    # same shape as D9's own performance-breach exception, the one other place this harness
+    # lets a warning coexist with success. Silence was rejected -- an absence nobody is told
+    # about is the class D68 locked -- and so was halting, which would report a valid,
+    # correctly-scored run as a failure because a local cache file could not be extended.
+    try:
+        ledger.append_record(out_dir, json_path)
+    except (OSError, DatasetError) as exc:
+        sys.stderr.write(
+            f"warning: the run ledger could not be appended to: {exc}\n"
+            f"warning: the score is unaffected and the scorecard is written. The ledger is a "
+            f"derived view; `goldset-triad rebuild-ledger --out {out_dir}` regenerates it "
+            f"from the scorecards alone (D9).\n"
+        )
+
     sys.stdout.write(summary)
     sys.stdout.write(f"\nScorecard written to {json_path}\n")
+    return 0
+
+
+def run_rebuild_ledger(args: argparse.Namespace) -> int:
+    """Regenerate the ledger from the scorecard directory alone (D9).
+
+    The whole file is rewritten rather than reconciled, because that is what makes the
+    guarantee testable: delete it, rebuild it, and the contents must be identical. A
+    reconciling rebuild would pass that test while still being able to drift."""
+    out_dir = Path(args.out)
+    if not out_dir.is_dir():
+        raise DatasetError(f"scorecard directory not found: {out_dir}")
+    text = ledger.rebuild_text(out_dir)
+    destination = Path(args.ledger) if args.ledger else ledger.ledger_path(out_dir)
+    ledger.write_ledger(destination, text)
+    runs = text.count("\n")
+    sys.stdout.write(f"rebuilt {destination} from {runs} scorecard(s) in {out_dir}\n")
     return 0
 
 
@@ -211,6 +246,26 @@ def build_parser() -> argparse.ArgumentParser:
              "which file, since the scorecard stores only the aggregate (D27, D74)",
     )
     verify_p.set_defaults(func=run_verify)
+
+    ledger_p = sub.add_parser(
+        "rebuild-ledger",
+        help="regenerate the JSONL run ledger from the scorecard directory alone",
+        description=(
+            "Rewrite the run ledger from the scorecards in a directory. The ledger is a "
+            "derived, local-only convenience view (D9): scorecards are the durable record, "
+            "so deleting the ledger loses nothing and rebuilding it reproduces identical "
+            "contents."
+        ),
+    )
+    ledger_p.add_argument(
+        "--out", default="scorecards",
+        help="the scorecard directory to rebuild from (default: scorecards)",
+    )
+    ledger_p.add_argument(
+        "--ledger", default=None,
+        help=f"where to write it (default: <out>/{ledger.LEDGER_FILENAME})",
+    )
+    ledger_p.set_defaults(func=run_rebuild_ledger)
     return parser
 
 

@@ -2635,6 +2635,87 @@ precedence and per-file-limit tests fail if any of the three is quietly dropped.
 
 ---
 
+## D75 — The run ledger: what it records, where it lives, and what order it is in ✅
+
+**Fork:** D9 settled *what the ledger is* — a derived, local-only, gitignored convenience
+view, regenerable from the scorecard directory alone, because scorecards are the durable
+record. It did not settle the record's shape, the file's location, its ordering, or what a
+run should do when it cannot be written. All four are decided by one constraint and one
+surprise.
+
+**The constraint: every field must be recoverable from the directory,** or the regeneration
+guarantee is unmeetable. That is what shapes the record rather than "what would be useful
+here". One field comes from the *filename* instead of the contents — the D49 collision
+ordinal, which exists nowhere else.
+
+**(a) No fingerprints, deliberately.** Copying the scorecard's four digests into the ledger
+was considered and rejected. D9 scopes this to a per-machine duration and workload trend;
+the scorecard already carries provenance under the byte-identical comparison; and a derived
+artifact repeating claim-shaped fields would **manufacture claims that nothing compares**,
+which is the shape D67 exists to end — sharpened by D74's finding that the claims registry
+cannot even see a runtime artifact, so such fields would sit undiscovered by construction.
+Provenance questions are answered by the scorecard and by `verify`.
+
+**(b) The ledger lives in the directory it describes.** A ledger at a fixed path would
+outlive its relationship: a run writing to a different output directory would append to a
+file describing a directory it no longer reads, while the guarantee is stated against *the
+scorecard directory alone*. `.gitignore` already carries a bare `run-ledger.jsonl`, which
+matches at any depth, so this needed no ignore-rule change — checked rather than assumed.
+
+**(c) The surprise: run order is not filename order.** Scorecard stems carry the D49
+ordinal, and an ordinal is **lexicographic** in a filename. Measured, not reasoned about:
+
+```
+sorted() over three runs in one second gives
+    scorecard-dev-20260727T050000Z-10.json     <- run 10
+    scorecard-dev-20260727T050000Z-2.json      <- run 2
+    scorecard-dev-20260727T050000Z.json        <- run 1
+```
+
+Appends happen chronologically, so a filename-sorted rebuild would produce a **differently
+ordered ledger holding identical records** — and *"regenerating reproduces identical
+contents"* would fail on a case nobody would think to test, in the one guarantee that makes
+the ledger safe to delete. The sort key is `(run_timestamp, ordinal-as-integer)`. The test
+asserts the naive sort really does mis-order first, so it cannot pass by the ordinals
+happening not to collide. This is the positional-fragility family the project inherited as a
+*pattern to reuse carefully* from the prior work, arriving as an ordering rather than an
+index.
+
+Reading the ordinal treats a missing suffix as 1. That is **not** an absence becoming a
+number (D68): the writer omits the suffix *exactly when* the ordinal is 1
+(`stem if ordinal == 1 else f"{stem}-{ordinal}"`), so this is the inverse of an encoding
+rather than a guess about missing data — recorded here because the distinction is invisible
+at the call site.
+
+**(d) An unwritable ledger warns and the run exits zero.**
+
+- **Rejected: halt non-zero**, for uniformity with every other failure. It would report a
+  valid, correctly-scored run as a failure because a *derived local cache* could not be
+  extended — and the scorecard, which is the thing that matters, was already written.
+- **Rejected: append best-effort and silently.** An absence nobody is told about is the
+  class D68 locked.
+- **Decision ✅** — a prominent warning naming the cause, the rebuild command that fixes
+  it, and exit zero. This is the same shape as D9's own performance-breach exception, which
+  is the one other place in this harness where a warning coexists with success, and it is
+  justified by the same reasoning: the condition does not make the score wrong.
+
+**(e) A file that is not a scorecard halts the rebuild, naming it.** It cannot be placed in
+run order, and guessing a position would put an invented ordering into the record. Skipping
+it silently would be worse still: a directory quietly holding something unaccounted for is
+how a "regenerated identically" claim stops meaning anything.
+
+**Verified by execution.** Three runs append three records; deleting the ledger and
+rebuilding reproduces the file **byte for byte**, not merely line for line — bytes assert
+records, order and serialization at once. 204 tests, pyright 0 errors.
+
+**Rule** — **a derived view records only what its source can regenerate, and states its
+order explicitly.** The first half is what keeps "delete it, rebuild it, get the same file"
+true; the second is what stops that guarantee resting on a sort nobody examined. Enforced
+by `tests/test_run_ledger.py`, whose ordering test asserts the naive sort mis-orders before
+asserting the real one does not.
+
+---
+
 ## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

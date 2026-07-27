@@ -332,6 +332,9 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_cross_artifact_validation.DocumentIdentityTests.test_a_purchase_order_omitting_its_number_is_named_not_misdiagnosed"),
     ("C71", "an identifier disagreeing with its filename is rejected",
      "test_cross_artifact_validation.DocumentIdentityTests.test_an_identifier_disagreeing_with_its_filename_is_rejected"),
+    ("C72", "[P2] deleting the JSONL ledger and rebuilding it from the scorecard directory "
+            "reproduces identical contents",
+     "test_run_ledger.RunLedgerTests.test_deleting_and_rebuilding_reproduces_identical_contents"),
 ]
 
 
@@ -352,6 +355,17 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_verify_mode.VerifyModeTests.test_without_a_baseline_the_per_file_limit_is_stated",
     "test_verify_mode.VerifyModeTests.test_a_baseline_names_the_divergent_file",
     "test_verify_mode.VerifyModeTests.test_an_unreadable_scorecard_is_an_error_not_a_failed_verification",
+    # The ledger's internal invariants (D75). Its one [P2] criterion is mapped above as C72.
+    # These protect what that guarantee rests on: the RUN ORDER, which is not the obvious
+    # one because the D49 collision ordinal sorts lexicographically in a filename; the rule
+    # that every field be recoverable from the directory, without which a rebuild cannot
+    # reproduce anything; the append-failure policy, which is the one place besides D9's
+    # performance breach where a warning coexists with exit zero; and refusing to guess a
+    # run position for a file that is not a scorecard.
+    "test_run_ledger.RunLedgerTests.test_run_order_survives_the_collision_ordinal",
+    "test_run_ledger.RunLedgerTests.test_every_ledger_field_comes_from_the_scorecard",
+    "test_run_ledger.RunLedgerTests.test_an_unwritable_ledger_warns_and_the_run_still_exits_zero",
+    "test_run_ledger.RunLedgerTests.test_a_foreign_json_file_is_named_rather_than_silently_skipped",
     # Positive controls: the converse of a criterion, proving a guard does not over-fire.
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",

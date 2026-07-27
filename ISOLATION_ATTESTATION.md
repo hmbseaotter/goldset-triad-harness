@@ -169,7 +169,50 @@ a unique marker and no answer-key content, which is the entire reason it exists.
 Newest first. Superseded entries are kept, because the record of what was believed and when
 is part of what makes the claim auditable.
 
-### 2026-07-27 — enforcement half **FAILED in this configuration**
+### 2026-07-27 (later, session rooted at this repository) — **PASS, all routes**
+
+Run by the author from a Claude Code session rooted at
+`D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness`, after the entry below
+showed that a parent-rooted session loads none of these rules.
+
+| Item | Result |
+|---|---|
+| Guard-configuration check | **PASS** |
+| Placement check | **PASS** |
+| **Tool-level read of the canary is refused** — the negative test D30 prescribes | **PASS — refused.** The marker `CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE` did not surface. |
+| **Tool-level read of a held-out input succeeds** — the positive control | **PASS — succeeded.** `goldset-triad-holdout\inputs\purchase_orders\PO-7001.json` read normally, so the guards do not over-block the files the agent under test needs (D14, D65). |
+
+**Four further routes to the answer key itself, all refused** — broader than the method
+requires, and volunteered by the author:
+
+| Route | Target | Result |
+|---|---|---|
+| `Read` | `D:\Claude_Stuff\goldset-triad-secret\holdout_answer_key.json` | denied |
+| `Read` | `…\goldset-triad-harness\goldset-triad-secret\holdout_answer_key.json` | denied |
+| `Bash cat` | `D:/Claude_Stuff/goldset-triad-secret/holdout_answer_key.json` | denied |
+| `Glob` | `**/holdout_answer_key.json` | no files found |
+
+No key content was obtained by any route.
+
+**Why the canary is the load-bearing one, and why those four do not replace it.** The answer
+key is covered **three ways** — two directory rules and an unscoped filename rule — so a
+refusal there cannot say *which* layer fired; the filename rule alone would produce it. The
+canary carries **no filename rule at all** and is covered by the directory rule only, which
+is why D17 placed it that way: it is the one file that isolates the weakest layer. Refusing
+it proves the directory rule binds, and everything else in the tier rests on that.
+
+*(The `Glob` line is the placement check passing rather than a guard result: from a session
+rooted here, glob searches this tree, where the key correctly does not exist.)*
+
+**What this pair of entries establishes together.** Two runs, the same day, the same machine,
+the same rules on disk, **opposite results** — differing only in the directory the session was
+opened from. That is D91 demonstrated rather than argued: the deny rules bind, and they bind
+**only** a session rooted at this repository. The enforcement half of this attestation is
+sound, and it is sound conditionally.
+
+---
+
+### 2026-07-27 (earlier, session rooted one level above) — enforcement half **FAILED in this configuration**
 
 | Item | Result |
 |---|---|
@@ -182,8 +225,8 @@ is part of what makes the claim auditable.
 | Standing | Placement — the **primary** control (D14, D30) — was unaffected throughout: the whole held-out split remains outside this tree. The **second** layer was absent for the duration of that session. |
 
 **Action:** a `[guard-reach]` advisory now reports this condition whenever isolation is
-checked (D91). Re-attestation from a correctly-rooted session is required before the
-enforcement half may be claimed again.
+checked (D91). Re-attestation from a correctly-rooted session was required before the
+enforcement half could be claimed again — **done, and passing, in the entry above.**
 
 ### 2026-07-26 — enforcement half verified *(superseded by the entry above)*
 
@@ -207,4 +250,11 @@ session was opened — a precondition this document did not previously state.
 - A determined subprocess is **outside deny coverage by design** — which is exactly why
   placement outside the repository tree is the primary control and the deny rules are the
   second layer.
-- The deny rules bind only a session rooted at this repository (D91).
+- The deny rules bind only a session rooted at this repository (D91). This is not a
+  hypothesis: the two entries above are the same rules, the same machine and the same day,
+  passing from one root and absent from another.
+
+**Standing status as of 2026-07-27:** both automated checks PASS; the enforcement half is
+**attested PASS from a repository-rooted session**, including the canary negative test and
+the held-out-input positive control. It is *not* claimed for sessions rooted elsewhere, and
+`goldset-triad-check-isolation` prints a `[guard-reach]` line when that is the case.

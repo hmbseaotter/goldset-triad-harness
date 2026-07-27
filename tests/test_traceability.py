@@ -316,6 +316,15 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_defect_classes.SecretTierDurabilityTests.test_an_uncommitted_change_is_reported"),
     ("C67", "a durability finding never changes the isolation exit code",
      "test_defect_classes.SecretTierDurabilityTests.test_a_durability_warning_never_fails_the_check"),
+    # Held-out tier durability and the three closed gaps (D71).
+    ("C68", "both out-of-tree tiers are covered; a clean secret tier is not reported",
+     "test_defect_classes.SecretTierDurabilityTests.test_both_out_of_tree_tiers_are_covered"),
+    ("C69", "an allow list planted in the deny-only guard is rejected",
+     "test_defect_classes.PatternAnchoringTests.test_an_unexpected_permission_list_is_rejected"),
+    ("C70", "a document omitting its identifier is named, not misdiagnosed as a phantom reference",
+     "test_cross_artifact_validation.DocumentIdentityTests.test_a_purchase_order_omitting_its_number_is_named_not_misdiagnosed"),
+    ("C71", "an identifier disagreeing with its filename is rejected",
+     "test_cross_artifact_validation.DocumentIdentityTests.test_an_identifier_disagreeing_with_its_filename_is_rejected"),
 ]
 
 
@@ -396,13 +405,16 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",
     "test_defect_classes.SecretTierDurabilityTests.test_an_untracked_file_is_reported",
     "test_defect_classes.SecretTierDurabilityTests.test_an_absent_tier_reports_nothing",
+    "test_defect_classes.PatternAnchoringTests.test_the_shipped_guard_declares_only_the_expected_lists",
+    "test_cross_artifact_validation.DocumentIdentityTests.test_a_goods_receipt_omitting_its_number_is_rejected",
+    "test_cross_artifact_validation.DocumentIdentityTests.test_every_shipped_document_carries_a_matching_identifier",
 })
 
 # Checksum over the spec's [P1] acceptance criteria, in the tradition the 0.10.2 sweep
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 119
+EXPECTED_SPEC_P1_CRITERIA = 122
 
 
 def _spec_p1_criteria() -> list[str]:

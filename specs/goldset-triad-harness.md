@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.20.0
+- Spec version: 0.21.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.20.0 @ D70** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.21.0 @ D72** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -398,6 +398,19 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] A durability finding SHALL be advisory and SHALL NOT alter the isolation command's exit code, because an
   uncommitted tier is a durability risk rather than an isolation breach, and a guard that reports routine editing
   as a failure is one people switch off (D70, D65).
+- [P1] The durability check SHALL cover every out-of-tree tier, held-out inputs included, because losing those
+  inputs makes every held-out scorecard permanently unverifiable — the scorecard embeds a digest of exactly those
+  bytes and nothing remains to recompute against (D71, D27).
+- [P1] Each out-of-tree tier SHALL pin its own bytes and state its own publication rule, because attributes and
+  ignore rules stop at a repository boundary and cannot be inherited from the harness (D71).
+- [P1] The stamped guard SHALL declare only the permission lists the harness expects, because a list nobody
+  asserted would be half-examined — the coverage rules read `deny` alone (D71).
+- [P1] Every input document SHALL carry its own identifier and that identifier SHALL match its filename, and the
+  loader SHALL NOT fall back to the filename, because the fallback yields an identity no correspondence row can
+  match and the omission then surfaces as a phantom reference against the answer key (D71, D50).
+- [P1] A rule's named enforcement SHALL be resolved rather than merely matched as a word, and a rule naming
+  nothing that exists SHALL fail — a rule citing a test that does not exist is the unchecked claim the rule
+  requirement exists to prevent (D71, D59).
 
 *Portability and shared validity (D61, D62)*
 - [P1] Every text read and write in the repository SHALL name its encoding explicitly, every text write SHALL pin
@@ -927,6 +940,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   the unreachable defaults depend on is protected on purpose (D68).
 - [ ] [P1] An uncommitted change or an untracked file in the secret tier is reported by the isolation command, a
   clean or absent tier reports nothing, and a durability finding never changes the exit code (D70).
+- [ ] [P1] The held-out inputs tier is covered by the same durability check as the secret tier, with a clean secret
+  tier left unreported (D71).
+- [ ] [P1] An `allow` list planted in the stamped guard is rejected as an unexpected permission list, and the file
+  as shipped does not trip that check (D71).
+- [ ] [P1] A purchase order or goods receipt omitting its identifier is rejected naming the file and the field, an
+  identifier disagreeing with its filename is rejected, and every shipped document on every split matches (D71).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -960,9 +979,16 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 
 ### phase 2 — tooling & scaffolding
 - Goal: make the integrity story actionable and the project continuously verified.
-- Includes: `--verify` recompute mode; append-only JSONL ledger with regeneration from scorecards; README
-  and methodology write-up; CI workflow running pyright and tests; cross-platform verification on Windows
-  and Linux.
+- **Entry gate (D72): the CI workflow comes first and must be green on Linux before anything else here is
+  built.** Cross-platform byte-identity is the harness's central claim and is currently asserted by
+  construction only (`H17`) — every specific hazard is pinned (D49, D61, D63, and `git check-attr` confirming
+  `text: unset` on every input), but never observed. CI is the cheapest Linux available and checks every
+  future commit rather than one snapshot, so deferring the verification is acceptable while building further
+  on the unverified claim is not.
+- Includes: `--verify` recompute mode, which must report an unrecognised scorecard schema version as its own
+  outcome rather than a scoring difference (D66); append-only JSONL ledger with regeneration from scorecards;
+  README and methodology write-up; CI workflow running pyright and tests; cross-platform verification on
+  Windows and Linux.
 
 ### phase 3 — dataset expansion
 - Goal: scale the dataset to portfolio size and add the metrics that only matter at scale.
@@ -1040,6 +1066,23 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.21.0 (2026-07-26): **the held-out tier gets a durability story, three gaps close, and Linux becomes `[P2]`'s
+  entry gate (D71, D72)**. The held-out inputs tier is now a git repository — the last tier with none, and the one
+  whose loss is worst: a scorecard embeds a digest of exactly those bytes (D27), so without them every held-out
+  result is permanently unverifiable. It needed its own `.gitattributes` (attributes stop at a repository boundary,
+  so the harness's byte-pinning could never reach it) and a README refusing publication with the reason stated:
+  the matching policy is deliberately published (D53), so **these inputs plus that policy are enough to derive the
+  key**, and readable-by-the-agent is not the same property as publishable. Three gaps closed: a rule's named
+  enforcement is now **resolved** rather than word-matched — `Enforced by test_completely_imaginary_module.py`
+  passed clean before, D59's defect inside the mechanism built to stop it, demonstrated before being fixed; the
+  guard file's shape is asserted, since an `allow` list would grant reach in the file whose purpose is to withhold
+  it; and document identity no longer falls back to the filename, which kept the `.json` extension and so turned a
+  missing `po_number` into a phantom-reference report against the answer key. Two under-isolated tests surfaced:
+  three pinned only one tier override, and three more silently bypassed the `_deny_rules` seam and began asserting
+  against shipped rules instead of their fixtures. **D72** makes CI-green-on-Linux `[P2]`'s entry gate rather than
+  an item within it: every specific cross-platform hazard is pinned (D49, D61, D63, plus `git check-attr`
+  confirming `text: unset` on every input), but never observed, and WSL here is registered as version 1 which this
+  machine will not run. 7 acceptance criteria added; 190 tests.
 - 0.20.0 (2026-07-26): **the tier you inspect is not the tier that survives (D70)** — found minutes after D67
   shipped, and by the same reasoning. Every isolation check reads the secret tier's **working tree**: the stamped
   guard against the template on disk, each manifest's digest. Nothing looked at what was *committed* — and the

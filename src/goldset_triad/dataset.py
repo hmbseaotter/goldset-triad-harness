@@ -313,6 +313,39 @@ def load_invoice_index(path: Path) -> InvoiceIndex:
 # ---------------------------------------------------------------------------
 
 
+def document_identity(raw: dict[str, Any], path: Path, field: str, what: str) -> str:
+    """A document's own identifier: required, and cross-checked against its filename (D71).
+
+    This used to be ``raw.get(field, path.name)`` — a silent fallback to the FILENAME, which is
+    worse than it looks. The fallback keeps the ``.json`` extension, so a purchase order that
+    omitted its ``po_number`` was registered as ``PO-3001.json``, which no correspondence row
+    can ever match. The reference check then reported *"names purchase order PO-3001, which the
+    inputs do not contain"* — sending a reader to hunt for a typo in the answer key while the
+    actual defect sat in the input document. That is D50's misdiagnosis exactly: the check fired,
+    named a real-sounding cause, and pointed at the wrong artifact.
+
+    Filename agreement is asserted rather than assumed because the two identities have to match
+    for either to be usable, and a mismatch has a specific meaning: a file copied and not
+    renamed, or renamed and not edited. The generator emits document and identity from one
+    canonical record (D36), so every shipped split already satisfies this — which makes it a free
+    guard against hand-editing, and a check on the generator's own output."""
+    value = raw.get(field)
+    if value is None or not str(value).strip():
+        raise DatasetError(
+            f"{what} at {path.name} omits its {field}; a document must carry its own identifier, "
+            f"because falling back to the filename yields an identity no correspondence row can "
+            f"match and the fault then surfaces as a phantom reference (D71)"
+        )
+    identity = str(value)
+    if identity != path.stem:
+        raise DatasetError(
+            f"{what} at {path.name} declares {field} {identity!r}, which does not match its "
+            f"filename stem {path.stem!r}; one of the two is wrong, and until they agree the "
+            f"document has two identities (D71)"
+        )
+    return identity
+
+
 def _validate_purchase_orders(inputs_dir: Path) -> None:
     po_dir = inputs_dir / "purchase_orders"
     if not po_dir.is_dir():
@@ -321,7 +354,7 @@ def _validate_purchase_orders(inputs_dir: Path) -> None:
         raw = _read_json(po_path, "purchase order")
         if not isinstance(raw, dict):
             raise DatasetError(f"purchase order is not a JSON object: {po_path}")
-        po_number = str(raw.get("po_number", po_path.name))
+        po_number = document_identity(raw, po_path, "po_number", "purchase order")
         validate_timestamp(raw.get("timestamp"), f"purchase order {po_number} timestamp")
         if "tax" not in raw or raw.get("tax") is None:
             raise DatasetError(
@@ -358,7 +391,7 @@ def _validate_goods_receipts(inputs_dir: Path) -> None:
         raw = _read_json(gr_path, "goods receipt")
         if not isinstance(raw, dict):
             raise DatasetError(f"goods receipt is not a JSON object: {gr_path}")
-        grn = str(raw.get("grn_number", gr_path.name))
+        grn = document_identity(raw, gr_path, "grn_number", "goods receipt")
         validate_timestamp(raw.get("timestamp"), f"goods receipt {grn} timestamp")
 
 
@@ -370,7 +403,7 @@ def _po_tax_facts(inputs_dir: Path) -> dict[str, tuple[Decimal, Decimal]]:
         raw = _read_json(po_path, "purchase order")
         if not isinstance(raw, dict):
             continue
-        po_number = str(raw.get("po_number", po_path.name))
+        po_number = document_identity(raw, po_path, "po_number", "purchase order")
         tax = _decimal(raw.get("tax"), f"purchase order {po_number} tax")
         subtotal = Decimal(0)
         lines = raw.get("lines")
@@ -454,7 +487,7 @@ def _po_reference_keys(inputs_dir: Path) -> tuple[set[str], set[tuple[str, str]]
         raw = _read_json(po_path, "purchase order")
         if not isinstance(raw, dict):
             continue
-        po_number = str(raw.get("po_number", po_path.name))
+        po_number = document_identity(raw, po_path, "po_number", "purchase order")
         numbers.add(po_number)
         lines = raw.get("lines")
         if isinstance(lines, list):

@@ -123,22 +123,56 @@ def looks_like_checkout(path: Path) -> bool:
     return (path / "pyproject.toml").is_file() and (path / "src" / "goldset_triad").is_dir()
 
 
-def _deny_rules(root: Path) -> list[str]:
+#: The stamped guard is a deny-only artifact. Anything else appearing under `permissions` is a
+#: change to what the guard file DOES, and must be a deliberate edit to the source-of-truth
+#: template rather than something that arrived unnoticed (D71). An `allow` list is the case that
+#: matters: it would grant reach in the same file whose entire purpose is to withhold it, and
+#: nothing was asserting the file's shape at all.
+EXPECTED_PERMISSION_LISTS: Final = frozenset({"deny"})
+
+
+def _permission_lists(root: Path) -> dict[str, list[str]]:
     settings_path = root / ".claude" / "settings.json"
     if not settings_path.is_file():
         raise FileNotFoundError(
             f"guard settings not found at {settings_path}; the deny-guards are unconfigured"
         )
     data = json.loads(settings_path.read_text(encoding="utf-8"))
-    deny = data.get("permissions", {}).get("deny", [])
-    return [str(rule) for rule in deny]
+    permissions = data.get("permissions", {})
+    if not isinstance(permissions, dict):
+        return {}
+    return {str(k): [str(r) for r in v] for k, v in permissions.items() if isinstance(v, list)}
+
+
+def _deny_rules(root: Path) -> list[str]:
+    return _permission_lists(root).get("deny", [])
 
 
 def check_guard_configuration(root: Path | None = None) -> list[str]:
     """Every secret path is covered; the held-out inputs are not (D30, D14)."""
     failures: list[str] = []
-    rules = _deny_rules(REPO_ROOT if root is None else root)
+    base = REPO_ROOT if root is None else root
+    # Rules still come through `_deny_rules`, which is the seam the suite substitutes to test
+    # this function against hand-built rule sets. Routing them through `_permission_lists`
+    # instead silently bypassed those substitutions, so three tests began asserting against the
+    # real shipped rules while appearing to test their own fixtures -- green, and measuring
+    # something else entirely.
+    rules = _deny_rules(base)
     joined = "\n".join(rules)
+    # The file's SHAPE, which nothing asserted (D71). Pattern anchoring was checked across
+    # whatever lists happened to exist, and the coverage rules read `deny` -- so a new list
+    # would have been half-examined. An `allow` list is the case that matters, because it grants
+    # reach in the file whose whole purpose is to withhold it.
+    try:
+        unexpected = sorted(set(_permission_lists(base)) - EXPECTED_PERMISSION_LISTS)
+    except FileNotFoundError:
+        unexpected = []  # absence is reported by the rules read above, not twice
+    if unexpected:
+        failures.append(
+            f"the stamped guard declares unexpected permission list(s): {unexpected}. This file "
+            f"is deny-only by design; add the list to the source-of-truth template deliberately "
+            f"and update EXPECTED_PERMISSION_LISTS, or remove it (D71)"
+        )
     for label, needle in REQUIRED_COVERAGE.items():
         if needle not in joined:
             failures.append(f"deny rules do not cover the {label} (no rule mentions '{needle}')")
@@ -189,6 +223,8 @@ def check_placement(root: Path | None = None) -> list[str]:
 
 SECRET_ENV_VAR = "GOLDSET_TRIAD_SECRET_DIR"
 CONVENTIONAL_SECRET_DIR = REPO_ROOT.parents[1] / "goldset-triad-secret"
+HOLDOUT_ENV_VAR = "GOLDSET_TRIAD_HOLDOUT_DIR"
+CONVENTIONAL_HOLDOUT_DIR = REPO_ROOT.parents[1] / HELDOUT_INPUTS_DIR_NAME
 
 
 def find_secret_dir() -> Path | None:
@@ -200,34 +236,31 @@ def find_secret_dir() -> Path | None:
     return CONVENTIONAL_SECRET_DIR if CONVENTIONAL_SECRET_DIR.is_dir() else None
 
 
-def check_secret_tier_durability() -> list[str]:
-    """Is the secret tier's *committed* state current? (D70)
+def find_holdout_dir() -> Path | None:
+    """The held-out INPUTS tier's root, or None when absent (D71).
 
-    Every other check reads the secret tier's WORKING tree — the stamped guard against the
-    template on disk (D64b), the manifests' digests (D58, D63). None of them looks at what is
-    committed, so the tier's git state was itself a claim nothing compared.
+    A separate tier from the secret one, with a genuinely different access rule: the agent
+    under test MUST be able to read these inputs, so no deny rule may cover them (D14) — while
+    the world must not, because these inputs plus the deliberately-published matching policy
+    (D53) are enough to derive the answer key mechanically. Readable-by-the-agent and
+    publishable are different properties, and only the first applies here."""
+    override = os.environ.get(HOLDOUT_ENV_VAR)
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.is_dir() else None
+    return CONVENTIONAL_HOLDOUT_DIR if CONVENTIONAL_HOLDOUT_DIR.is_dir() else None
 
-    Found by observation, not by theory: the guard template and the held-out manifest sat
-    uncommitted while the harness side of the same two decisions was already pushed. The
-    template is the **source of truth** the repo's `.claude/settings.json` is stamped from, so
-    a disk failure at that moment would have lost the anchored rules and left a restored
-    template *behind* the stamped copy that claims to derive from it — reversing which one is
-    authoritative. Losing the held-out re-stamp would have made every held-out scorecard
-    unverifiable. That single-disk risk is the entire reason the secret repository exists.
 
-    Advisory, and deliberately not a test: a failing test here would fire during any normal
-    editing session on the secret side, and a check that cries wolf while you work is one you
-    learn to ignore (D65's lesson about guards people switch off). Reported when isolation is
-    checked — which is when you are about to rely on the guards."""
-    secret = find_secret_dir()
-    if secret is None or not (secret / ".git").exists():
-        return []  # absent tier, or not a git repo: nothing to be stale about (D14)
+def _git_durability(tier: Path, label: str) -> list[str]:
+    """Uncommitted changes and unpushed commits in one tier, as advisory findings."""
+    if not (tier / ".git").exists():
+        return []  # not a git repo: nothing to be stale about
     try:
         # `-b` adds the branch line, which carries [ahead N]. Committed is not the same as
         # safe: a commit that was never pushed dies with the disk exactly as an uncommitted
         # edit does, and this whole check exists for the single-disk risk.
         result = subprocess.run(
-            ["git", "-C", str(secret), "status", "--porcelain", "-b"],
+            ["git", "-C", str(tier), "status", "--porcelain", "-b"],
             capture_output=True, text=True, timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
@@ -241,18 +274,49 @@ def check_secret_tier_durability() -> list[str]:
     warnings: list[str] = []
     if dirty:
         warnings.append(
-            f"the secret tier at {secret} has {len(dirty)} uncommitted change(s): "
+            f"the {label} at {tier} has {len(dirty)} uncommitted change(s): "
             f"{', '.join(dirty[:4])}{'' if len(dirty) <= 4 else ', ...'}. Every isolation check "
-            f"reads the WORKING tree, so these pass while being one disk failure from lost - "
-            f"and the guard template is the source of truth the repo's settings are stamped "
-            f"from."
+            f"reads the WORKING tree, so these pass while being one disk failure from lost."
         )
     ahead = re.search(r"\[ahead (\d+)", branch)
     if ahead:
         warnings.append(
-            f"the secret tier at {secret} is {ahead.group(1)} commit(s) ahead of its remote. "
+            f"the {label} at {tier} is {ahead.group(1)} commit(s) ahead of its remote. "
             f"Committed is not the same as safe: an unpushed commit dies with the disk too."
         )
+    return warnings
+
+
+def check_secret_tier_durability() -> list[str]:
+    """Is each out-of-tree tier's *committed* state current? (D70, extended by D71)
+
+    Every other check reads a tier's WORKING tree — the stamped guard against the template on
+    disk (D64b), each manifest's digest (D58, D63). None of them looks at what is committed, so
+    a tier's git state was itself a claim nothing compared.
+
+    Found by observation, not by theory: the guard template and the held-out manifest sat
+    uncommitted while the harness side of the same two decisions was already pushed. The
+    template is the **source of truth** the repo's `.claude/settings.json` is stamped from, so a
+    disk failure at that moment would have lost the anchored rules and left a restored template
+    *behind* the stamped copy that claims to derive from it — reversing which one is
+    authoritative. Losing the held-out re-stamp would have made every held-out scorecard
+    unverifiable. Closing that single-disk risk is the entire reason those repositories exist.
+
+    Both out-of-tree tiers are covered (D71). The held-out INPUTS tier was the last one with no
+    durability story at all, and losing it is the worse outcome of the two: a scorecard embeds an
+    aggregate digest of exactly those bytes (D27), so without the bytes there is nothing left to
+    recompute against and every held-out result becomes permanently unverifiable.
+
+    Advisory, and deliberately not a test: a failing test here would fire during any normal
+    editing session on either tier, and a check that cries wolf while you work is one you learn
+    to ignore (D65's lesson about guards people switch off). Reported when isolation is checked —
+    which is when you are about to rely on the guards."""
+    warnings: list[str] = []
+    for finder, label in ((find_secret_dir, "secret tier"),
+                          (find_holdout_dir, "held-out inputs tier")):
+        tier = finder()
+        if tier is not None:
+            warnings.extend(_git_durability(tier, label))
     return warnings
 
 

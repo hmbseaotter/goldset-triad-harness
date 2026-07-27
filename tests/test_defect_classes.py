@@ -223,6 +223,42 @@ class PatternAnchoringTests(unittest.TestCase):
         self.assertTrue(examined, "no permission rule list was found to check")
         self.assertIn("deny", {ln for _l, ln, _r in examined})
 
+    def test_an_unexpected_permission_list_is_rejected(self) -> None:
+        """The guard file's SHAPE, which nothing asserted before (D71).
+
+        Anchoring was checked across whatever lists happened to exist and coverage read `deny`,
+        so a new list would have been half-examined. An `allow` list is the case that matters: it
+        grants reach in the file whose entire purpose is to withhold it."""
+        import json
+        import tempfile
+        from unittest import mock
+
+        shipped = json.loads(
+            (support.REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".claude").mkdir()
+            tampered = dict(shipped)
+            tampered["permissions"] = dict(shipped["permissions"])
+            tampered["permissions"]["allow"] = ["Read(**/holdout_answer_key.json)"]
+            (root / ".claude" / "settings.json").write_text(
+                json.dumps(tampered, indent=2), encoding="utf-8", newline="\n"
+            )
+            failures = ci.check_guard_configuration(root)
+        self.assertTrue(
+            any("unexpected permission list" in f and "allow" in f for f in failures),
+            f"an allow list in the deny-only guard went unreported: {failures}",
+        )
+
+    def test_the_shipped_guard_declares_only_the_expected_lists(self) -> None:
+        """Positive control: the rule does not fire on the file as shipped."""
+        failures = ci.check_guard_configuration()
+        self.assertFalse(
+            any("unexpected permission list" in f for f in failures),
+            f"the shipped guard tripped its own shape check: {failures}",
+        )
+
     def test_the_shipped_check_rejects_the_historical_bad_pattern(self) -> None:
         """The scan above reads files; this confirms the SHIPPED check still rejects the
         shape, so the guarantee does not depend on this test file existing."""
@@ -294,10 +330,10 @@ class SecretTierDurabilityTests(unittest.TestCase):
 
     Exercised against a throwaway git repo via the env override, never the real tier."""
 
-    def _fake_tier(self, td: str):
+    def _fake_tier(self, td: str, name: str = "secret"):
         import subprocess
 
-        tier = Path(td) / "secret"
+        tier = Path(td) / name
         tier.mkdir()
         run = lambda *a: subprocess.run(["git", "-C", str(tier), *a], capture_output=True)
         subprocess.run(["git", "init", "-q", str(tier)], capture_output=True)
@@ -308,25 +344,37 @@ class SecretTierDurabilityTests(unittest.TestCase):
         run("commit", "-qm", "init")
         return tier
 
+    def _isolate(self, secret: Path | str, holdout: Path | str):
+        """Point BOTH tier overrides somewhere controlled.
+
+        These tests originally set only the secret override, and passed — because the function
+        looked at one tier. Extending it to the held-out tier (D71) made the real one leak into
+        every result. Under-isolated tests are indistinguishable from correct ones until the
+        code reaches past what they pinned, so both are pinned now."""
+        from unittest import mock
+
+        return mock.patch.dict(
+            os.environ,
+            {ci.SECRET_ENV_VAR: str(secret), ci.HOLDOUT_ENV_VAR: str(holdout)},
+        )
+
     def test_a_clean_tier_reports_nothing(self) -> None:
         import tempfile
-        from unittest import mock
 
         with tempfile.TemporaryDirectory() as td:
             tier = self._fake_tier(td)
-            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+            with self._isolate(tier, Path(td) / "no-holdout"):
                 self.assertEqual(ci.check_secret_tier_durability(), [])
 
     def test_an_uncommitted_change_is_reported(self) -> None:
         import tempfile
-        from unittest import mock
 
         with tempfile.TemporaryDirectory() as td:
             tier = self._fake_tier(td)
             (tier / "_guard-template.settings.json").write_text(
                 '{"edited": true}', encoding="utf-8", newline="\n"
             )
-            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+            with self._isolate(tier, Path(td) / "no-holdout"):
                 warnings = ci.check_secret_tier_durability()
         self.assertTrue(warnings)
         self.assertIn("uncommitted", warnings[0])
@@ -334,23 +382,44 @@ class SecretTierDurabilityTests(unittest.TestCase):
 
     def test_an_untracked_file_is_reported(self) -> None:
         import tempfile
-        from unittest import mock
 
         with tempfile.TemporaryDirectory() as td:
             tier = self._fake_tier(td)
             (tier / "stray.json").write_text("{}", encoding="utf-8", newline="\n")
-            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+            with self._isolate(tier, Path(td) / "no-holdout"):
                 warnings = ci.check_secret_tier_durability()
         self.assertTrue(any("stray.json" in w for w in warnings))
 
     def test_an_absent_tier_reports_nothing(self) -> None:
-        """D14: no secret tier on this machine is the normal case for a clone."""
+        """D14: no out-of-tree tier on this machine is the normal case for a clone."""
         import tempfile
-        from unittest import mock
 
         with tempfile.TemporaryDirectory() as td:
-            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(Path(td) / "nope")}):
+            with self._isolate(Path(td) / "nope", Path(td) / "also-nope"):
                 self.assertEqual(ci.check_secret_tier_durability(), [])
+
+    def test_both_out_of_tree_tiers_are_covered(self) -> None:
+        """The held-out inputs tier was the last with no durability story (D71).
+
+        Losing it is the worse of the two outcomes: a scorecard embeds an aggregate digest of
+        exactly those bytes (D27), so without the bytes there is nothing left to recompute
+        against and every held-out result becomes permanently unverifiable."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            secret = self._fake_tier(td, "secret")
+            holdout = self._fake_tier(td, "holdout")
+            (holdout / "inputs.json").write_text("{}", encoding="utf-8", newline="\n")
+            with self._isolate(secret, holdout):
+                warnings = ci.check_secret_tier_durability()
+        self.assertTrue(
+            any("held-out inputs tier" in w for w in warnings),
+            f"the held-out tier's uncommitted state went unreported: {warnings}",
+        )
+        self.assertFalse(
+            any("secret tier" in w for w in warnings),
+            "the clean secret tier should not have been reported",
+        )
 
     def test_a_durability_warning_never_fails_the_check(self) -> None:
         """The property that keeps this from becoming noise: advisory means advisory."""

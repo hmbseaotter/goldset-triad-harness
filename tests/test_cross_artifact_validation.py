@@ -260,5 +260,73 @@ class CorrespondenceReferenceTests(unittest.TestCase):
             )
 
 
+class DocumentIdentityTests(unittest.TestCase):
+    """A document must carry its own identifier, and it must match its filename (D71).
+
+    The loader used to fall back to the filename: `raw.get("po_number", po_path.name)`. Worse
+    than it looks, because the fallback keeps the `.json` extension — a purchase order omitting
+    its `po_number` was registered as `PO-3001.json`, which no correspondence row can ever
+    match. The reference check then reported *"names purchase order PO-3001, which the inputs do
+    not contain"*, sending a reader to hunt for a typo in the answer key while the real defect
+    sat in the input document. D50's misdiagnosis pattern precisely: the check fired, named a
+    plausible cause, and pointed at the wrong artifact."""
+
+    def _load_broken(self, mutate) -> str:
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "ds")
+            mutate(manifest.parent / "inputs")
+            with self.assertRaises(DatasetError) as ctx:
+                load_dataset(str(manifest), Path(td))
+            return str(ctx.exception)
+
+    def test_a_purchase_order_omitting_its_number_is_named_not_misdiagnosed(self) -> None:
+        def drop(inputs: Path) -> None:
+            path = inputs / "purchase_orders" / "PO-3001.json"
+            po = _read(path)
+            po.pop("po_number")
+            _write(path, po)
+
+        message = self._load_broken(drop)
+        self.assertIn("PO-3001.json", message)
+        self.assertIn("omits its po_number", message)
+        # The old failure mode: reported as a phantom reference from the key.
+        self.assertNotIn("which the inputs do not contain", message)
+
+    def test_a_goods_receipt_omitting_its_number_is_rejected(self) -> None:
+        def drop(inputs: Path) -> None:
+            path = inputs / "goods_receipts" / "GRN-4001.json"
+            gr = _read(path)
+            gr.pop("grn_number")
+            _write(path, gr)
+
+        message = self._load_broken(drop)
+        self.assertIn("omits its grn_number", message)
+
+    def test_an_identifier_disagreeing_with_its_filename_is_rejected(self) -> None:
+        """A file copied and not renamed, or renamed and not edited: two identities, one file."""
+        def relabel(inputs: Path) -> None:
+            path = inputs / "purchase_orders" / "PO-3001.json"
+            po = _read(path)
+            po["po_number"] = "PO-9999"
+            _write(path, po)
+
+        message = self._load_broken(relabel)
+        self.assertIn("PO-9999", message)
+        self.assertIn("filename stem", message)
+
+    def test_every_shipped_document_carries_a_matching_identifier(self) -> None:
+        """Positive control across every split, held-out included (D67's enumeration)."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                for sub, field in (("purchase_orders", "po_number"),
+                                   ("goods_receipts", "grn_number")):
+                    for path in sorted((split.root / "inputs" / sub).glob("*.json")):
+                        raw = _read(path)
+                        self.assertEqual(
+                            str(raw.get(field)), path.stem,
+                            f"{split.name}/{path.name}: {field} does not match the filename",
+                        )
+
+
 if __name__ == "__main__":
     unittest.main()

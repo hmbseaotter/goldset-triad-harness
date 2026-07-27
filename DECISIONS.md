@@ -2357,7 +2357,99 @@ that reads a working tree is reporting on state that may exist nowhere else. Enf
 
 ---
 
-## Not checked — as of 0.20.0 @ D70
+## D71 — The held-out tier gets a durability story, and three gaps close ✅
+
+**Fork:** The `## Not checked` list named several gaps. Three had no downside to closing, so they closed; the rest
+stay recorded. Plus the held-out inputs tier became a git repository, which changed what was possible.
+
+**(a) The held-out inputs tier is now versioned, and covered.** It was the last tier with no durability story:
+losing it is worse than losing the secret tier, because a scorecard embeds an aggregate digest of *exactly those
+bytes* (D27) — without the bytes there is nothing left to recompute against, and every held-out result becomes
+permanently unverifiable. D70's check now covers both out-of-tree tiers.
+
+Two things the new repository needed before anything was committed:
+
+- **`.gitattributes` pinning `-text`.** The inputs digest hashes raw bytes, so a clone that normalized line
+  endings would diverge and every held-out scorecard would fail verification while looking like a harness bug.
+  Attributes do not cross repository boundaries, so the harness's own rules could never have reached these files —
+  the reasoning has to be repeated per tier, which is worth stating because it is exactly the kind of thing assumed
+  to be inherited.
+- **A README refusing publication, with the reason.** The matching policy is *deliberately* published (D53), so
+  **these inputs plus that policy are enough to derive the answer key** — mechanically, which is precisely what the
+  audit command does. A public holdout repository would end the held-out property outright. This tier is the one
+  that invites the mistake, because the agent under test *is* allowed to read it: **readable-by-the-agent and
+  publishable are different properties**, and only the first applies.
+
+**(b) A rule's named enforcement must exist.** The D67 rule check confirmed an enforcement-shaped *word* was
+present and nothing more — `Enforced by test_completely_imaginary_module.py` passed clean. **Demonstrated before
+being fixed**, because that is D59's defect (a claim nothing compares) sitting inside the mechanism built to stop
+it. Now graded: if *nothing* a rule names exists, that is an error; if some resolve and some do not, a warning,
+because the unresolved one is usually a tool in another repository. That distinction was not theoretical — the
+first run flagged a rule correctly citing `lint_spec.py`, which lives in the toolkit, not the harness.
+
+**(c) The guard file's shape is asserted.** Anchoring was checked across whatever lists happened to exist and the
+coverage rules read `deny`, so a new list would have been half-examined. An `allow` list is the case that matters:
+it grants reach in the file whose entire purpose is to withhold it.
+
+**(d) Document identity no longer falls back to the filename.** `raw.get("po_number", po_path.name)` was worse
+than it looked: the fallback keeps the `.json`, so a purchase order omitting its `po_number` was registered as
+`PO-3001.json`, which no correspondence row can match. The reference check then reported *"names purchase order
+PO-3001, which the inputs do not contain"* — pointing a reader at the answer key when the defect was in the input
+document. The field is now required, and asserted to match the filename stem, which additionally catches a file
+copied and not renamed. Every shipped document across all four splits already satisfied both.
+
+**Two under-isolated tests exposed by this work.** Extending the durability check to a second tier made three tests
+fail, because they pinned only the secret override and the real held-out tier leaked into their results. And
+routing rules through the new shape helper bypassed the `_deny_rules` seam the suite substitutes, so three guard
+tests silently began asserting against the shipped rules rather than their own fixtures — green, and measuring
+something else. **Under-isolated tests are indistinguishable from correct ones until the code reaches past what
+they pinned.**
+
+**Left recorded, not closed:** the remaining 15 container defaults (15 thin justifications would dilute the 8
+reviewed ones), a generator test suite (the audit command already cross-checks its output by independent
+derivation — that *is* the check), and `[ahead N]` versus true remote state (closing it needs network, making the
+isolation check slow and unreliable).
+
+**Rule** — **a tier is not protected by another tier's configuration**: byte-pinning, ignore rules and durability
+each stop at a repository boundary and must be restated per tier. Enforced by `_git_durability` covering both tiers
+in `check_isolation.py`, asserted by `test_both_out_of_tree_tiers_are_covered`; the per-tier `.gitattributes` is
+verified by `git check-attr` and is judgment beyond that, since no shipped check can read another repository's
+attributes.
+
+---
+
+## D72 — CI green on Linux is the gate into `[P2]`, not an item within it ✅
+
+**Fork:** Cross-platform behaviour is asserted **by construction** (`H17`) and has never been observed. Should a
+Linux run happen before `[P2]` begins?
+
+**What is actually verified today.** Every specific hazard that motivated the concern has been individually
+pinned: shipped output pins LF (D49), every text read names its encoding (D61, AST-guarded), the generator digest
+normalizes text so line endings cannot move it (D63), and `git check-attr` confirms `text: unset` on every dataset
+input, key and manifest — so a Linux checkout receives identical bytes. That is `H17`'s mechanism corroborated
+rather than merely asserted.
+
+**What is not.** Unknown unknowns, and one known asymmetry: the backslash deny-rule variants
+(`Bash(*\gen_rules.*)`) can never match on Linux, so the guard is *weaker* there — not broken, since the space and
+forward-slash variants still fire.
+
+**Why not simply run it now.** WSL on this machine has Ubuntu registered as **version 1**, which the current
+configuration refuses to run; converting needs elevation and probably a reboot, and there is no Docker. A local
+Linux run is a setup project, not a quick check, and it buys a single snapshot.
+
+**Decision ✅** — no Linux work before `[P2]`. The GitHub Actions workflow becomes `[P2]`'s **first item and entry
+gate**: it must be green on Linux before anything else in `[P2]` is built. CI is already on the `[P2]` list, it is
+the cheapest Linux available, and it checks *every* future commit instead of one snapshot. Recorded now so it is a
+rule rather than an intention — the distinction this whole run has been about.
+
+**Rule** — **when a claim can only be verified by infrastructure a later phase will build, make that
+infrastructure the phase's entry gate.** Deferring the verification is acceptable; building further on the
+unverified claim is not. Enforced by the `[P2]` phase entry in the spec naming CI first, and by this decision;
+judgment beyond that, since no test can assert the order in which a future phase is built.
+
+---
+
+## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks

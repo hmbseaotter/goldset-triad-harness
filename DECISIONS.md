@@ -2315,7 +2315,49 @@ reaches each one.** A generalization is only as wide as the places it can actual
 
 ---
 
-## Not checked — as of 0.19.0 @ D69
+## D70 — The secret tier's committed state is checked, and only advised about ✅
+
+**Fork:** Every isolation check reads the secret tier's **working tree** — the stamped guard against the template
+on disk (D64b), each manifest's digest (D58, D63). Nothing looked at what was *committed*.
+
+**Found by observation, immediately after building D67.** The guard template and the held-out manifest sat
+uncommitted while the harness side of the same two decisions (D63, D65) was already pushed. The template is the
+**source of truth** that the repository's `.claude/settings.json` is stamped from, so at that moment a disk
+failure would have:
+
+- lost D65's anchored rules and D63's re-stamp outright; and
+- on restore, left the template *behind* the stamped copy that declares itself derived from it — **inverting
+  which artifact is authoritative**, with the harness half already public.
+
+Losing the held-out re-stamp would separately have made every held-out scorecard unverifiable. Closing that
+single-disk risk is the entire reason the secret repository exists, so a check that never looks at its history was
+watching the wrong thing.
+
+**Committed is not the same as safe**, either: an unpushed commit dies with the disk exactly as an uncommitted edit
+does. The check reports both, reading `git status --porcelain -b` so the branch line's `[ahead N]` is visible.
+
+**Options considered**
+- **(A) A failing test in the suite.** **Rejected:** it would fire during any normal editing session on the secret
+  side. D65 already established that a guard obstructing routine work is one people switch off — and this one would
+  obstruct precisely the work it is meant to protect.
+- **(B) Advisory output from the isolation command.**
+
+**Decision ✅** — **(B).** `check_secret_tier_durability()` reports uncommitted changes and unpushed commits;
+`IsolationResult.durability_warnings` is deliberately excluded from `ok`, so the exit code never changes. An
+uncommitted tier is a durability risk, not an isolation breach — nothing has leaked and nothing is mis-guarded, and
+reporting it as a failure would make routine editing look like a security finding. It surfaces when isolation is
+checked, which is when you are about to rely on the guards. Absent tier or absent git: silent, per D14.
+
+**Proven to fire** against a throwaway git repo via the env override — modified file, untracked file, and clean —
+with the exit code staying 0 in every case, and the real tier never touched.
+
+**Rule** — **the artifact you inspect and the artifact that survives are different artifacts; check both.** A tool
+that reads a working tree is reporting on state that may exist nowhere else. Enforced by
+`SecretTierDurabilityTests`, including that a durability warning never fails the check.
+
+---
+
+## Not checked — as of 0.20.0 @ D70
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
@@ -2337,6 +2379,12 @@ iterate only the dev splits" was true, deliberate and unrecorded.** The next rea
 - **Cross-platform behaviour on a real Linux run.** Still `[P2]`, still asserted by construction only (`H17`) —
   and the encoding class (D61) reached the suite through a Windows-only failure mode, which is precisely the
   asymmetry that argues for running it once for real.
+- **Whether the secret tier's remote actually has the commits.** D70 reads `[ahead N]` from local git, which
+  reflects the last fetch rather than the remote's true state. A tier that is level with a *stale* tracking ref
+  reports clean. Closing that means talking to the remote, which the check deliberately does not do.
+- **The `goldset-triad-holdout` inputs directory.** The third tier — agent-readable held-out inputs — is not a git
+  repository at all, so nothing in D70 covers it and no digest binds it beyond the aggregate inputs hash inside a
+  scorecard. It is the one tier with no independent durability story.
 
 ---
 

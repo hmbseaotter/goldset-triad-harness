@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.19.0
+- Spec version: 0.20.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.19.0 @ D69** — a full sweep over spec, decisions, build prompt, all four
+- **Last swept: 2026-07-26 @ 0.20.0 @ D70** — a full sweep over spec, decisions, build prompt, all four
   datasets, the in-repo code, the secret-side generator, the guards and cross-platform behaviour. Next sweep due
   when **~8–10 decisions have accrued since this line** (so around D55), **before publishing**, or **at phase
   completion** — whichever comes first. The trigger
@@ -392,6 +392,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   ordinary words and a guard that obstructs routine work is one people switch off (D68, D65).
 - [P1] The ordering SHALL be asserted wherever one validator's correctness depends on another running first,
   rather than left to a comment a later reader must find (D68, D50).
+- [P1] The isolation command SHALL report uncommitted changes and unpushed commits in the secret tier whenever it
+  is reachable, because every other check reads that tier's working tree and the artifact inspected is therefore
+  not the artifact that survives a disk failure (D70).
+- [P1] A durability finding SHALL be advisory and SHALL NOT alter the isolation command's exit code, because an
+  uncommitted tier is a durability risk rather than an isolation breach, and a guard that reports routine editing
+  as a failure is one people switch off (D70, D65).
 
 *Portability and shared validity (D61, D62)*
 - [P1] Every text read and write in the repository SHALL name its encoding explicitly, every text write SHALL pin
@@ -919,6 +925,8 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   still rejects that shape (D68).
 - [ ] [P1] Reference resolution is asserted to run before the multi-purchase-order rate check, so the ordering
   the unreachable defaults depend on is protected on purpose (D68).
+- [ ] [P1] An uncommitted change or an untracked file in the secret tier is reported by the isolation command, a
+  clean or absent tier reports nothing, and a durability finding never changes the exit code (D70).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -1032,6 +1040,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.20.0 (2026-07-26): **the tier you inspect is not the tier that survives (D70)** — found minutes after D67
+  shipped, and by the same reasoning. Every isolation check reads the secret tier's **working tree**: the stamped
+  guard against the template on disk, each manifest's digest. Nothing looked at what was *committed* — and the
+  guard template and held-out manifest were sitting uncommitted while the harness half of the same two decisions
+  was already pushed. A disk failure then would have lost D65's anchored rules and D63's re-stamp, and a restore
+  would have left the template **behind** the stamped copy that claims to derive from it, inverting which one is
+  authoritative. Closing that single-disk risk is why the secret repository exists, so a check that never read its
+  history was watching the wrong thing. `check_secret_tier_durability()` now reports uncommitted changes and
+  unpushed commits — committed is not safe either — and is **advisory by construction**: excluded from `ok`, so
+  the exit code never moves. A failing test was rejected because it would fire during any normal editing session on
+  the secret side, and D65 already established that a guard obstructing routine work is one people switch off.
+  2 acceptance criteria added; 183 tests.
 - 0.19.0 (2026-07-26): **the recurring classes get mechanisms instead of memory (D67, D68, D69)** — a response
   to the observation that two sessions reviewing each other kept re-finding the same shapes. The diagnosis is in
   D67: **D59 stated the rule "every claim gets a check" and the same commit shipped two unchecked claims**, which

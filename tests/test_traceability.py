@@ -311,6 +311,11 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_defect_classes.PatternAnchoringTests.test_no_rule_in_any_list_is_anchored_on_a_bare_stem"),
     ("C65", "reference resolution is asserted to precede the rate check",
      "test_defect_classes.OrderDependencyTests.test_reference_resolution_precedes_the_rate_check"),
+    # Secret-tier durability (D70).
+    ("C66", "an uncommitted secret tier is reported, and a clean or absent one is not",
+     "test_defect_classes.SecretTierDurabilityTests.test_an_uncommitted_change_is_reported"),
+    ("C67", "a durability finding never changes the isolation exit code",
+     "test_defect_classes.SecretTierDurabilityTests.test_a_durability_warning_never_fails_the_check"),
 ]
 
 
@@ -388,13 +393,16 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_defect_classes.NumericDefaultTests.test_every_justification_says_something",
     "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
     "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
+    "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",
+    "test_defect_classes.SecretTierDurabilityTests.test_an_untracked_file_is_reported",
+    "test_defect_classes.SecretTierDurabilityTests.test_an_absent_tier_reports_nothing",
 })
 
 # Checksum over the spec's [P1] acceptance criteria, in the tradition the 0.10.2 sweep
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 118
+EXPECTED_SPEC_P1_CRITERIA = 119
 
 
 def _spec_p1_criteria() -> list[str]:

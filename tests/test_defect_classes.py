@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import unittest
 from pathlib import Path
@@ -275,6 +276,89 @@ class OrderDependencyTests(unittest.TestCase):
                     called.index(earlier), called.index(later),
                     f"{earlier} must run before {later}: {why}. Current order: {called}",
                 )
+
+
+class SecretTierDurabilityTests(unittest.TestCase):
+    """The tier's COMMITTED state is a claim too, and nothing compared it (D70).
+
+    Every other check reads the secret tier's working tree. Found by observation: the guard
+    template and the held-out manifest sat uncommitted while the harness side of the same two
+    decisions was already pushed. The template is the source of truth the repo's settings are
+    stamped from, so a disk failure there would have left a restored template *behind* the
+    stamped copy claiming to derive from it — inverting which one is authoritative.
+
+    Advisory rather than a failing test, on purpose: this would otherwise fire during any
+    normal editing session on the secret side, and a check that cries wolf while you work is
+    one you learn to switch off (D65). It reports when isolation is checked, which is when you
+    are about to rely on the guards.
+
+    Exercised against a throwaway git repo via the env override, never the real tier."""
+
+    def _fake_tier(self, td: str):
+        import subprocess
+
+        tier = Path(td) / "secret"
+        tier.mkdir()
+        run = lambda *a: subprocess.run(["git", "-C", str(tier), *a], capture_output=True)
+        subprocess.run(["git", "init", "-q", str(tier)], capture_output=True)
+        run("config", "user.email", "t@t")
+        run("config", "user.name", "t")
+        (tier / "_guard-template.settings.json").write_text("{}", encoding="utf-8", newline="\n")
+        run("add", "-A")
+        run("commit", "-qm", "init")
+        return tier
+
+    def test_a_clean_tier_reports_nothing(self) -> None:
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            tier = self._fake_tier(td)
+            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+                self.assertEqual(ci.check_secret_tier_durability(), [])
+
+    def test_an_uncommitted_change_is_reported(self) -> None:
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            tier = self._fake_tier(td)
+            (tier / "_guard-template.settings.json").write_text(
+                '{"edited": true}', encoding="utf-8", newline="\n"
+            )
+            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+                warnings = ci.check_secret_tier_durability()
+        self.assertTrue(warnings)
+        self.assertIn("uncommitted", warnings[0])
+        self.assertIn("_guard-template.settings.json", warnings[0])
+
+    def test_an_untracked_file_is_reported(self) -> None:
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            tier = self._fake_tier(td)
+            (tier / "stray.json").write_text("{}", encoding="utf-8", newline="\n")
+            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(tier)}):
+                warnings = ci.check_secret_tier_durability()
+        self.assertTrue(any("stray.json" in w for w in warnings))
+
+    def test_an_absent_tier_reports_nothing(self) -> None:
+        """D14: no secret tier on this machine is the normal case for a clone."""
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.dict(os.environ, {ci.SECRET_ENV_VAR: str(Path(td) / "nope")}):
+                self.assertEqual(ci.check_secret_tier_durability(), [])
+
+    def test_a_durability_warning_never_fails_the_check(self) -> None:
+        """The property that keeps this from becoming noise: advisory means advisory."""
+        result = ci.IsolationResult(
+            guard_failures=(), placement_failures=(),
+            durability_warnings=("the tier has uncommitted changes",),
+        )
+        self.assertTrue(result.ok, "a durability warning must not make isolation fail")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +103,11 @@ REQUIRED_COVERAGE = {
 class IsolationResult:
     guard_failures: tuple[str, ...]
     placement_failures: tuple[str, ...]
+    #: Advisory (D70). Kept out of `ok` on purpose: an uncommitted secret tier is a
+    #: durability risk, not an isolation breach — nothing has leaked and nothing is
+    #: mis-guarded. Failing the command for it would make a routine editing session look
+    #: like a security finding, which is how a guard earns being ignored.
+    durability_warnings: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -180,10 +187,80 @@ def check_placement(root: Path | None = None) -> list[str]:
     return failures
 
 
+SECRET_ENV_VAR = "GOLDSET_TRIAD_SECRET_DIR"
+CONVENTIONAL_SECRET_DIR = REPO_ROOT.parents[1] / "goldset-triad-secret"
+
+
+def find_secret_dir() -> Path | None:
+    """The secret tier's root, or None when this machine does not have it."""
+    override = os.environ.get(SECRET_ENV_VAR)
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.is_dir() else None
+    return CONVENTIONAL_SECRET_DIR if CONVENTIONAL_SECRET_DIR.is_dir() else None
+
+
+def check_secret_tier_durability() -> list[str]:
+    """Is the secret tier's *committed* state current? (D70)
+
+    Every other check reads the secret tier's WORKING tree — the stamped guard against the
+    template on disk (D64b), the manifests' digests (D58, D63). None of them looks at what is
+    committed, so the tier's git state was itself a claim nothing compared.
+
+    Found by observation, not by theory: the guard template and the held-out manifest sat
+    uncommitted while the harness side of the same two decisions was already pushed. The
+    template is the **source of truth** the repo's `.claude/settings.json` is stamped from, so
+    a disk failure at that moment would have lost the anchored rules and left a restored
+    template *behind* the stamped copy that claims to derive from it — reversing which one is
+    authoritative. Losing the held-out re-stamp would have made every held-out scorecard
+    unverifiable. That single-disk risk is the entire reason the secret repository exists.
+
+    Advisory, and deliberately not a test: a failing test here would fire during any normal
+    editing session on the secret side, and a check that cries wolf while you work is one you
+    learn to ignore (D65's lesson about guards people switch off). Reported when isolation is
+    checked — which is when you are about to rely on the guards."""
+    secret = find_secret_dir()
+    if secret is None or not (secret / ".git").exists():
+        return []  # absent tier, or not a git repo: nothing to be stale about (D14)
+    try:
+        # `-b` adds the branch line, which carries [ahead N]. Committed is not the same as
+        # safe: a commit that was never pushed dies with the disk exactly as an uncommitted
+        # edit does, and this whole check exists for the single-disk risk.
+        result = subprocess.run(
+            ["git", "-C", str(secret), "status", "--porcelain", "-b"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []  # git unavailable is not an isolation finding
+    if result.returncode != 0:
+        return []
+    lines = [ln.rstrip() for ln in result.stdout.splitlines() if ln.strip()]
+    branch = lines[0] if lines and lines[0].startswith("##") else ""
+    dirty = [ln.strip() for ln in lines[1:]]
+
+    warnings: list[str] = []
+    if dirty:
+        warnings.append(
+            f"the secret tier at {secret} has {len(dirty)} uncommitted change(s): "
+            f"{', '.join(dirty[:4])}{'' if len(dirty) <= 4 else ', ...'}. Every isolation check "
+            f"reads the WORKING tree, so these pass while being one disk failure from lost - "
+            f"and the guard template is the source of truth the repo's settings are stamped "
+            f"from."
+        )
+    ahead = re.search(r"\[ahead (\d+)", branch)
+    if ahead:
+        warnings.append(
+            f"the secret tier at {secret} is {ahead.group(1)} commit(s) ahead of its remote. "
+            f"Committed is not the same as safe: an unpushed commit dies with the disk too."
+        )
+    return warnings
+
+
 def run(root: Path | None = None) -> IsolationResult:
     return IsolationResult(
         guard_failures=tuple(check_guard_configuration(root)),
         placement_failures=tuple(check_placement(root)),
+        durability_warnings=tuple(check_secret_tier_durability()),
     )
 
 
@@ -241,6 +318,9 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         sys.stderr.write(f"isolation check error: {exc}\n")
         return 2
+    # Advisory findings print either way, and never change the exit code (D70).
+    for w in result.durability_warnings:
+        sys.stdout.write(f"  [durability] {w}\n")
     if result.ok:
         sys.stdout.write(
             "isolation: guard-configuration and placement checks PASS. "

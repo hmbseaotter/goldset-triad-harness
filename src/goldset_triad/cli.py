@@ -19,6 +19,7 @@ from . import scorecard as sc
 from .dataset import DatasetError, LoadedDataset, load_dataset, sha256_file
 from .schema import SchemaError, parse_findings_artifact
 from .scoring import score
+from .verify import Outcome, verify
 
 
 def _utc_now_stamp() -> str:
@@ -83,6 +84,40 @@ def run_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_verify(args: argparse.Namespace) -> int:
+    """Recompute a stored scorecard and report the first applicable outcome (D10, D66).
+
+    Exit codes follow `check_isolation`: 0 when nothing differs, 1 when verify reached a
+    verdict and that verdict is a difference, 2 when it could not reach one at all. The
+    distinction matters — an unreadable scorecard is not a failed verification, it is a
+    verification that never happened, and reporting the second as the first is the
+    misdiagnosis D50 ruled worse than silence."""
+    baseline = Path(args.baseline_inputs) if args.baseline_inputs else None
+    result = verify(
+        scorecard_path=Path(args.scorecard),
+        dataset_ref=args.dataset,
+        findings_path=Path(args.findings),
+        search_root=Path(args.datasets_root),
+        baseline_inputs=baseline,
+    )
+    if result.ok:
+        # ASCII only on the console path. The Windows console decodes as cp1252 here, and
+        # an em dash written to it is the same class of unstated platform dependency D61
+        # found in text reads -- it is just cheaper to avoid than to pin.
+        sys.stdout.write(f"verify: {result.outcome.value} - {result.causes[0]}\n")
+        return 0
+    stream = sys.stderr
+    stream.write(f"VERIFY FAILED [{result.outcome.value}]\n")
+    for cause in result.causes:
+        stream.write(f"  {cause}\n")
+    if result.outcome is Outcome.SCHEMA_UNRECOGNISED:
+        stream.write(
+            "  This is a shape mismatch, not a scoring difference. Re-score the inputs "
+            "with this version of the harness to obtain a comparable scorecard (D66).\n"
+        )
+    return 1
+
+
 def _write_new_file(path: Path, text: str) -> None:
     """Create ``path`` and write ``text``, failing if it already exists.
 
@@ -143,6 +178,39 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default="scorecards", help="directory for emitted scorecards (default: scorecards)"
     )
     score_p.set_defaults(func=run_score)
+
+    verify_p = sub.add_parser(
+        "verify",
+        help="recompute a stored scorecard from its inputs and report any difference",
+        description=(
+            "Recompute the score from the dataset and findings artifact a scorecard "
+            "claims to have scored, and report the first applicable outcome: an "
+            "unrecognised schema version, a fingerprint mismatch, a scoring difference, "
+            "or identical. The dataset and findings are named again because a scorecard "
+            "records fingerprints, not paths — a digest confirms identity, it does not "
+            "locate a file."
+        ),
+    )
+    verify_p.add_argument("--scorecard", required=True, help="path to the stored scorecard JSON")
+    verify_p.add_argument(
+        "--dataset", required=True, help="dataset identifier or path to a manifest.json"
+    )
+    verify_p.add_argument(
+        "--findings", required=True, help="path to the findings artifact that was scored"
+    )
+    verify_p.add_argument(
+        "--datasets-root",
+        default="datasets",
+        help="root under which a dataset identifier resolves (default: datasets)",
+    )
+    verify_p.add_argument(
+        "--baseline-inputs",
+        default=None,
+        help="a pristine inputs directory to diff against when the aggregate inputs "
+             "digest differs; without it verify can name that the inputs moved but not "
+             "which file, since the scorecard stores only the aggregate (D27, D74)",
+    )
+    verify_p.set_defaults(func=run_verify)
     return parser
 
 

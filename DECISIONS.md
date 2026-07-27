@@ -2538,6 +2538,103 @@ directions.
 
 ---
 
+## D74 — Verify mode: named inputs, ranked outcomes, and an honest per-file limit ✅
+
+**Fork:** `[P2]`'s `--verify` recompute mode had four unsettled questions at once — how it
+finds what to recompute, how it ranks what it finds, what it compares, and what it can
+actually say when the inputs digest moves.
+
+**(a) It cannot locate anything from the scorecard alone.** A scorecard records the dataset
+identifier and version and four SHA-256 fingerprints, and **never a path**. D10's phrasing —
+*"a `--verify` mode recomputes from those fingerprints"* — is not literally achievable: a
+digest confirms identity, it does not find a file.
+
+- **Rejected: record paths in the scorecard.** It collides with D18. `run_metadata` holds
+  *exactly* the non-deterministic fields, and a machine-specific absolute path is neither a
+  run measurement nor deterministic, so it belongs in neither half — and putting it in the
+  scored body would make byte-identity depend on where a checkout lives.
+- **Decision ✅** — the dataset and findings artifact are **named again on the command
+  line**, and the stored digests are used to *confirm* that what was handed over is what was
+  scored. Verify says so in its own `--help`, because a tool that quietly needed more than it
+  advertised is D59's defect.
+
+**(b) Outcomes are ranked, and the ranking is the substance.** A difference has several
+causes and they are not equally informative. Precedence, highest first:
+
+1. **Unrecognised schema version** (D66) — reported alone, with **nothing else compared**,
+   and before the dataset is even loaded. A shape change and a scoring difference are
+   indistinguishable once fields are compared.
+2. **A fingerprint differs** — the inputs moved. *"You scored different data"* and *"the
+   numbers are wrong"* are different findings, and reporting the second when the first is
+   true sends a reader to audit arithmetic that was never at fault (D50).
+3. **The scored body differs** on identical inputs — the real discrepancy.
+4. **Identical.**
+
+The ranking is asserted rather than assumed: scoring a *different* findings artifact makes
+causes 2 and 3 both true at once, and a test fixes which one is reported.
+
+**(c) Compared as parsed structures, not re-serialized bytes.** Every difference is named by
+its key path — `metrics.per_category.PRICE_VARIANCE.true_positives: stored 99, recomputed 4`
+— because *"every halt names its specific cause"* and a byte comparison can only say
+*differs*. JSON that parses to the same object **is** the same scorecard: key order is fixed
+by the serializer (U4), so a reordering is not a change in what was scored, while a changed
+value is, and that is what verify must localize.
+
+**(d) D27's per-file diagnosis has a limit in verify, and it is stated.** D27 stored one
+aggregate digest rather than ~75–150 per-file entries in every durable record, and said a
+mismatch would be diagnosed by recomputing per-file digests and reporting which files
+diverged. **That wording assumed both sides were in hand.** In verify they are not: the
+scorecard holds the aggregate alone, so recomputing yields the current set with nothing to
+diverge *from*. The phase-1 test that proves per-file localization works compares two
+*directories*.
+
+- **Rejected: store per-file digests after all** — overturns D27 on the grounds D27 already
+  weighed, and pays the cost in every committed scorecard forever.
+- **Rejected: localize against git** — precise for the dev split, but it binds verify to git
+  and cannot reach the held-out inputs, which live in a separate repository (D71).
+- **Decision ✅** — verify names the aggregate mismatch, prints the current per-file
+  digests, and **states plainly that it cannot say which file moved without a reference**,
+  naming `--baseline-inputs <dir>` as what would let it. Handed the other side, it delivers
+  exactly the diagnosis D27 described. Claiming a localization it cannot perform would be
+  the misdiagnosis D50 rules worse than silence; performing it silently worse still.
+
+**Two mechanism gaps this surfaced, one closed and one recorded.**
+
+**Closed — traceability had no `[P2]` checksum.** `EXPECTED_SPEC_P1_CRITERIA` guards `[P1]`
+alone, so a `[P2]` criterion could have been added to the spec with no map entry and nothing
+would have said so. Not hypothetical: **D66's criterion was missing from the spec for two
+versions** while its requirement sat in the `optional feature` block, and `lint_spec.py`'s
+"fewer acceptance criteria than SHALL requirements" warning was pointing at exactly it,
+unread. The rule was right and its enforcement reached only the phase the mechanism was
+written during — D64a, D69 and D73's shape again, now four instances. `EXPECTED_SPEC_P2_CRITERIA`
+closes it.
+
+**Recorded, not closed — the claims registry cannot see a scorecard.** D67's discovery half
+iterates `known_splits()` across `manifest`, `key`, `index` and `policy`: **split artifacts
+on disk.** A scorecard is a *runtime* artifact, never committed, so a claim-shaped field
+added to one would not be discovered — and `test_registry_has_no_stale_entries` would reject
+a registry entry naming an artifact that exists on no split, so it cannot simply be added.
+The substantive requirement is met: the scorecard's fingerprints now have a check, and that
+check is verify mode itself. What is missing is the *mechanism's* reach, which is D64a's
+shape inside the mechanism built to end D64a's shape. Left recorded because closing it means
+widening discovery to a scorecard built in memory rather than read from a split, which is a
+change to D67 and deserves its own decision rather than riding along here.
+
+**Verified by execution.** All four outcomes exercised end to end through the CLI and
+asserted in the suite: identical exits 0; altered stored numbers report `score-differs`
+naming the field; an unrecognised version reports `schema-unrecognised` and the altered
+number planted alongside it provably does **not** surface; a changed findings artifact
+reports `fingerprint-mismatch` while the body difference it also causes does not. 199 tests,
+pyright 0 errors.
+
+**Rule** — **a recompute check names what it was given, ranks what it finds, and states what
+it cannot determine.** Each half is a way the same feature lies: pretending to locate inputs
+it was never told about, collapsing distinct causes into "it differs", or implying a
+diagnosis its stored evidence cannot support. Enforced by `tests/test_verify_mode.py`, whose
+precedence and per-file-limit tests fail if any of the three is quietly dropped.
+
+---
+
 ## Not checked — as of 0.21.0 @ D72
 
 What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
@@ -2560,8 +2657,17 @@ iterate only the dev splits" was true, deliberate and unrecorded.** The next rea
 - **The generator's own correctness.** The secret tier has no test suite; `generate.py` asserts each computed
   finding against the line's stated intent at generation time, and that is the only check on it. A rule change
   that is self-consistently wrong would pass.
-- **`[P2]` verify mode against the D66 schema rule.** D66 recorded the rule before the feature exists, so
-  nothing yet enforces that verify reports an unrecognised version as its own outcome.
+- ~~**`[P2]` verify mode against the D66 schema rule.**~~ **Closed by D74** — verify mode exists, the rule is
+  now a `[P2]` acceptance criterion (it was a requirement with no criterion, which is why nothing could have
+  failed), and `test_unrecognised_schema_version_is_its_own_outcome` plants an altered number alongside the
+  stale version and asserts it does **not** surface.
+- **The claims registry cannot see a scorecard** (D74, recorded when verify mode was built). D67's discovery
+  half iterates `known_splits()` across `manifest`, `key`, `index` and `policy` — split artifacts **on disk** —
+  so a claim-shaped field added to a *runtime* artifact would not be discovered, and a registry entry naming
+  one would be rejected as stale. The scorecard's fingerprints do now have a check, namely verify mode itself;
+  what is unreached is the mechanism, which is D64a's shape inside the mechanism built to end D64a's shape.
+  Closing it means discovery scanning a scorecard built in memory rather than read from a split — a change to
+  D67, so it gets its own decision rather than riding along with verify mode.
 - **The cross-platform digest COMPARISON** — narrowed by D73, not closed, and this bullet is kept honest
   between sweeps rather than at one (the stamp above still names the last sweep, D72). A real Linux run now
   exists: the suite and the pyright gate both run there, and the very first one returned D73 — the encoding

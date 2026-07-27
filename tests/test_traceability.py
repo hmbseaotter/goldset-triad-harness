@@ -140,6 +140,8 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_scorecard_repro.ScorecardTests.test_excluding_run_metadata_makes_two_runs_byte_identical"),
     ("H57", "summary names each miss and each false flag individually",
      "test_scorecard_repro.ScorecardTests.test_summary_names_each_miss_and_false_flag"),
+    ("H58", "[P2] verify mode on an untouched scorecard reports no difference, exits zero",
+     "test_verify_mode.VerifyModeTests.test_untouched_scorecard_verifies_identical_and_exits_zero"),
     # --- edge cases ---
     ("E1", "omitting one finding reduces that category's recall by 1/count",
      "test_scoring_engine.ScoringTests.test_omitting_one_finding_reduces_recall_by_one_over_count"),
@@ -163,6 +165,11 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_dataset_loading.DatasetLoadingTests.test_unreadable_answer_key_halts"),
     ("E11", "timestamp lacking Z/second precision rejected as malformed",
      "test_dataset_loading.DatasetLoadingTests.test_timestamp_without_z_is_rejected"),
+    ("E12", "[P2] verify detects altered stored numbers and exits non-zero",
+     "test_verify_mode.VerifyModeTests.test_altered_numbers_are_detected_and_exit_nonzero"),
+    ("E13", "[P2] an unrecognised scorecard schema version is its own outcome, not a "
+            "scoring discrepancy (D66)",
+     "test_verify_mode.VerifyModeTests.test_unrecognised_schema_version_is_its_own_outcome"),
     # --- constraint validation ---
     ("C1", "same inputs scored twice: byte-identical apart from run_metadata",
      "test_cli_end_to_end.CliEndToEndTests.test_two_runs_byte_identical_apart_from_run_metadata"),
@@ -333,6 +340,18 @@ CRITERIA: list[tuple[str, str, str]] = [
 # Listing one here is a deliberate act, which is the point — see
 # ``test_every_test_method_is_mapped_or_explicitly_exempt``.
 EXEMPT_TESTS: frozenset[str] = frozenset({
+    # Verify mode's internal invariants (D74). The three [P2] criteria it must satisfy are
+    # mapped above as H58, E12 and E13. These four protect decisions the spec does not
+    # state as criteria but which decide whether verify's report is trustworthy: the
+    # OUTCOME PRECEDENCE, without which "you scored different data" is reported as "the
+    # numbers are wrong" (D50); absence of a schema version treated as unrecognised rather
+    # than as version zero; and the two halves of D74's honest account of what a
+    # per-file diagnosis can say when the scorecard stores only an aggregate (D27).
+    "test_verify_mode.VerifyModeTests.test_a_fingerprint_mismatch_outranks_a_body_difference",
+    "test_verify_mode.VerifyModeTests.test_a_scorecard_declaring_no_schema_version_is_unrecognised_not_compared",
+    "test_verify_mode.VerifyModeTests.test_without_a_baseline_the_per_file_limit_is_stated",
+    "test_verify_mode.VerifyModeTests.test_a_baseline_names_the_divergent_file",
+    "test_verify_mode.VerifyModeTests.test_an_unreadable_scorecard_is_an_error_not_a_failed_verification",
     # Positive controls: the converse of a criterion, proving a guard does not over-fire.
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_equal_rates_across_pos_is_allowed",
     "test_cross_artifact_validation.MultiPoTaxRateTests.test_shipped_datasets_have_no_multi_po_invoice",
@@ -389,6 +408,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_traceability.TraceabilityTests.test_coverage_summary",
     "test_traceability.TraceabilityTests.test_every_test_method_is_mapped_or_explicitly_exempt",
     "test_traceability.TraceabilityTests.test_spec_p1_criterion_count_is_unchanged",
+    "test_traceability.TraceabilityTests.test_spec_p2_criterion_count_is_unchanged",
     # The numbering guards check this file's own list, so they answer to no criterion.
     "test_traceability.CriteriaNumberingTests.test_no_criterion_id_is_used_twice",
     "test_traceability.CriteriaNumberingTests.test_the_numeric_ids_are_contiguous",
@@ -416,13 +436,28 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # with no entry here. Raising this number is the deliberate act that forces the entry.
 EXPECTED_SPEC_P1_CRITERIA = 122
 
+# The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
+# It was missing for the same reason D64a's gap existed and D69's after it: the rule
+# ("a criterion cannot arrive uncovered") was right, and its enforcement reached only the
+# phase the mechanism had been written during. A `[P2]` criterion could have been added
+# to the spec with no map entry and nothing would have said so — which is precisely how
+# D66's criterion went missing from the spec for two versions while its requirement sat
+# in the `optional feature` block. Not every entry is mapped yet: the ledger, CI-workflow
+# and cross-platform criteria are mapped as their items land, and this number is what
+# makes that a visible debt rather than a silent one.
+EXPECTED_SPEC_P2_CRITERIA = 6
 
-def _spec_p1_criteria() -> list[str]:
+
+def _spec_criteria(tag: str) -> list[str]:
     spec = (Path(__file__).resolve().parents[1] / "specs" / "goldset-triad-harness.md").read_text(
         encoding="utf-8"
     )
     acceptance = spec.split("## acceptance criteria", 1)[1].split("\n---", 1)[0]
-    return re.findall(r"^- \[ \] \[P1\] (.+)$", acceptance, re.M)
+    return re.findall(rf"^- \[ \] \[{tag}\] (.+)$", acceptance, re.M)
+
+
+def _spec_p1_criteria() -> list[str]:
+    return _spec_criteria("P1")
 
 
 def _all_test_methods() -> set[str]:
@@ -510,6 +545,22 @@ class TraceabilityTests(unittest.TestCase):
             f"the spec now has {actual} [P1] acceptance criteria but this map expects "
             f"{EXPECTED_SPEC_P1_CRITERIA}. Add the missing entries to CRITERIA and raise "
             f"EXPECTED_SPEC_P1_CRITERIA, so a new criterion cannot arrive uncovered.",
+        )
+
+    def test_spec_p2_criterion_count_is_unchanged(self) -> None:
+        """The same guard for `[P2]`, which it did not previously reach (D74).
+
+        The rule — a criterion cannot arrive uncovered — was correct and its enforcement
+        stopped at the phase the mechanism was written during. That is the shape D64a,
+        D69 and D73 each turned out to be, and it was not hypothetical here: D66's
+        criterion was absent from the spec for two versions while its requirement sat in
+        the `optional feature` block, and nothing in this file could have said so."""
+        actual = len(_spec_criteria("P2"))
+        self.assertEqual(
+            actual, EXPECTED_SPEC_P2_CRITERIA,
+            f"the spec now has {actual} [P2] acceptance criteria but this map expects "
+            f"{EXPECTED_SPEC_P2_CRITERIA}. Add the missing entries to CRITERIA and raise "
+            f"EXPECTED_SPEC_P2_CRITERIA, so a new criterion cannot arrive uncovered.",
         )
 
     def test_every_test_method_is_mapped_or_explicitly_exempt(self) -> None:

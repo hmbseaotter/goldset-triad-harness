@@ -533,5 +533,121 @@ class SecretTierDurabilityTests(unittest.TestCase):
         self.assertTrue(result.ok, "a durability warning must not make isolation fail")
 
 
+# ---------------------------------------------------------------------------
+# Class 5 - an `assert` in shipped code (D88)
+# ---------------------------------------------------------------------------
+#: `python -O` strips every assert. **D62 already ruled on this**: an
+#: `assert isinstance(key, dict)` in `audit_key` became a raised `DatasetError`, because
+#: under -O the failure would resurface later as an unrelated `TypeError` inside the
+#: derivation. That fix removed one site and left six in the same file, plus one in
+#: `scoring`, and no mechanism noticed — the class was ruled on and never locked.
+#:
+#: The buckets, in D82's shape: a lock names the universe it scans and fails on anything
+#: fitting no bucket.
+#:
+#: * **type-narrowing** — an `isinstance` or `is not None` test that tells the type checker
+#:   what a prior check already guarantees at runtime. Removing it changes no behaviour,
+#:   which is exactly why it must be *stated*: an assert that narrows and an assert that
+#:   validates are indistinguishable at the site.
+#: * **load-bearing** — anything whose removal could change behaviour. The registry below
+#:   is empty and must stay so; such a site is a raised error waiting to be written.
+#:
+#: Each entry says WHY the condition holds without the assert. "The loader ran first" is a
+#: real reason, and it is the same reason D68 requires be recorded for a numeric default.
+ASSERT_JUSTIFICATIONS: dict[tuple[str, str], str] = {
+    ("audit_key.py", "isinstance(po, dict)"):
+        "type-narrowing: `_read` goes through jsonio.read_json_object (D77), which raises "
+        "unless the document parses to an object, and audit() runs the shared loader first "
+        "(D62), so a non-object purchase order is refused before the derivation begins",
+    ("audit_key.py", "isinstance(gr, dict)"):
+        "type-narrowing: same shared reader and same loader gate as the purchase order "
+        "above - a goods receipt that is not a JSON object is named and refused at load "
+        "(D62, D77), so this cannot be reached with a non-dict",
+    ("audit_key.py", "isinstance(index, dict)"):
+        "type-narrowing: the invoice index is read through the shared object reader and is "
+        "validated by load_invoice_index before audit derives anything (D62, D77); a "
+        "list-shaped or scalar index is refused there, naming the artifact",
+    ("audit_key.py", "isinstance(correspondence, list)"):
+        "type-narrowing: the loader rejects a key whose correspondence is absent, empty or "
+        "not a list of rows (D48, D50, D56), and audit() calls it before deriving, so by "
+        "here the correspondence is a list of dicts",
+    ("audit_key.py", "isinstance(entry, dict)"):
+        "type-narrowing: every correspondence row is resolved field by field at load (D50), "
+        "which cannot succeed on a non-dict row, so a row reaching the derivation is an "
+        "object",
+    ("audit_key.py", "isinstance(e, dict)"):
+        "type-narrowing: expected findings are parsed into Finding objects by the loader "
+        "before the audit compares them (D62), so a non-object entry is refused with a "
+        "named cause rather than reaching this re-read",
+    ("scoring.py", "fp_rate is not None"):
+        "type-narrowing: _ratio returns None only on a zero denominator, and the "
+        "denominator is the dataset's invoice count, which the loader refuses to be zero "
+        "(it is the false-positive-rate denominator); ScoreResult declares the field "
+        "Decimal, so this states for the checker what load-time validation guarantees",
+}
+
+_NARROWING = ("isinstance", "is not None", "is None")
+
+
+def _assert_sites() -> list[tuple[str, str]]:
+    """Every `assert` in shipped code, as (module, unparsed test expression)."""
+    found: list[tuple[str, str]] = []
+    for path in sorted(PACKAGE.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                found.append((path.name, ast.unparse(node.test)))
+    return found
+
+
+class ShippedAssertTests(unittest.TestCase):
+    """`python -O` strips asserts, so every one in shipped code says why that is safe."""
+
+    def test_every_assert_in_shipped_code_is_justified(self) -> None:
+        unjustified = [f"{m}:{e}" for m, e in _assert_sites()
+                       if (m, e) not in ASSERT_JUSTIFICATIONS]
+        self.assertEqual(
+            unjustified, [],
+            f"{len(unjustified)} assert(s) in shipped code with no recorded justification: "
+            f"{unjustified}. `python -O` removes them, so either the condition is "
+            f"guaranteed by a prior check -- say which, here -- or the assert is "
+            f"load-bearing and must become a raised error naming its cause (D62, D88).",
+        )
+
+    def test_no_justification_outlives_its_site(self) -> None:
+        """A justification for an assert that no longer exists guards nothing -- the same
+        staleness check the claims registry has, and D82 found missing on EXEMPT_TESTS."""
+        live = set(_assert_sites())
+        stale = [f"{m}:{e}" for (m, e) in ASSERT_JUSTIFICATIONS if (m, e) not in live]
+        self.assertEqual(stale, [], f"ASSERT_JUSTIFICATIONS names absent site(s): {stale}")
+
+    def test_every_justification_says_something(self) -> None:
+        for (module, expr), reason in ASSERT_JUSTIFICATIONS.items():
+            with self.subTest(site=f"{module}:{expr}"):
+                self.assertGreater(
+                    len(reason.strip()), 40,
+                    f"the justification for {module}:{expr} is too thin to review",
+                )
+
+    def test_every_shipped_assert_is_type_narrowing(self) -> None:
+        """The bucket that must stay empty (D82's shape). A load-bearing assert is a
+        raised error waiting to be written: under -O it vanishes and the failure it was
+        meant to name resurfaces later as something unrelated, which is what D62 fixed."""
+        substantive = [f"{m}:{e}" for m, e in _assert_sites()
+                       if not any(marker in e for marker in _NARROWING)]
+        self.assertEqual(
+            substantive, [], f"assert(s) doing more than narrowing a type: {substantive}",
+        )
+
+    def test_the_scan_finds_the_asserts_that_exist(self) -> None:
+        """The census. A scanner that silently finds nothing is indistinguishable from one
+        whose pattern stopped matching, so the count is asserted non-trivial (D82)."""
+        self.assertGreaterEqual(
+            len(_assert_sites()), 5,
+            "the assert scan found almost nothing, which is more likely a broken pattern "
+            "than a codebase that changed",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

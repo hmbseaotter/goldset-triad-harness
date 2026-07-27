@@ -150,6 +150,13 @@ Every `[P2]` criterion in the spec, each passing **by execution**:
   non-zero.
 - [ ] Verify mode on a scorecard carrying an unrecognised schema version reports the version mismatch as its
   own outcome, and does **not** present the resulting differences as a scoring discrepancy (D66).
+- [ ] Verify mode pointed at a dataset other than the one a scorecard records reports that as its own outcome,
+  naming the stored and the resolved identifier, and compares nothing further — neither fingerprints nor scored
+  body, since digests of a different dataset differ for a reason that is not tampering (D79).
+- [ ] The published README states only what is verified about isolation — placement and guard configuration
+  checked automatically, harness enforcement attested with a dated record rather than tested by executing code,
+  and a determined subprocess outside deny coverage by design — and claims nowhere that enforcement is verified
+  by an automated probe (D30, D84).
 - [ ] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.

@@ -408,6 +408,28 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_published_claims.PublishedCommandTests.test_every_command_the_readme_names_is_one_that_exists",
     "test_published_claims.PublishedCommandTests.test_every_documented_command_is_given_for_both_shells",
     "test_published_claims.WrappedPhraseScanTests.test_a_wrapped_phrase_is_found_after_flattening_and_not_before",
+    # --- the phase-completion sweep (D85-D89) ---------------------------------------
+    # An advertised invocation is EXECUTED, not read (D85). C46 already carries D59's
+    # criterion for a program name that must exist; these cover the invocation one layer
+    # out -- the documents told a reader to run a command that failed on an uninstalled
+    # checkout, and only running it could have shown that.
+    "test_entry_points.AdvertisedInvocationTests.test_the_documented_module_invocation_runs",
+    "test_entry_points.AdvertisedInvocationTests.test_the_bare_invocation_really_does_fail",
+    "test_entry_points.AdvertisedInvocationTests.test_every_document_that_advertises_the_module_form_states_the_path",
+    # E10 now tests the case it names -- a present but undecodable key (D86). Absence is a
+    # different finding and keeps its own test rather than being lost with the rebinding.
+    "test_dataset_loading.DatasetLoadingTests.test_absent_answer_key_halts",
+    # The assert lock (D88). `python -O` strips asserts; D62 ruled on one site and left
+    # seven. Same registry-plus-census shape as the numeric defaults it sits beside.
+    "test_defect_classes.ShippedAssertTests.test_every_assert_in_shipped_code_is_justified",
+    "test_defect_classes.ShippedAssertTests.test_no_justification_outlives_its_site",
+    "test_defect_classes.ShippedAssertTests.test_every_justification_says_something",
+    "test_defect_classes.ShippedAssertTests.test_every_shipped_assert_is_type_narrowing",
+    "test_defect_classes.ShippedAssertTests.test_the_scan_finds_the_asserts_that_exist",
+    # U4 observed under a randomised string hash rather than held by construction (D89).
+    "test_scorecard_repro.HashSeedDeterminismTests.test_the_scored_body_is_identical_under_different_hash_seeds",
+    # The build prompt is the third copy of the criteria list, now bound to it (D87).
+    "test_traceability.TraceabilityTests.test_the_build_prompt_gate_lists_every_phase_two_criterion",
     # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
     # file" — against a condition its own test could not reach. C72 scores ONE split, so
     # its ordinals never tie; the tie needed two identifiers in one second, and it made
@@ -692,6 +714,30 @@ class TraceabilityTests(unittest.TestCase):
             f"the spec now has {actual} [P2] acceptance criteria but this map expects "
             f"{EXPECTED_SPEC_P2_CRITERIA}. Add the missing entries to CRITERIA and raise "
             f"EXPECTED_SPEC_P2_CRITERIA, so a new criterion cannot arrive uncovered.",
+        )
+
+    def test_the_build_prompt_gate_lists_every_phase_two_criterion(self) -> None:
+        """The THIRD copy of the criteria list, bound at last (D87).
+
+        `EXPECTED_SPEC_P2_CRITERIA` binds the spec to this map. Nothing bound either to the
+        build prompt — which opens its gate with the words *"Every `[P2]` criterion in the
+        spec"* and, when this was written, enumerated six of eight. It had silently fallen
+        behind twice: once when the sweep added the dataset-mismatch criterion, once when
+        the README criterion arrived.
+
+        That document matters more than its obscurity suggests: it is what a fresh build
+        session actually reads, and the 0.10.3 sweep found six of its eight defects there
+        for exactly that reason. Counted rather than compared line by line, because the
+        prompt legitimately paraphrases — what must not drift is how many gates there are."""
+        prompt = (Path(__file__).resolve().parents[1] / "specs"
+                  / "goldset-triad-harness.p2.build-prompt.md").read_text(encoding="utf-8")
+        gate = prompt.split("## Phase-2 acceptance gate", 1)[1].split("\n## ", 1)[0]
+        listed = len(re.findall(r"(?m)^- \[ \] ", gate))
+        self.assertEqual(
+            listed, EXPECTED_SPEC_P2_CRITERIA,
+            f"the phase-2 build prompt's gate lists {listed} item(s) but the spec has "
+            f"{EXPECTED_SPEC_P2_CRITERIA} [P2] criteria. Its gate says 'Every [P2] "
+            f"criterion in the spec', so a builder working from it would stop short.",
         )
 
     def test_every_test_method_is_mapped_or_explicitly_exempt(self) -> None:

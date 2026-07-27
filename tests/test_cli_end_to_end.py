@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -38,15 +40,30 @@ class CliEndToEndTests(unittest.TestCase):
             self.assertTrue(list(out.glob("*.txt")))  # human summary too
 
     def test_malformed_findings_halts_nonzero_and_writes_nothing(self) -> None:
+        """E7 in full: halts, exits non-zero, **names the offending finding and field**,
+        and writes no scorecard.
+
+        The naming clause went unasserted for two phases (D86). This test checked the exit
+        code and the absent scorecard — both of which a halt with a generic message also
+        satisfies — while the criterion, and the observability requirement behind it, are
+        about what the reader is told. The harness did name them correctly the whole time;
+        nothing compared that to the promise. D81's rule, one criterion further on."""
         with tempfile.TemporaryDirectory() as td:
             fp = Path(td) / "bad.json"
             _write_findings(fp, [{"status": "DISCREPANCY", "category": "NOT_A_CATEGORY",
                                   "scope": "LINE", "target": {"document_id": "INV-2001", "line_id": "1"}}])
             out = Path(td) / "out"
-            rc = main(["score", "--dataset", "dev", "--datasets-root",
-                       str(support.DATASETS), "--findings", str(fp), "--out", str(out)])
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["score", "--dataset", "dev", "--datasets-root",
+                           str(support.DATASETS), "--findings", str(fp), "--out", str(out)])
             self.assertNotEqual(rc, 0)
             self.assertFalse(out.exists() and list(out.glob("*.json")))
+
+            message = err.getvalue()
+            self.assertIn("NOT_A_CATEGORY", message, "the halt must name the offending value")
+            self.assertIn("finding #0", message, "the halt must name WHICH finding")
+            self.assertIn("'category'", message, "the halt must name WHICH field")
 
     def test_missing_dataset_halts_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as td:

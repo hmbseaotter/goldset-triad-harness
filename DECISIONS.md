@@ -3249,11 +3249,267 @@ session that both creates the artifact and remembers the rule. Enforced by
 
 ---
 
-## Not checked — as of 0.23.0 @ D82
+## D85 — An advertised invocation is executed, not read ✅ (phase-completion sweep)
+
+**Fork:** Two documents told a reader how to run this harness without installing it:
+
+```
+README.md                 "Without installing, every command also runs as
+                           python -m goldset_triad.<module>"
+ISOLATION_ATTESTATION.md  "...or python -m goldset_triad.check_isolation from a
+                           source checkout"
+```
+
+Both are false. The package lives under `src/`, so the bare form fails:
+`ModuleNotFoundError: No module named 'goldset_triad'`.
+
+**This is D59's defect, one layer out.** D59's rule — *anything a tool says about itself is
+a claim, and every claim gets a check* — was written about a `prog=` string naming a command
+that did not exist. Here the name exists and the **invocation** does not work, and it
+survived for D59's exact reason: every test reaches the package through `tests/support.py`,
+which inserts `src` into `sys.path`, and every manual run used an installed console script.
+**The advertised route was the one path nobody took.** `test_entry_points` checked module →
+declaration, declaration → callable, and advertised-name → declaration; all three compare
+*names*, and none runs anything.
+
+**Options considered**
+- **Rejected: assert the documents mention `PYTHONPATH`.** A text check on a text defect,
+  which is how the `assertIn("on:", …)` family of D81 came about — it would pass on a
+  document that mentioned the variable while showing a broken command.
+- **Decision ✅** — the invocation is **run**, in a subprocess that does not inherit the
+  suite's own path fixing, and its `--help` output is asserted. The premise is proven too:
+  omitting `PYTHONPATH` must genuinely fail, or documenting it is cargo. Both documents now
+  show the working form, and a per-line check refuses any concrete `python -m goldset_triad`
+  line without it — a line carrying the `<module>` placeholder is exempt, being prose that
+  describes the form rather than a command anyone types.
+
+**A defect in the check, caught while writing it.** The premise test first asked
+`importlib.util.find_spec("goldset_triad")` in-process to decide whether the package was
+installed — and `support.py` had already put `src` on the path, so it answered *"installed"*
+and skipped itself. The check would have been permanently vacuous **because of the very
+path fixing that hid the original defect**. It now asks in a clean subprocess run from
+elsewhere.
+
+**Rule** — **a documented invocation is executed by a test, from an environment that does
+not resemble the suite's.** A name can be compared; a command has to be run. Enforced by
+`tests/test_entry_points.AdvertisedInvocationTests`.
+
+---
+
+## D86 — A criterion's test must exercise the case the criterion names ✅
+
+**Fork:** Two `[P1]` criteria were bound to tests that demonstrated something narrower or
+other than what they say.
+
+**(a) E7 promised a message nothing read.** *"A malformed findings artifact halts, exits
+non-zero, **names the offending finding and field**, and writes no scorecard."* Its test
+asserted the exit code and the absent scorecard — both of which a halt with a generic
+message also satisfies. The harness had been naming them correctly all along
+(`category 'NOT_A_CATEGORY' … [finding #0, field 'category']`); nothing compared that to the
+promise. D81's rule, one criterion further on.
+
+**(b) E10 tested absence where it says unreadable.** *"An unreadable answer key halts."* The
+test **deleted** the key. The previous sweep found this and wrote it down — *"E10 was only
+ever covered for the absent case: its test deletes the file"* — closed the underlying class
+in `jsonio` (D77) and left the binding pointing at the wrong case. **A recorded gap is not a
+closed one**, and the criterion went on reading as satisfied.
+
+**Measured rather than assumed.** All thirty criteria promising a named cause were scanned
+for a test that never inspects the message. Five came back; four (H57, C7, C46, C48) were
+false positives of a crude pattern and do assert their messages. **E7 was the only genuine
+instance** — which is what makes this the moment D68 names: a class at one, cheap to empty
+and cheap to lock.
+
+**Decision ✅** — E7 asserts the offending value, the finding index and the field name. E10
+is rebound to a key that is present and not decodable, asserting the halt names the artifact
+*by role*; the absent case keeps a test of its own, because absence and unreadability send a
+reader to different places (D77).
+
+**Rule** — **when a criterion names a case, its test exercises that case; when a criterion
+promises a message, its test reads the message.** A test that passes for a narrower reason
+than the criterion states is a criterion that cannot fail. Enforced by the two tests
+themselves, and by the scan above being repeatable.
+
+---
+
+## D87 — Every document restating the criteria is bound to them ✅
+
+**Fork:** The phase-2 build prompt opens its gate with *"Every `[P2]` criterion in the
+spec"* and enumerated **six of eight**. It had fallen behind twice: once when D79 added the
+dataset-mismatch criterion, once when D84 added the README one.
+
+**Why nothing noticed.** `EXPECTED_SPEC_P2_CRITERIA` binds the spec to the traceability map.
+Nothing bound either to the prompt — a **third** copy of the same list, in the document a
+fresh build session actually reads. The 0.10.3 sweep found six of its eight defects in that
+document for precisely this reason, and the lesson reached the spec and the map and stopped
+there: D82's *correct rule, wrong universe*, with the universe being which documents the
+mechanism can see.
+
+**Decision ✅** — the prompt's gate is completed, and a test asserts its checkbox count
+equals the spec's `[P2]` criterion count. Counted rather than diffed line by line, because
+the prompt legitimately paraphrases; what must not drift is **how many gates there are**. A
+builder working from a short list stops early and believes they are done.
+
+**Rule** — **any document that restates the criteria is bound to the count.** Enforced by
+`test_traceability.TraceabilityTests.test_the_build_prompt_gate_lists_every_phase_two_criterion`.
+
+---
+
+## D88 — An assert in shipped code declares why removing it is safe ✅
+
+**Fork:** Seven bare `assert`s live in shipped code — six in `audit_key`, one in `scoring`.
+`python -O` strips every one.
+
+**D62 already ruled on this.** It converted `assert isinstance(key, dict)` into a raised
+`DatasetError` because under `-O` the failure would resurface later as an unrelated
+`TypeError` inside the derivation — and it fixed **one site in that same file and left six**.
+The class was ruled on and never locked, which is this project's most-repeated shape.
+
+**Measured before being called a defect.** A malformed purchase order is caught by the
+shared loader with a named cause and exit 2 **before any assert runs**; all splits audit
+clean under `-O`; the full suite passes under `-O`. So every one of the seven is
+type-narrowing — telling the checker what a prior check already guarantees — and the code is
+correct today. **The finding is not that they are wrong; it is that nothing says why they
+are right.** An assert that narrows a type and one that validates data are indistinguishable
+at the site, and D68's scanner, which exists to force exactly this "unreachable by a prior
+check" reasoning into writing for `.get()` defaults, cannot see an `assert`.
+
+**Decision ✅** — asserts get the registry-and-census treatment the defaults already have,
+in D82's shape: every site carries a justification naming the prior check that makes it
+unreachable, a staleness test refuses a justification whose site has gone, a bucket test
+keeps the **load-bearing** set empty, and a census refuses to let the scan go quiet.
+
+**Rule** — **a construct the interpreter can silently remove must record why its removal is
+safe.** `-O` is to asserts what a missing key is to a default: the condition under which
+correct-looking code stops checking. Enforced by
+`tests/test_defect_classes.ShippedAssertTests`.
+
+---
+
+## D89 — Byte-identity observed under a randomised hash, not held by construction ✅
+
+**Fork:** `score()` iterates `set(expected_by_key) | set(flags_by_key)` — a set of tuples of
+strings — and Python randomises string hashing per process, so that order differs run to
+run. Nothing emitted depends on it, because every list reaching the scorecard is either
+sorted or reduced to a count. Is that enough?
+
+**No, and the project already knows why.** That is a construction argument spanning two
+modules, and H17 was a construction argument corroborated hazard by hazard for two phases —
+which failed on its first real observation (D73). The existing reproducibility tests run
+twice inside **one process**, so they share one hash seed and could never have seen this.
+
+**Measured first, four seeds, with duplicate contention and a phantom target planted so the
+sets had something to reorder:**
+
+```
+seed      0 : body sha256 d9a484cd4fcface5
+seed      1 : body sha256 d9a484cd4fcface5
+seed  12345 : body sha256 d9a484cd4fcface5
+seed  99999 : body sha256 d9a484cd4fcface5
+```
+
+**Decision ✅** — the property holds, and it is now asserted rather than argued: two
+subprocesses at different `PYTHONHASHSEED` values must produce an identical scored body.
+Subprocesses are the substance, not overhead — a same-process test cannot vary the seed.
+
+**Rule** — **a determinism claim that spans modules is verified across processes, because a
+single process fixes the very thing that could break it.** Enforced by
+`tests/test_scorecard_repro.HashSeedDeterminismTests`.
+
+---
+
+## D90 — Regeneration idempotence, verified at last; and one thing for the author ✅
+
+**Fork:** *"Regenerating the dev split's invoice PDFs from the same seed produces
+byte-identical files, leaving the aggregate inputs digest unchanged"* is a `[P1]` criterion
+(H6), carried as `MANUAL:` since the phase-1 build. It had gone **unverified for three
+consecutive sweeps**, because running the generator rewrites dataset files and *"never
+modify, move or delete any dataset, answer-key or fixture file"* is a human-checkpoint item.
+The author authorised a single run.
+
+**Method.** Digest all 31 tracked dataset artifacts; run the generator; compare. Git is the
+safety net — every dataset file is tracked, so any divergence is both visible and
+restorable.
+
+**Result: byte-identical, everywhere.**
+
+```
+git status --porcelain datasets/     (empty)
+31 artifacts, sha256 before == after  ALL IDENTICAL
+untracked artifacts introduced        none
+```
+
+The generator emitted all four splits, held-out included. The out-of-tree tiers came back
+identical too — `check_isolation` reports **no durability warnings**, and D70's check reads
+each tier's git state, so a changed byte there would have surfaced as an uncommitted change.
+Suite 250 green afterwards; all splits still audit consistent.
+
+**What this closes.** D33 chose ReportLab specifically because PDF writers embed a creation
+timestamp and document ID by default, which would change the inputs digest on every
+regeneration and *present as tampering*; D43 pinned the generator's newline for the same
+class of reason. Both were argued and neither had been observed end to end since. It is
+now observed — and it is the third construction-only claim this project has converted to an
+observed one, after H17 (D76) and hash-seed determinism (D89).
+
+**One observation the author should settle, because I cannot.** The invocation used was
+`cd <secret tier>/_generators && python generate.py`, and the deny list carries
+`Bash(* generate.*)`, which that command's text appears to match. It was not refused. From
+inside the session I cannot tell whether the rule failed to match, whether compound commands
+are matched differently, or whether the session's permission mode allowed it — and **D30 is
+explicit that harness enforcement cannot be settled by code from within**, which is exactly
+why it is attested rather than tested. This is new evidence bearing on a dated attestation,
+so the attestation is worth re-running rather than assumed to still hold. Recorded here
+rather than acted on: the never-do list forbids routing around a guard, and it equally
+forbids quietly concluding one works.
+
+**Rule** — **a `MANUAL:` criterion that no agent may execute needs a scheduled human run,
+not an entry on a list.** H6 sat unverified for three sweeps not because anyone judged it
+low-value but because every pass correctly declined to run it, and *"deliberately not
+examined"* is indistinguishable from *"never examined"* once it repeats. Enforced by
+judgment, not checkable — but the negative-space list now says so in those terms.
+
+---
+
+## Not checked — as of 0.25.0 @ D90
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
-iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here.
+iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
+phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
+things by walking it.
+
+### The phase-completion sweep (0.25.0, D85–D89)
+
+It worked the previous sweep's negative-space list as its agenda, which is what that list is
+for and the first time it has been used that way. It examined the scoring engine, the
+advertised invocations, the `[P1]` criteria that promise a named cause, the phase-2 build
+prompt, and this session's own unreviewed work. It did **not** examine:
+
+- ~~**Dataset regeneration.**~~ **Closed by D90**, on the author's explicit one-time
+  authorisation: all 31 tracked artifacts came back byte-identical, no untracked artifacts
+  appeared, and the out-of-tree tiers reported no durability warning, so the held-out split
+  regenerated identically too. H6 and the D33/D43 idempotence argument are now observed
+  rather than argued. **What remains open here is the guard question D90 raises**, which
+  only a human can settle: a command whose text appears to match `Bash(* generate.*)` was
+  not refused, and D30 rules that harness enforcement cannot be probed from inside. The
+  dated attestation is worth re-running.
+- **`pip install -e .`** as a live step. The console-script declarations are checked three
+  ways (D59) and the module invocation is now executed (D85), but the install itself would
+  modify the environment, so it was not run. D59 last verified it in a throwaway venv.
+- **The other ~94 `[P1]` criteria.** Thirty were scanned — those promising a *named cause*,
+  chosen because D81 showed message assertions are this project's weak spot. One genuine
+  instance came back (E7). The remaining criteria were not re-read against their tests, and
+  E10 is the standing warning that a binding can be wrong for two phases while looking
+  satisfied.
+- **`scorecard.py`'s rendering.** `scoring.py` was read line by line; the summary renderer
+  was read only for its `run_metadata` independence (which the cross-platform job depends
+  on) and not for its arithmetic or formatting.
+- **The generator's own rules.** Unchanged from every prior sweep: the secret tier has no
+  test suite, and a rule change that is self-consistently wrong still passes.
+- **The reserve-then-create race**, carried forward from the last sweep and now slightly
+  wider: D83 made reservation skip unparseable neighbours, which does not touch the
+  check-then-create shape. Two concurrent `score` runs can still pick one ordinal and one
+  will raise `FileExistsError`. Still no test covers concurrent runs.
 
 ### The D77–D82 sweep (0.23.0)
 

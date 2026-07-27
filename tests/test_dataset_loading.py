@@ -39,11 +39,37 @@ class DatasetLoadingTests(unittest.TestCase):
         self.assertIn("no-such-dataset", str(ctx.exception))
 
     def test_unreadable_answer_key_halts(self) -> None:
+        """E10, bound at last to the case its own wording names (D86).
+
+        This test **deleted** the key, so for two phases the criterion "an unreadable
+        answer key halts" was satisfied by a demonstration that an *absent* one does. The
+        previous sweep noticed and wrote it down — *"E10 was only ever covered for the
+        absent case: its test deletes the file"* — closed the underlying class in `jsonio`
+        (D77), and left the binding pointing at the wrong case. A recorded gap is not a
+        closed one.
+
+        Unreadable here means present and not decodable: bytes that are not UTF-8, which is
+        the case `UnicodeDecodeError` covers and `except OSError` never did. The halt must
+        also name the artifact by role, or a reader is sent to the standard library."""
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "d")
+            key = manifest.parent / "dev_answer_key.json"
+            key.write_bytes(b'{"expected_findings": [], "note": "\xff\xfe not utf-8"}')
+            with self.assertRaises(DatasetError) as caught:
+                load_dataset(str(manifest), support.DATASETS)
+            message = str(caught.exception)
+            self.assertIn("answer key", message, "the halt names the artifact by role")
+            self.assertIn("UTF-8", message, "and says what was wrong with it")
+
+    def test_absent_answer_key_halts(self) -> None:
+        """The case the criterion's test used to cover, kept rather than lost: absence and
+        unreadability are different findings and send a reader to different places (D77)."""
         with tempfile.TemporaryDirectory() as td:
             manifest = support.copy_dataset("dev", Path(td) / "d")
             (manifest.parent / "dev_answer_key.json").unlink()
-            with self.assertRaises(DatasetError):
+            with self.assertRaises(DatasetError) as caught:
                 load_dataset(str(manifest), support.DATASETS)
+            self.assertIn("answer key", str(caught.exception))
 
     def test_timestamp_without_z_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:

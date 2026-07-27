@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import decimal
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -125,6 +128,61 @@ class ScorecardTests(unittest.TestCase):
         for f in result.missed:
             self.assertIn(f.target.document_id, summary)
         self.assertIn("INV-2004", summary)  # the false flag's target
+
+
+class HashSeedDeterminismTests(unittest.TestCase):
+    """U4 under a randomised string hash, observed rather than reasoned about (D89).
+
+    `score()` iterates `set(expected_by_key) | set(flags_by_key)` — a set of tuples of
+    strings — and Python randomises string hashing per process, so that iteration order
+    differs between runs. Nothing in the emitted scorecard depends on it, because every
+    list that reaches the output is either sorted or reduced to a count. But that is a
+    property held *by construction* across two modules, and this project has a name for
+    a construction-only claim: H17, which was corroborated hazard by hazard for two
+    phases and then failed on its first real observation.
+
+    The existing reproducibility tests run twice inside ONE process, so they share one
+    hash seed and could never have seen this. Subprocesses are the point, not overhead."""
+
+    def _body_under_seed(self, seed: str, findings: Path, out: Path) -> str:
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env["PYTHONPATH"] = str(support.SRC)
+        env["PYTHONHASHSEED"] = seed
+        run = subprocess.run(
+            [sys.executable, "-m", "goldset_triad.cli", "score", "--dataset", "dev",
+             "--datasets-root", str(support.DATASETS), "--findings", str(findings),
+             "--out", str(out)],
+            capture_output=True, text=True, env=env, cwd=support.REPO_ROOT, timeout=300,
+        )
+        self.assertEqual(run.returncode, 0, f"scoring failed under seed {seed}: {run.stderr}")
+        card = json.loads(sorted(out.glob("*.json"))[0].read_text(encoding="utf-8"))
+        return sc.deterministic_body(card)
+
+    def test_the_scored_body_is_identical_under_different_hash_seeds(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            key = support.read_json(support.key_path("dev"))
+            findings = [{k: e[k] for k in ("status", "category", "scope", "target")}
+                        for e in key["expected_findings"]]
+            # Duplicates force contention and a phantom target forces the non-existent
+            # branch, so several match keys carry more than one finding: without them the
+            # sets are near-trivial and a reordering would have nothing to reorder.
+            findings += [findings[0], findings[1], {
+                "status": "DISCREPANCY", "category": "PRICE_VARIANCE", "scope": "LINE",
+                "target": {"document_id": "INV-2001", "line_id": "NOT-A-REAL-LINE"},
+            }]
+            artifact = td / "f.json"
+            artifact.write_text(
+                json.dumps({"schema_version": "1", "findings": findings}),
+                encoding="utf-8", newline="\n",
+            )
+            first = self._body_under_seed("0", artifact, td / "a")
+            second = self._body_under_seed("524287", artifact, td / "b")
+            self.assertEqual(
+                first, second,
+                "the scored body differs between two hash seeds, so set-iteration order "
+                "is reaching the output and U4 holds only by luck of the seed",
+            )
 
 
 if __name__ == "__main__":

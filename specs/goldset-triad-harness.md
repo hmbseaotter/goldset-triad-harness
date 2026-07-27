@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.24.0
+- Spec version: 0.25.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,20 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-26 @ 0.23.0 @ D82** — an independent sweep over the `[P2]` surface (verify mode, the
+- **Last swept: 2026-07-27 @ 0.25.0 @ D90** — the **phase-2 completion sweep**, which took the previous
+  sweep's negative-space list as its agenda: the first time that list has been used the way it was written to
+  be used, and it paid immediately. Five findings, five decisions: D85 (an advertised invocation is executed,
+  not read — both the README and the attestation told a reader to run a command that fails on an uninstalled
+  checkout), D86 (a criterion's test must exercise the case the criterion names — E7 promised a message nothing
+  read, and E10 still tested absence where it says *unreadable*, which the previous sweep had recorded and left
+  open), D87 (the build prompt's gate said "every `[P2]` criterion" and listed six of eight, a third unguarded
+  copy of the list), D88 (seven asserts in shipped code, correct today and unlocked as a class since D62 ruled
+  on one of them), D89 (byte-identity observed under a randomised hash rather than argued across two modules).
+  It also closed the oldest item on that list: on the author's one-time authorisation the generator was run and
+  **all 31 dataset artifacts came back byte-identical** (D90), so H6 and the D33/D43 idempotence argument are
+  observed rather than argued after three sweeps of deferral. What it deliberately left is recorded in
+  `DECISIONS.md` under `## Not checked`, including one guard question only the author can settle.
+- *Previously swept: 2026-07-26 @ 0.23.0 @ D82* — an independent sweep over the `[P2]` surface (verify mode, the
   run ledger, the CI workflow) and the mechanisms they register with, run by a session that did not build them.
   Twenty-four findings, six decisions: D77 (one reader, named read failures), D78 (no coercion at a gate),
   D79 (verify's reporting), D80 (a total run order), D81 (assert the message), D82 (a lock declares its
@@ -1095,6 +1108,28 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.25.0 (2026-07-27): **the phase-2 completion sweep — five findings, five decisions (D85–D89), and the
+  negative-space list used as an agenda for the first time**. That list is what made the sweep efficient: it
+  named the scoring engine, the `[P1]` criteria's honesty and `audit_key`'s derivation as unexamined, and three
+  of the five findings came from walking it. **D85:** the README *and* `ISOLATION_ATTESTATION.md` told a reader
+  to run `python -m goldset_triad.<module>` without installing, which fails — the package is under `src/`. D59's
+  defect one layer out, invisible because every test reaches the package through `support.py`'s path insertion
+  and every manual run used a console script, so the advertised route was the one path nobody took; it is now
+  *executed* by a test in a subprocess that does not inherit that path fixing. **D86:** E7 promised a halt that
+  *"names the offending finding and field"* and its test read no message, while E10 still demonstrated an
+  *absent* key for a criterion that says *unreadable* — a gap the previous sweep recorded and did not close. All
+  thirty named-cause criteria were scanned; E7 was the only genuine instance, four others being false positives
+  of a crude pattern. **D87:** the phase-2 build prompt's gate says *"every `[P2]` criterion"* and listed six of
+  eight — a third copy of the list, bound to nothing, in the document a build session actually reads.
+  **D88:** seven bare asserts in shipped code, proven unreachable (the loader halts first; the suite passes
+  under `-O`) but unlocked as a class since D62 ruled on one of them, now carrying justifications in the same
+  registry-and-census shape as the numeric defaults. **D89:** `score()` iterates a set of string tuples, so
+  byte-identity was a construction argument spanning two modules — the shape H17 had before CI; four hash seeds
+  agree, and two subprocesses now assert it. Also **D83**, found reviewing the sweep before it: D80's ordinal
+  reservation let the ledger's filename grammar halt a scoring run. **D90:** the generator was run once, with
+  authorisation, and regeneration reproduced every dataset byte-for-byte across all four splits — closing a
+  `[P1]` criterion that had been `MANUAL:` and unverified since the phase-1 build. 0 acceptance criteria added;
+  250 tests.
 - 0.24.0 (2026-07-27): **the README ships, and the requirement governing it finally gets a criterion (D84)**.
   `[P2]`'s last unbuilt item is the portfolio-facing write-up: golden-dataset framing, the isolation story, the
   held-out rationale, the matching methodology with its reasoning, and an explicit account of what the harness

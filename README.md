@@ -86,7 +86,16 @@ goldset-triad-audit-key --dataset dev
 goldset-triad-check-isolation
 ```
 
-Without installing, every command also runs as `python -m goldset_triad.<module>`.
+Without installing, every command also runs as `python -m goldset_triad.<module>` — but the
+package lives under `src/`, so that directory has to be on the import path:
+
+```bash
+PYTHONPATH=src python -m goldset_triad.check_isolation
+```
+
+```powershell
+$env:PYTHONPATH = 'src'; python -m goldset_triad.check_isolation
+```
 
 ---
 

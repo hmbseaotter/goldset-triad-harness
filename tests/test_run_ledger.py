@@ -210,6 +210,41 @@ class RunLedgerTests(unittest.TestCase):
                 "appended chronologically and rebuilt from the directory must agree",
             )
 
+    def test_a_neighbour_this_harness_did_not_emit_does_not_block_scoring(self) -> None:
+        """Reservation skips what it cannot parse; the ledger still refuses it (D83).
+
+        D80 widened the ordinal scan from one stem to the whole directory-second, and with
+        it the blast radius: `_reserve_scorecard_paths` parsed every `scorecard-*.json`
+        neighbour and propagated the failure, so a file the harness did not emit made
+        `score` exit 2 — refusing to write the durable record — with a message blaming
+        *the ledger*, a derived view the caller never invoked.
+
+        D75 had already settled that direction: an unwritable ledger warns and the run
+        exits zero, because a derived, regenerable view must not make a correct score fail.
+        D80 crossed the same line through a different door.
+
+        Both halves are asserted, because skipping everywhere would be the opposite
+        defect: the ledger's own guarantee is that a rebuild reproduces the append order,
+        and an order it cannot justify is not an order."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            out = td / "out"
+            out.mkdir()
+            # Matches the glob the reservation scans, not the name grammar it parses.
+            (out / "scorecard-backup-copy.json").write_text(
+                "{}", encoding="utf-8", newline="\n"
+            )
+
+            self._score_into(td, 1)
+            emitted = [p.name for p in out.glob("scorecard-*.json")
+                       if p.name != "scorecard-backup-copy.json"]
+            self.assertEqual(len(emitted), 1, "the score is written beside the neighbour")
+
+            # ...and the ledger still refuses to invent a run position for it.
+            with self.assertRaises(DatasetError) as caught:
+                ledger.rebuild_text(out)
+            self.assertIn("scorecard-backup-copy.json", str(caught.exception))
+
     def test_a_hand_placed_duplicate_run_position_halts(self) -> None:
         """A residual tie is refused rather than resolved. The harness cannot produce
         one, so a tie means something else placed the file — and an order the ledger

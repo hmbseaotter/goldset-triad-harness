@@ -183,15 +183,28 @@ def _reserve_scorecard_paths(out_dir: Path, identifier: str, stamp: str) -> tupl
     ordinal mean *the nth run in this directory in this second*, which is what a run
     order needs it to mean."""
     base_stem = f"scorecard-{identifier}-{stamp}"
-    taken = {
-        parsed.ordinal
-        for parsed in (
-            ledger.parse_scorecard_name(p.name)
-            for p in out_dir.glob("scorecard-*.json")
-            if p.is_file()
-        )
-        if parsed.stamp == stamp
-    }
+    taken: set[int] = set()
+    for path in out_dir.glob("scorecard-*.json"):
+        if not path.is_file():
+            continue
+        try:
+            parsed = ledger.parse_scorecard_name(path.name)
+        except DatasetError:
+            # A neighbour this harness did not emit holds no ordinal in this second, and
+            # it can never collide with a name generated below, which always matches the
+            # grammar. Reservation therefore SKIPS what it cannot parse (D83).
+            #
+            # It did not. D80 widened this scan from one stem to the directory-second and,
+            # in doing so, let the ledger's filename grammar halt a *scoring* run: the
+            # harness refused to write the durable record because of an unrelated
+            # neighbouring file, and blamed "the ledger", a derived view the caller never
+            # invoked. D75 had already settled that direction — an unwritable ledger warns
+            # and the run exits zero, because a derived, regenerable view must not make a
+            # correct score fail. The halt stays where the order genuinely cannot be
+            # justified, in `ledger.rebuild_text`.
+            continue
+        if parsed.stamp == stamp:
+            taken.add(parsed.ordinal)
     for ordinal in range(1, 10_000):
         if ordinal in taken:
             continue

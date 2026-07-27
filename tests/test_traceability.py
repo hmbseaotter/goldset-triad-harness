@@ -389,6 +389,9 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_run_ledger.RunLedgerTests.test_every_ledger_field_comes_from_the_scorecard",
     "test_run_ledger.RunLedgerTests.test_an_unwritable_ledger_warns_and_the_run_still_exits_zero",
     "test_run_ledger.RunLedgerTests.test_a_foreign_json_file_is_named_rather_than_silently_skipped",
+    # D83: the reservation path skips what it cannot parse while the ledger still refuses
+    # it. An internal invariant about which subsystem a failure may reach, not a criterion.
+    "test_run_ledger.RunLedgerTests.test_a_neighbour_this_harness_did_not_emit_does_not_block_scoring",
     # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
     # file" — against a condition its own test could not reach. C72 scores ONE split, so
     # its ordinals never tie; the tie needed two identifiers in one second, and it made

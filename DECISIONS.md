@@ -3133,6 +3133,67 @@ once. Enforced by `tests/test_defect_classes.NumericDefaultTests`,
 
 ---
 
+## D83 — A derived view's naming rules may not halt the durable write ✅
+
+**Fork:** D80 fixed a real defect — the ledger's sort key was not total, so three splits
+scored in one second tied and run order fell through to `glob` order, name-ordered on NTFS
+and hash-ordered on ext4. The fix widened the ordinal reservation from one stem to the whole
+directory-second. What should reservation do about a neighbouring file whose name it cannot
+parse?
+
+**What it did, measured.** `_reserve_scorecard_paths` parsed every `scorecard-*.json` in the
+output directory and let the failure propagate:
+
+```
+$ goldset-triad score --dataset dev --findings f.json --out out/
+error: scorecard-backup-copy.json does not look like a scorecard emitted by this
+harness, so the ledger cannot place it in run order; expected
+scorecard-<identifier>-<YYYYMMDDTHHMMSSZ>[-<ordinal>].json
+                                                                          exit 2
+```
+
+So an unrelated neighbouring file made the harness **refuse to write the durable record** —
+and blame *the ledger*, a derived convenience view the caller never invoked, for a `score`
+run that had already loaded, validated and scored successfully.
+
+**It crosses a line D75 had already drawn.** D75 decided that an unwritable ledger **warns
+and the run exits zero**, in as many words: *"the ledger is a derived, regenerable
+convenience view (D9), so an unwritable one cannot make a correct score wrong."* D80 then let
+the ledger's **filename grammar** do precisely what D75 ruled the ledger's **file** must never
+do. Neither session saw it, because the coupling arrived through a different door: D75 guarded
+the append, and this is the reservation. The message is separately the D50 misdiagnosis
+class — naming the wrong subsystem and the wrong consequence — which is the very thing D79
+had just fixed in verify, one sweep earlier and one module away.
+
+**Options considered**
+- **Rejected: keep the halt, fix only the message.** The message is indefensible either way,
+  but it is the smaller half. The substantive question is whether a derived view's naming
+  rules may block the primary write, and D75 already answered it.
+- **Rejected: skip unparseable names everywhere, ledger included.** That is the opposite
+  defect. The ledger's whole guarantee is that a rebuild reproduces the append order, and an
+  order it cannot justify is not an order — D80's own reasoning, which stands.
+- **Decision ✅** — **reservation skips what it cannot parse; the ledger still refuses it.**
+  Reservation needs only the ordinals *this harness allocated in that second*; a name that
+  does not match the grammar holds none, and it can never equal a generated name, which
+  always matches. Collision safety is unaffected: it rests on the `.exists()` pair-check and
+  on mode `"x"`, which makes overwriting impossible at the operating-system level (D49). The
+  halt stays in `ledger.rebuild_text`, where the order genuinely cannot be justified.
+
+**Verified by execution.** A `score` run beside `scorecard-backup-copy.json` now succeeds and
+emits its scorecard; `rebuild_text` on the same directory still halts naming that file. Both
+halves are asserted, because passing only the first would be the opposite defect. 233 tests,
+pyright 0 errors.
+
+**Rule** — **a derived view may not make the durable write fail, through its file or through
+its grammar.** D75 stated the first half and D80 crossed it through the second, which is the
+same shape as *correct rule, wrong universe* (D82) with the universe being the *paths* a rule
+reaches rather than the *items* a scan enumerates. When a rule protects one direction, ask
+which other doors lead into the same room. Enforced by
+`tests/test_run_ledger.RunLedgerTests.test_a_neighbour_this_harness_did_not_emit_does_not_block_scoring`,
+which asserts both halves.
+
+---
+
 ## Not checked — as of 0.23.0 @ D82
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

@@ -1,0 +1,146 @@
+# CI -- the [P2] entry gate (D72).
+#
+# Cross-platform byte-identity is this harness's central claim, and until this
+# workflow ran it was asserted BY CONSTRUCTION only (traceability entry H17).
+# Every specific hazard had been pinned individually: shipped output pins LF
+# (D49), every text read and write names its encoding and newline (D61, guarded
+# over the parsed syntax), the generator staleness digest hashes normalized text
+# so a line ending cannot move it (D63), and `git check-attr` reports
+# `text: unset` on every dataset input, key and manifest (D27). That is a
+# mechanism corroborated, not a result observed -- so D72 makes this workflow the
+# GATE into [P2] rather than an item within it. Deferring the verification was
+# acceptable; building further on the unverified claim was not.
+#
+# What this can reach: the DEV SPLIT ONLY. D14 places the entire held-out split
+# outside the repository tree, so a clone has no secret tier and no held-out
+# inputs. That is the architecture working, not a gap -- and it is exactly why
+# the tier-dependent tests must be seen to SKIP here rather than to quietly stop
+# existing. A test that vanishes and a test that skips are indistinguishable in a
+# green tick, so the skip count is asserted below rather than eyeballed.
+#
+# On the backslash deny rules. `Bash(*\gen_rules.*)` and its two siblings can
+# never match on Linux, so the guard is WEAKER there -- not broken, since the
+# space and forward-slash variants still fire, and placement outside the tree is
+# the primary control (D14, D30). CI deliberately does nothing about this: the
+# shipped `check_guard_configuration` tests coverage substrings and anchoring,
+# neither of which is separator-sensitive, so this asymmetry cannot turn the gate
+# red. It is recorded as a known, accepted weakening rather than left for a Linux
+# run to present as a surprise.
+
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+# Least privilege, in the repository whose entire subject is withholding reach.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Both legs always report. With fail-fast the second is cancelled the moment
+      # the first goes red, which would hide whether a failure is version-specific
+      # -- the single most useful thing this matrix exists to tell us.
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor `pyproject.toml` DECLARES and `pyrightconfig.json`
+        # targets -- a claim nothing had ever checked, because every verification
+        # to date ran on the development machine's 3.14. Running both turns
+        # `requires-python` into a verified property and stops the interpreter
+        # becoming an unstated dependency of a byte-identity claim, which is D61's
+        # rule ("the platform default is never the intended default") generalized
+        # past encodings.
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Report the environment
+        shell: bash
+        run: |
+          python --version
+          git --version
+          echo "H17's mechanism, observed on Linux -- line-ending attributes on every"
+          echo "dataset artifact. Anything other than 'text: unset' means a checkout"
+          echo "here holds different bytes from a Windows one, which would move the"
+          echo "aggregate inputs digest and present as tampering (D27):"
+          git ls-files 'datasets/*' | xargs -n1 git check-attr text -- \
+            | sed 's/.*: text: /text: /' | sort | uniq -c | sed 's/^/  /'
+
+      - name: Run the full test suite
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -t . -v 2>&1 | tee suite.log
+
+      - name: The tier-dependent tests skipped rather than vanished
+        shell: bash
+        run: |
+          if ! grep -qE '^Ran [0-9]+ tests' suite.log; then
+            echo "::error::the suite produced no run summary at all"
+            exit 1
+          fi
+          ran=$(grep -oE '^Ran [0-9]+ tests' suite.log | grep -oE '[0-9]+')
+
+          # A FLOOR, not an exact count. An exact number would be a second parallel
+          # list to keep in step with the suite, which is the shape D54 condemned.
+          # A floor still catches the failure that matters: discovery collapsing and
+          # `Ran 0 tests` reporting OK, which is a vacuous pass wearing a green tick.
+          # Same idiom as `_discover_dev_datasets()`'s floor in tests/support.py.
+          if [ "$ran" -lt 150 ]; then
+            echo "::error::only $ran tests ran; test discovery has collapsed and a green"
+            echo "::error::result here would mean nothing was checked"
+            exit 1
+          fi
+
+          # D14 puts the held-out split out of tree, so a clone HAS no secret tier and
+          # the tier-dependent tests MUST skip. Zero skips would not mean the suite got
+          # stronger -- it would mean those tests stopped running and nothing said so.
+          if ! grep -qE '^OK \(.*skipped=[1-9]' suite.log; then
+            echo "::error::expected a non-zero skip count: with no secret tier present,"
+            echo "::error::the tier-dependent tests must SKIP. Zero skips means they"
+            echo "::error::vanished rather than declined to run (D14, D58)"
+            exit 1
+          fi
+
+          echo "Suite summary:"
+          grep -E '^(Ran [0-9]+ tests|OK|FAILED)' suite.log | sed 's/^/  /'
+          echo "Skipped, with the reason each gave:"
+          grep -E '\.\.\. skipped' suite.log | sed 's/^/  /'
+
+  pyright:
+    name: pyright gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `pyrightconfig.json` pins `pythonVersion: 3.11`, so pyright analyses against
+      # 3.11 semantics whatever interpreter is present. This step exists so pyright
+      # has one to find, not to choose the analysis target.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # PINNED on purpose. A bare `npx pyright` resolves to whatever was published
+      # that morning, so the type gate could turn red from a pyright release rather
+      # than from a change in this repository -- an unstated dependency of exactly
+      # the kind D61 named. 1.1.411 is the version that produced the verified
+      # "0 errors, 0 warnings" this phase was handed over on; raising it is a
+      # deliberate act, and any new diagnostic it brings is then attributable.
+      - name: pyright (standard mode, zero errors -- D39)
+        shell: bash
+        run: npx --yes pyright@1.1.411

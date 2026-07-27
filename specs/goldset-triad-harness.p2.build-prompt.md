@@ -8,14 +8,25 @@ targets **phase 2 only**.
 1. `specs/goldset-triad-harness.md` — the complete specification. Read it fully before writing any code.
    Phase 2's scope is the `### phase 2` block plus every `[P2]` tag in the requirements and acceptance
    criteria.
-2. `DECISIONS.md` (repo root) — the decision record **D0–D72**. Do not relitigate these; if one looks unsafe
-   or wrong, say so before building.
+2. `DECISIONS.md` (repo root) — the decision record **in full, to its last heading**. Do not relitigate these;
+   if one looks unsafe or wrong, say so before building. The extent is deliberately not restated here: it read
+   `D0–D72` while D73–D82 sat above it, which is the class spec 0.22.0 removed from three other places.
 3. `specs/goldset-triad-harness.build-prompt.md` — the **phase 1** prompt. Read it for the constraints that
    still bind (determinism boundary, type discipline, stack, clean-room terminology, the never-do list). Its
    *scope* section is finished work; its *constraints* section is still in force.
 
 **State at handoff:** spec `0.21.0`, decisions `D0–D72`, 190 tests passing, pyright 0 errors, all four keys
-audit consistent, regeneration reproduces every dataset byte-for-byte.
+audit consistent, regeneration reproduces every dataset byte-for-byte. *(Historical — this is what was true
+when the prompt was written, and it stays as written.)*
+
+**State now (2026-07-26, spec `0.23.0` @ D82):** phase 2 is **4 of 5**. Built and verified by execution: the CI
+workflow, verify mode, the run ledger, and the cross-platform observation that turned `H17` from a
+by-construction claim into a result. **Not built: item 4, the README and methodology write-up** — which is also
+the one item in the list below with no `SHALL` in the spec and no acceptance criterion, so nothing failed while
+it was missing. Whether it gets a requirement and a criterion before it gets written is an open question, not a
+settled one. All six items in the phase-2 acceptance gate at the foot of this file pass; that gate never
+covered item 4. An independent sweep over the completed work landed **D77–D82** (twenty-four findings against a
+green suite and green CI) — read those before extending any of it.
 
 ## Recommended build-time settings
 

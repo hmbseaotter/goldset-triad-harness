@@ -3133,15 +3133,50 @@ once. Enforced by `tests/test_defect_classes.NumericDefaultTests`,
 
 ---
 
-## Not checked — as of 0.21.0 @ D72
+## Not checked — as of 0.23.0 @ D82
 
-What this pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
+What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here.
 
-- **The non-numeric absence defaults** in shipped code (`.get(k, "")`, `.get(k, [])`, `.get(k, {})`). Scoped out
-  of D68 with reasoning, not overlooked — but not individually reviewed either. **The count that used to open
-  this bullet is deliberately gone.** It read 16 while D71's own text read 15, and the two disagreed for a
+### The D77–D82 sweep (0.23.0)
+
+It examined the `[P2]` surface — verify mode, the run ledger, the CI workflow — the mechanisms those register
+with, and every read and write path they touch. It did **not** examine:
+
+- **The scoring engine's arithmetic.** `scoring.py` and `scorecard.py` were read for types and call signatures
+  and not reviewed. Matching, contention, the per-category counts and the ratio quantization were taken as
+  covered by the `[P1]` gate. The `[P1]` gate is 124 criteria and was itself written by the sessions that wrote
+  the code, which is the condition under which this sweep found twenty-four things.
+- **`audit_key`'s independent re-derivation.** Only its file read changed (D77). The derivation that makes the
+  audit a second opinion rather than an echo (D35) was not examined, and it is the one place where a defect
+  would make two artifacts agree for the wrong reason.
+- **The datasets themselves.** No key content, boundary value or regeneration was re-audited. The suite asserts
+  audit-consistency on every split and that stands; nothing here looked past it.
+- **The secret and held-out tiers' contents.** Both were confirmed untouched by `[P2]` and clean in git, which
+  is a statement about their *state*, not their *correctness*. The generator's rules were not read.
+- **`check_isolation`'s rule matching.** One read site changed (D77); the guard-coverage logic around it did
+  not, and was not reviewed. The attestation's automated half was re-run and passes.
+- **The reserve-then-create race in `cli._reserve_scorecard_paths`.** It checks `.exists()` and then creates
+  with mode `"x"`, so two concurrent `score` runs can pick the same ordinal and one will raise an uncaught
+  `FileExistsError`. Pre-existing and unchanged in kind by D80, which widened the scan from one stem to the
+  directory-second without altering the check-then-create shape. Left alone deliberately: D49 chose exclusive
+  creation so that overwriting is impossible rather than merely unintended, and a retry loop around it is a
+  design decision, not a bug fix. **No test covers concurrent runs at all.**
+- **Whether `[P1]`'s own criteria are honest.** This sweep added four criteria and did not re-read the other
+  124. E10 is the warning: *"an unreadable answer key halts"* was covered by a test that deletes the file, so
+  the criterion read as satisfied for two phases while the unreadable case tracebacked (D77). One instance
+  found by accident is not evidence that it is the only one.
+
+### The D72 sweep (0.21.0)
+
+- **The non-numeric absence defaults** in shipped code (`.get(k, "")`, `.get(k, [])`, `.get(k, {})`). **Narrowed
+  by D82, not closed.** They are now a *named* bucket — `empty-container` — that the scanner classifies rather
+  than skips, and a default fitting no bucket fails the suite; that is what caught the one this bullet could
+  never have caught, a substantive default supplying a real value for an absent declaration (D78). What remains
+  open is the original scoping call, which stands: the thirteen empty-container sites are justified **as a
+  bucket** and still not reviewed **individually**. **The count that used to open this bullet is deliberately
+  gone.** It read 16 while D71's own text read 15, and the two disagreed for a
   specific reason: this bullet also named `dataset.py`'s `raw.get("po_number", po_path.name)` as the one to look
   at first, and **D71(d) removed that fallback in the same session that wrote this line.** So the negative-space
   list — whose entire purpose is to be the honest record of what a sweep knowingly left — was both counting a

@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from .jsonio import read_json_object
+from .jsonio import DatasetError, read_json_object
 
 # Repo root is two levels up from this file's package: src/goldset_triad/ -> repo.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,6 +101,55 @@ REQUIRED_COVERAGE = {
 }
 
 
+def check_guard_reach(root: Path | None = None) -> list[str]:
+    """Do this repository's deny rules actually bind the session you are running in? (D91)
+
+    They bind a session **rooted here**. Claude Code loads its permission settings from
+    the session's own root, so a session opened at an ancestor directory — a workspace
+    folder holding several projects, which is an ordinary way to work — loads *that*
+    directory's settings and never sees these rules at all.
+
+    Found by re-running the attestation: a tool-level read of the canary, which the
+    dated record says was refused, **succeeded**, because the session was rooted one
+    level above this repository. The rules had not failed to match; they had never been
+    loaded. The same absence explains a generator invocation that ran unrefused (D90).
+
+    Advisory, and deliberately so (D70's reasoning): where you open your editor is not a
+    property of this repository, and a check that failed the build over it would be
+    reporting your working habits as a security defect. But it is reported *when isolation
+    is checked*, which is exactly when you are about to rely on the guards.
+
+    Placement remains the primary control throughout (D14, D30) — the held-out split is
+    outside this tree whatever settings are loaded. This warns about the second layer."""
+    warnings: list[str] = []
+    base = REPO_ROOT if root is None else root
+    for ancestor in base.parents:
+        for name in ("settings.json", "settings.local.json"):
+            candidate = ancestor / ".claude" / name
+            if not candidate.is_file():
+                continue
+            try:
+                data = read_json_object(candidate, f"Claude Code settings at {candidate}")
+            except DatasetError:
+                # An ancestor's settings being unreadable or malformed is not this
+                # repository's business to halt over -- it is somebody else's workspace
+                # file. Routed through the shared reader all the same (D77): the lock is
+                # that ONE function reads text, not that every caller reacts alike.
+                continue
+            permissions = data.get("permissions")
+            deny = permissions.get("deny", []) if isinstance(permissions, dict) else []
+            covers = any(SECRET_DIR_NAME in str(rule) for rule in deny)
+            if not covers:
+                warnings.append(
+                    f"{candidate} carries Claude Code settings that do NOT cover the "
+                    f"secret tier ({len(deny)} deny rule(s)). A session rooted at "
+                    f"{ancestor} loads those instead of this repository's, so the "
+                    f"deny-guards are not in force there. Placement outside the tree "
+                    f"still is (D14); this is the second layer only (D91)."
+                )
+    return warnings
+
+
 @dataclass(frozen=True)
 class IsolationResult:
     guard_failures: tuple[str, ...]
@@ -110,6 +159,11 @@ class IsolationResult:
     #: mis-guarded. Failing the command for it would make a routine editing session look
     #: like a security finding, which is how a guard earns being ignored.
     durability_warnings: tuple[str, ...] = ()
+    #: Advisory for the same reason (D91): whether these rules are the ones a session
+    #: actually loaded depends on where that session was opened, which is not a property
+    #: of this repository. Reported, never fatal — and placement, the primary control,
+    #: is unaffected either way.
+    reach_warnings: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -330,6 +384,7 @@ def run(root: Path | None = None) -> IsolationResult:
         guard_failures=tuple(check_guard_configuration(root)),
         placement_failures=tuple(check_placement(root)),
         durability_warnings=tuple(check_secret_tier_durability()),
+        reach_warnings=tuple(check_guard_reach(root)),
     )
 
 
@@ -387,9 +442,11 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         sys.stderr.write(f"isolation check error: {exc}\n")
         return 2
-    # Advisory findings print either way, and never change the exit code (D70).
+    # Advisory findings print either way, and never change the exit code (D70, D91).
     for w in result.durability_warnings:
         sys.stdout.write(f"  [durability] {w}\n")
+    for w in result.reach_warnings:
+        sys.stdout.write(f"  [guard-reach] {w}\n")
     if result.ok:
         sys.stdout.write(
             "isolation: guard-configuration and placement checks PASS. "

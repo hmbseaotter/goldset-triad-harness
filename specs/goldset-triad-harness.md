@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.25.0
+- Spec version: 0.26.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -423,6 +423,13 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] A durability finding SHALL be advisory and SHALL NOT alter the isolation command's exit code, because an
   uncommitted tier is a durability risk rather than an isolation breach, and a guard that reports routine editing
   as a failure is one people switch off (D70, D65).
+- [P1] The isolation command SHALL report when a directory above the repository carries its own permission
+  settings that do not cover the secret tier, because the deny rules bind only a session rooted at the
+  repository and a session opened at an ancestor loads that ancestor's settings instead — so the guards can be
+  entirely absent while every configuration check still passes (D91).
+- [P1] A guard-reach finding SHALL be advisory and SHALL NOT alter the exit code, because where a session is
+  opened is not a property of this repository, and placement outside the tree remains the primary control
+  whatever settings are loaded (D91, D70, D14).
 - [P1] The durability check SHALL cover every out-of-tree tier, held-out inputs included, because losing those
   inputs makes every held-out scorecard permanently unverifiable — the scorecard embeds a digest of exactly those
   bytes and nothing remains to recompute against (D71, D27).
@@ -694,6 +701,11 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   to those inputs, because it cannot produce findings without them.
 - Security: [P1] The dev split SHALL ship complete in the repository, inputs and answer key together, and
   SHALL NOT be deny-guarded — it is public by design and is the split every automated check runs against.
+- Security: [P1] A scorecard produced from the held-out split SHALL NOT be committed to this repository,
+  because its `missed` array names each unfound expectation verbatim — category, invoice, line and the
+  generator's own note — and its coverage block discloses the key's shape even where nothing was missed; a
+  derived artifact inherits the sensitivity of the split it scored, which the rule that scorecards are the
+  committed durable record was not written to range over (D93, D14, D9).
 - Performance: [P3] The harness SHALL score a dataset of roughly 75 invoices in under 10 seconds on
   commodity hardware, treated as a warning threshold only.
 - Error handling / observability: [P1] Every halt SHALL name its specific cause and exit non-zero. [P1] The
@@ -886,6 +898,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] A scan of the repository finds no held-out answer key, generator, discrepancy-design artifact,
   or held-out dataset input at any path — including under any ignored directory, since `.gitignore` hides
   a file from git but not from the filesystem.
+- [ ] [P1] No scorecard from a non-dev split is tracked in the repository, because a held-out scorecard's
+  `missed` array names expected findings verbatim — category, invoice, line and the generator's own note —
+  and its coverage block states the key's shape even with no misses (D93).
 - [ ] [P1] The agent-under-test context **can** read the held-out dataset inputs while **cannot** read the
   held-out answer key — both halves asserted, because a guard that blocks the inputs breaks evaluation
   instead of protecting it.
@@ -980,6 +995,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   clean or absent tier reports nothing, and a durability finding never changes the exit code (D70).
 - [ ] [P1] The held-out inputs tier is covered by the same durability check as the secret tier, with a clean secret
   tier left unreported (D71).
+- [ ] [P1] An ancestor directory carrying permission settings that do not cover the secret tier is reported by the
+  isolation command, an ancestor that does cover it is not reported, and a guard-reach finding never changes the
+  exit code (D91).
 - [ ] [P1] An `allow` list planted in the stamped guard is rejected as an unexpected permission list, and the file
   as shipped does not trip that check (D71).
 - [ ] [P1] A purchase order or goods receipt omitting its identifier is rejected naming the file and the field, an
@@ -1108,6 +1126,23 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.26.0 (2026-07-27): **the guards were not in force, and the harness became usable (D91, D92)**.
+  Re-running the isolation attestation on request produced the opposite of its dated record: the canary read
+  **succeeded**, marker and all. The cause is not a broken rule but an unloaded one — the deny rules live in
+  `goldset-triad-harness/.claude/settings.json`, the session was rooted at the *parent* directory, and Claude Code
+  loads permission settings from the session's own root. That parent carries an `allow` list and zero deny rules,
+  so this repository's guards were never read; the same absence explains D90's unrefused generator run. Placement
+  outside the tree — the **primary** control (D14, D30) — held throughout, and no contamination occurred, the
+  canary holding no key content by design. But the second layer was absent for a whole session and nothing could
+  say so, because every check read the rules' *content* and none asked whether they were loaded. **D91** adds an
+  advisory `[guard-reach]` line, two requirements and a criterion, on D70's advisory construction so the exit code
+  never moves. **D92** answers a plainer problem: the harness was complete and unusable by a newcomer. A
+  `docs/RUNBOOK.md` now covers all three repositories, the generator, and troubleshooting, every command in
+  PowerShell and bash; the README gains a **worked example** whose findings artifact ships as
+  `docs/example-findings.json` and reproduces the printed scorecard exactly. Writing it caught a rejection-only
+  confidence test, which now asserts both directions (D68's shape). 2 acceptance criteria added; 255 tests. **D93** also lands, found while documenting the
+  held-out workflow: a held-out scorecard is answer-key content, and the standing rule that
+  scorecards are committed was written about the dev split alone.
 - 0.25.0 (2026-07-27): **the phase-2 completion sweep — five findings, five decisions (D85–D89), and the
   negative-space list used as an agenda for the first time**. That list is what made the sweep efficient: it
   named the scoring engine, the `[P1]` criteria's honesty and `audit_key`'s derivation as unexamined, and three

@@ -36,7 +36,7 @@ from tests import support
 #: Documents that tell a reader how to invoke this package. Both advertised the bare
 #: `python -m goldset_triad.<module>` form, which fails on a checkout that has not been
 #: installed, because the package lives under `src/` (D85).
-INVOCATION_DOCS = ("README.md", "ISOLATION_ATTESTATION.md")
+INVOCATION_DOCS = ("README.md", "ISOLATION_ATTESTATION.md", "docs/RUNBOOK.md")
 
 PACKAGE_DIR = support.SRC / "goldset_triad"
 PYPROJECT = support.REPO_ROOT / "pyproject.toml"

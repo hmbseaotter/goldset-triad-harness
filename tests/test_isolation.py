@@ -203,5 +203,63 @@ class RepoRootResolutionTests(unittest.TestCase):
         self.assertIn("deny-guards are unconfigured", err)  # reported, not redirected
 
 
+class GuardReachTests(unittest.TestCase):
+    """Are this repository's deny rules the ones a session actually loaded? (D91)
+
+    Found by re-running the attestation rather than by reading code. A tool-level read of
+    the canary, which the dated record says was refused, **succeeded** — because the
+    session was rooted one directory above the repository, so Claude Code loaded that
+    directory's settings and this repository's deny rules were never in force. The rules
+    had not failed to match; they had never been read. The same absence explains a
+    generator invocation that ran unrefused (D90).
+
+    Every case below is built in a temporary tree, because asserting against this machine's
+    real layout would make the test pass or fail on where the checkout happens to sit."""
+
+    def _workspace(self, root: Path, deny: list[str] | None) -> Path:
+        """A repo inside a workspace whose settings carry ``deny`` (or no settings)."""
+        repo = root / "workspace" / "repo"
+        repo.mkdir(parents=True)
+        if deny is not None:
+            claude = root / "workspace" / ".claude"
+            claude.mkdir(parents=True)
+            (claude / "settings.json").write_text(
+                json.dumps({"permissions": {"deny": deny}}),
+                encoding="utf-8", newline="\n",
+            )
+        return repo
+
+    def test_an_ancestor_without_secret_coverage_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            repo = self._workspace(Path(t), deny=["Read(**/something_else)"])
+            warnings = ci.check_guard_reach(repo)
+            self.assertTrue(
+                any("workspace" in w and "not in force" in w for w in warnings),
+                f"a session rooted at the workspace loads settings that do not cover the "
+                f"secret tier, and that must be reported; got {warnings}",
+            )
+
+    def test_an_ancestor_that_does_cover_the_secret_tier_is_not_reported(self) -> None:
+        """The positive control. A warning that fires on a correctly-guarded workspace
+        would be noise, and D65 settled that a guard obstructing routine work is one
+        people switch off."""
+        with tempfile.TemporaryDirectory() as t:
+            repo = self._workspace(
+                Path(t), deny=[f"Read(**/{ci.SECRET_DIR_NAME}/**)"]
+            )
+            warnings = [w for w in ci.check_guard_reach(repo) if "workspace" in w]
+            self.assertEqual(warnings, [], "a covering ancestor must not be reported")
+
+    def test_a_reach_warning_never_changes_the_exit_code(self) -> None:
+        """Advisory means advisory (D70's rule, applied to D91's finding). Where you open
+        your editor is not a property of this repository, and failing the check over it
+        would report a working habit as a security defect."""
+        result = ci.IsolationResult(
+            guard_failures=(), placement_failures=(),
+            reach_warnings=("an ancestor does not cover the secret tier",),
+        )
+        self.assertTrue(result.ok)
+
+
 if __name__ == "__main__":
     unittest.main()

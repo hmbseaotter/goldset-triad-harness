@@ -1,0 +1,90 @@
+{
+  "schema_version": "1",
+  "findings": [
+    {
+      "status": "DISCREPANCY",
+      "category": "PRICE_VARIANCE",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2001",
+        "line_id": "2"
+      },
+      "confidence": 0.95,
+      "reasoning": "Invoiced unit price exceeds the purchase-order price on this line."
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "PRICE_VARIANCE",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2001",
+        "line_id": "3"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "PRICE_VARIANCE",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2001",
+        "line_id": "5"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "QTY_UNDER_SHIPMENT",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "1"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "QTY_OVER_SHIPMENT",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "2"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "PRICE_VARIANCE",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "3"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "QTY_INVOICE_INFLATED",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "3"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "QTY_INVOICE_INFLATED",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "6"
+      }
+    },
+    {
+      "status": "DISCREPANCY",
+      "category": "PRICE_VARIANCE",
+      "scope": "LINE",
+      "target": {
+        "document_id": "INV-2002",
+        "line_id": "4"
+      },
+      "confidence": 0.4,
+      "reasoning": "Suspected price mismatch. (This one is wrong - it is the false flag.)"
+    }
+  ]
+}

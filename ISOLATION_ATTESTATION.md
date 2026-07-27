@@ -1,38 +1,148 @@
 # Isolation attestation
 
-**Method:** deny-guards in this repo's `.claude/settings.json`, enforced by Claude
-Code at the tool-call layer, plus placement of the entire held-out split outside
-the repository tree.
+This document records **what is checked by code, what is checked by a human, and what
+neither can check** about keeping the held-out answer key away from the agent under
+evaluation. It is deliberately conservative: the point of a golden-dataset harness is that
+its claims survive scrutiny, so anything not actually verified is named as such (D30).
 
-**What is verified automatically** (run `goldset-triad-check-isolation`, or `PYTHONPATH=src python -m goldset_triad.check_isolation` from a source checkout — D59 declared the console script so the advertised command exists; both routes run the same checks. The `PYTHONPATH=src` is load-bearing and was missing here: the package lives under `src/`, so the bare `python -m` form this line used to advertise fails with `ModuleNotFoundError` on a checkout that has not been installed — D59's own defect, in the document describing the check, found by the phase-2 completion sweep (D85)):
+---
 
-- **Guard-configuration check** — the deny rules exist, parse, and cover every path
-  in the secret tier (the secret directory, the held-out answer-key filename, the
-  three generator filenames, the discrepancy-design artifact), while deliberately
-  NOT covering the held-out inputs directory, which the agent-under-test must read.
-- **Placement check** — no secret artifact exists at any path inside the repository
-  tree, including under ignored directories.
+## The command: `goldset-triad-check-isolation`
 
-**What is attested manually** — harness enforcement of the deny rules. This is NOT
-tested by executing code: deny rules bind tool calls, while a subprocess runs
-beneath that boundary, so a reachability probe would report failure unconditionally
-and prove nothing (D30). The correct test is to open a Claude Code session **rooted
-in this repository** and attempt a tool-level read of the canary
-(`goldset-triad-secret/canary/throwaway.json`, marker
-`CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE`); the read must be refused.
+**What it is.** A console script — a small command that runs the two automated isolation
+checks. It is not a file you can find by browsing the repository: it is *declared* in
+`pyproject.toml` and only comes into existence on your machine when the package is
+installed. That is why searching the source tree for it turns up nothing.
 
-| Item | Status |
+```toml
+[project.scripts]
+goldset-triad-check-isolation = "goldset_triad.check_isolation:main"
+```
+
+**How to get it.** Install the package from the repository root. `-e` means *editable*:
+the command points back at your working copy, so edits take effect without reinstalling.
+
+```bash
+cd goldset-triad-harness
+python -m pip install -e .
+goldset-triad-check-isolation
+```
+
+```powershell
+cd goldset-triad-harness
+python -m pip install -e .
+goldset-triad-check-isolation
+```
+
+**If you would rather not install anything**, the same code runs directly from the source
+tree. `PYTHONPATH=src` is required, not optional — the package lives under `src/`, so
+without it Python cannot find `goldset_triad` at all:
+
+```bash
+PYTHONPATH=src python -m goldset_triad.check_isolation
+```
+
+```powershell
+$env:PYTHONPATH = 'src'; python -m goldset_triad.check_isolation
+```
+
+**Exact purpose.** It answers one question — *are the isolation guards configured
+correctly?* — and it is honest about being unable to answer a second one, *are they
+being enforced?* It runs two checks and prints up to two kinds of advisory note.
+
+| It checks | Meaning |
 |---|---|
-| Guard-configuration check passes | **PASS** — `python -m goldset_triad.check_isolation` (run with `PYTHONPATH=src`, package not installed), 2026-07-26. |
-| Placement check passes | **PASS** — same run, 2026-07-26. |
-| Tool-level read of the canary is refused (repo-rooted session) | **VERIFIED 2026-07-26** — a Claude Code session rooted at the repository directory attempted a tool-level Read of `goldset-triad-secret/canary/throwaway.json`; the call was refused at the tool-call layer (`File is in a directory that is denied by your permission settings`) with no content returned, so the `CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE` marker never surfaced. |
-| Tool-level read of a held-out input succeeds (repo-rooted session) — positive control that the guards do not over-block | **VERIFIED 2026-07-26** — from the same repo-rooted session, a tool-level Read of `goldset-triad-holdout/inputs/purchase_orders/PO-7001.json` succeeded, confirming the deny rules leave the held-out inputs directory readable by the agent-under-test. |
+| **Guard configuration** | The deny rules exist, parse, and name every secret path — the secret directory, the held-out answer key, the held-out invoice index, the three generator files, the discrepancy-design artifact — **and do not name the held-out inputs**, which the agent must be able to read. |
+| **Placement** | No secret artifact sits anywhere inside the repository tree, including under directories `.gitignore` hides. |
 
-**Honest limits of this claim** (D30): placement and guard configuration are
-checked automatically; harness enforcement is attested, not code-tested; and a
-determined subprocess is outside deny coverage by design — which is exactly why
-placement outside the tree is the primary control.
+| It also reports (advisory, never changes the exit code) | Meaning |
+|---|---|
+| `[durability]` | An out-of-tree tier has uncommitted or unpushed work. Not a leak — a risk of losing the tier (D70, D71). |
+| `[guard-reach]` | A directory *above* this repository carries its own Claude Code settings that do not cover the secret tier, so a session rooted there does not load these deny rules (D91). |
 
-- **Attestation date:** 2026-07-26 (automated guard-configuration and placement
-  checks run and PASS; harness-enforcement half now verified from a repo-rooted
-  session — canary read refused at the tool-call layer, no content returned).
+**Exit codes.** `0` — both checks pass. `1` — a check failed; the failing paths are named.
+`2` — the command could not determine what to inspect (for example, run from an installed
+copy with no checkout in sight), which it reports as *nothing was checked* rather than as a
+failure, because naming a failure that did not occur is worse than silence (D50, D59).
+
+**What it deliberately does not do.** It never opens the answer key, and it never tries to
+prove the guards are being enforced. See the method below for why that is impossible from
+inside a script.
+
+---
+
+## What is attested manually, and why it cannot be automated
+
+**Harness enforcement of the deny rules.** Deny rules bind **tool calls**. A Python script
+runs *beneath* that boundary, so a script that tried to `open()` the guarded file would
+succeed every time — and would therefore report failure *identically* whether the guards
+were perfect or entirely absent. Such a probe proves nothing while looking like
+verification, which is the worst possible outcome for a credibility artifact (D30).
+
+**Method:** open a Claude Code session **rooted at this repository directory** and attempt a
+tool-level read of the canary:
+
+- file: `goldset-triad-secret/canary/throwaway.json`
+- marker: `CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE`
+
+The read must be **refused**, and the marker must never appear. The canary exists for this
+purpose: it holds a unique marker and **no answer-key content**, so probing with it cannot
+contaminate a session. It is covered only by the secret-*directory* rule and never by a
+filename rule, so it exercises the weakest layer.
+
+A positive control belongs with it: a tool-level read of a held-out *input* must **succeed**,
+confirming the guards have not over-blocked the files the agent under test needs (D14, D65).
+
+> **The session's root directory is load-bearing, and this was not always written down.**
+> Claude Code loads permission settings from the session's own root. A session opened at a
+> parent folder — a workspace holding several projects — loads *that* folder's settings, and
+> the rules in `goldset-triad-harness/.claude/settings.json` are never read. The guards then
+> do not apply, whatever they contain. Run `goldset-triad-check-isolation` before relying on
+> them: its `[guard-reach]` line reports exactly this condition.
+
+---
+
+## Attestation log
+
+Newest first. Superseded entries are kept, because the record of what was believed and when
+is part of what makes the claim auditable.
+
+### 2026-07-27 — enforcement half **FAILED in this configuration**
+
+| Item | Result |
+|---|---|
+| Guard-configuration check | **PASS** — `PYTHONPATH=src python -m goldset_triad.check_isolation`, package not installed. |
+| Placement check | **PASS** — same run. |
+| Tool-level read of the canary is refused | **FAILED — the read succeeded.** The marker `CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE` surfaced in the session's context. |
+| Cause | The session was rooted at `D:\Claude_Stuff\Claude_Desktop_Code_Projects`, **one directory above this repository**. That directory's `.claude/settings.local.json` carries an `allow` list and **zero deny rules**, so this repository's deny-guards were never loaded. The rules did not fail to match; they were not in force. |
+| Related | The same absence explains a generator invocation earlier the same day that ran without being refused (D90), which had been recorded as an open question. |
+| Contamination | **None.** The canary holds no answer-key content by design, which is the entire reason it exists. No answer key, generator source or design artifact was read. |
+| Standing | Placement — the **primary** control (D14, D30) — was unaffected throughout: the whole held-out split remains outside this tree. The **second** layer was absent for the duration of that session. |
+
+**Action:** a `[guard-reach]` advisory now reports this condition whenever isolation is
+checked (D91). Re-attestation from a correctly-rooted session is required before the
+enforcement half may be claimed again.
+
+### 2026-07-26 — enforcement half verified *(superseded by the entry above)*
+
+| Item | Result |
+|---|---|
+| Guard-configuration check | **PASS** — `PYTHONPATH=src python -m goldset_triad.check_isolation`, package not installed. |
+| Placement check | **PASS** — same run. |
+| Tool-level read of the canary is refused | **VERIFIED** — a Claude Code session rooted at the repository directory attempted a tool-level Read of `goldset-triad-secret/canary/throwaway.json`; the call was refused at the tool-call layer (`File is in a directory that is denied by your permission settings`) with no content returned, so the marker never surfaced. |
+| Tool-level read of a held-out input succeeds — positive control | **VERIFIED** — from the same session, a Read of `goldset-triad-holdout/inputs/purchase_orders/PO-7001.json` succeeded, confirming the deny rules leave the held-out inputs readable. |
+
+This entry is **not withdrawn**: it remains the evidence that the rules *do* bind when
+loaded. What the 2026-07-27 entry adds is that whether they are loaded depends on where the
+session was opened — a precondition this document did not previously state.
+
+---
+
+## Honest limits of the whole claim (D30)
+
+- Placement and guard configuration are **checked automatically**, on every commit.
+- Harness enforcement is **attested by a human**, never code-tested, for the reason above.
+- A determined subprocess is **outside deny coverage by design** — which is exactly why
+  placement outside the repository tree is the primary control and the deny rules are the
+  second layer.
+- The deny rules bind only a session rooted at this repository (D91).

@@ -52,9 +52,23 @@ class SchemaTests(unittest.TestCase):
                 "target": {"document_id": "INV-1", "line_id": "__DOCUMENT__"}})
 
     def test_confidence_must_be_number_in_unit_interval(self) -> None:
+        """Both directions. This was rejection-only, which D68 settled is not enough: a
+        check that only ever refuses would pass while refusing *everything*, and the
+        accepting half is the one a reader of the published example depends on.
+
+        The valid case goes in as a JSON number and comes back a `Decimal`, because `_p`
+        round-trips through JSON with `parse_float=Decimal` — the same path a real artifact
+        takes (D77). Asserting the returned type is the point: a `float` arriving here would
+        put a float on a path this project keeps free of them."""
         with self.assertRaises(SchemaError):
             _p({"status": "DISCREPANCY", "category": "PRICE_VARIANCE", "scope": "LINE",
                 "target": {"document_id": "INV-1", "line_id": "1"}, "confidence": 2})
+        accepted = _p({"status": "DISCREPANCY", "category": "PRICE_VARIANCE", "scope": "LINE",
+                       "target": {"document_id": "INV-1", "line_id": "1"},
+                       "confidence": 0.95})[0]
+        self.assertEqual(accepted.confidence, Decimal("0.95"),
+                         "a valid confidence must be accepted and carried through")
+        self.assertIsInstance(accepted.confidence, Decimal)
 
     def test_valid_match_status_parses_and_is_carried(self) -> None:
         findings = _p({"status": "MATCH", "category": "PRICE_VARIANCE", "scope": "LINE",

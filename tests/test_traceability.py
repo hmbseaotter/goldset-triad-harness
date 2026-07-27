@@ -361,6 +361,12 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C75", "[P2] the published README states only what isolation verifies, and never "
             "claims enforcement is verified by an automated probe",
      "test_published_claims.PublishedIsolationClaimTests.test_the_readme_states_only_what_isolation_verifies"),
+    ("C76", "an ancestor whose settings do not cover the secret tier is reported, a covering "
+            "one is not, and a guard-reach finding never changes the exit code",
+     "test_isolation.GuardReachTests.test_an_ancestor_without_secret_coverage_is_reported"),
+    ("C77", "no scorecard from a non-dev split is tracked: a held-out scorecard names "
+            "expected findings verbatim and is answer-key content",
+     "test_repo_shipping.RepositoryShippingTests.test_no_scorecard_from_a_non_dev_split_is_tracked"),
 ]
 
 
@@ -430,6 +436,15 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_scorecard_repro.HashSeedDeterminismTests.test_the_scored_body_is_identical_under_different_hash_seeds",
     # The build prompt is the third copy of the criteria list, now bound to it (D87).
     "test_traceability.TraceabilityTests.test_the_build_prompt_gate_lists_every_phase_two_criterion",
+    # Whether this repository's deny rules are the ones a session loaded (D91). Advisory
+    # by construction -- where an editor is opened is not a property of the repository --
+    # so it answers to no criterion, but it is the finding that explains why a canary read
+    # succeeded when the dated attestation says it was refused.
+    "test_isolation.GuardReachTests.test_an_ancestor_that_does_cover_the_secret_tier_is_not_reported",
+    # D93: the premise for the held-out-scorecard check -- it must classify a held-out
+    # filename as a leak and a dev one as fine, or it is a scan nobody has shown to look.
+    "test_repo_shipping.RepositoryShippingTests.test_the_scorecard_check_would_catch_a_held_out_card",
+    "test_isolation.GuardReachTests.test_a_reach_warning_never_changes_the_exit_code",
     # D80. Every one of these protects C72 — "delete the ledger, rebuild it, get the same
     # file" — against a condition its own test could not reach. C72 scores ONE split, so
     # its ordinals never tie; the tie needed two identifiers in one second, and it made
@@ -576,7 +591,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 124
+EXPECTED_SPEC_P1_CRITERIA = 126
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

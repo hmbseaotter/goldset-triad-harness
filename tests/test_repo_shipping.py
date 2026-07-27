@@ -30,6 +30,7 @@ silent case, and that is what is asserted here.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 import unittest
@@ -259,6 +260,52 @@ class RepositoryShippingTests(unittest.TestCase):
                 "lowercase key — which is exactly why the proof above uses a case-exact "
                 f"decoy rather than the historical one; got {historical}",
             )
+
+    def test_no_scorecard_from_a_non_dev_split_is_tracked(self) -> None:
+        """A held-out scorecard is answer-key content wearing a results file's name (D93).
+
+        Scorecards are the durable record and are *meant* to be committed — but that rule
+        was written about the dev split, whose key is public by design. A scorecard from the
+        held-out split carries, in `missed`, every expectation the agent failed to find:
+        category, invoice, line, and the generator's own note (`"seeded TAX_VARIANCE on
+        INV-2003"`). Even with no misses, `coverage` states which categories the key
+        exercises and how many expectations it holds.
+
+        D14 enumerated the inputs, key, generators and design artifact as out-of-tree and
+        never considered the artifact a held-out *run* produces — the same correct-rule /
+        wrong-universe shape this project keeps finding (D82). Nothing is tracked today, so
+        this locks the class before an instance exists rather than after (D68)."""
+        scorecard_name = re.compile(
+            r"^scorecard-(?P<identifier>.+)-\d{8}T\d{6}Z(?:-\d+)?\.(?:json|txt)$"
+        )
+        leaks: list[str] = []
+        for path in sorted(_tracked_files()):
+            match = scorecard_name.match(path.split("/")[-1])
+            if match and match.group("identifier") not in support.DEV_DATASETS:
+                leaks.append(path)
+        self.assertEqual(
+            leaks, [],
+            f"scorecard(s) from a non-dev split are tracked in this repository: {leaks}. "
+            f"A held-out scorecard names expected findings verbatim; write it outside the "
+            f"repo with --out (D93).",
+        )
+
+    def test_the_scorecard_check_would_catch_a_held_out_card(self) -> None:
+        """The premise. A scan that has only ever seen an empty directory has not been
+        shown to look — the vacuous-pass shape D73 was, and D44 built its own self-check
+        for the same reason."""
+        scorecard_name = re.compile(
+            r"^scorecard-(?P<identifier>.+)-\d{8}T\d{6}Z(?:-\d+)?\.(?:json|txt)$"
+        )
+        held_out = scorecard_name.match("scorecard-held-out-20260727T090320Z.json")
+        self.assertIsNotNone(held_out, "the pattern must match a real scorecard filename")
+        assert held_out is not None  # for the type checker; the assertion above is the gate
+        self.assertNotIn(held_out.group("identifier"), support.DEV_DATASETS)
+        dev = scorecard_name.match("scorecard-dev-20260727T090320Z.txt")
+        self.assertIsNotNone(dev)
+        assert dev is not None
+        self.assertIn(dev.group("identifier"), support.DEV_DATASETS,
+                      "and must NOT flag a legitimate dev-split scorecard")
 
     def test_no_secret_artifact_is_tracked(self) -> None:
         """The dual check, over the index rather than the filesystem: a secret

@@ -3470,6 +3470,175 @@ judgment, not checkable — but the negative-space list now says so in those ter
 
 ---
 
+## D91 — The deny rules bind a session rooted here, and nothing said so ✅
+
+**Fork:** D90 recorded an open question — a generator invocation whose text appears to match
+`Bash(* generate.*)` ran without being refused, and D30 holds that harness enforcement
+cannot be settled from inside a session. Re-running the attestation settled it, in the
+direction nobody wanted.
+
+**The measurement.** A tool-level Read of the canary, which the attestation dated
+2026-07-26 records as *refused with no content returned*, **succeeded**. The marker
+`CANARY_GTH_9F75AF06_GUARDED_DIR_REACHABLE` surfaced.
+
+**The cause, established rather than inferred:**
+
+| | |
+|---|---|
+| Deny rules live in | `goldset-triad-harness/.claude/settings.json` |
+| The session's project root was | `D:\Claude_Stuff\Claude_Desktop_Code_Projects` — **the parent** |
+| That directory's `.claude/settings.local.json` carries | an `allow` list and **zero deny rules** |
+
+Claude Code loads permission settings from the session's own root. A session opened at a
+parent folder — a workspace holding several projects, which is an ordinary way to work —
+loads *that* folder's settings, and this repository's rules are never read. **The rules did
+not fail to match; they were never loaded.** The same absence explains D90's generator run.
+
+**What this does and does not mean, stated precisely because the distinction is the whole
+value of D30's framing.**
+
+- **No contamination occurred.** The canary exists for exactly this probe and holds no
+  answer-key content — its own text says so. No key, generator source or design artifact was
+  read.
+- **The primary control held throughout.** D14 and D30 both state that placement outside the
+  repository tree is primary and deny rules are the second layer. The entire held-out split
+  remained outside the tree, whatever settings were loaded.
+- **The second layer was absent for a whole working session, unnoticed**, and the attestation
+  had no way to say so: it describes the rooting as a property of *the test* (*"open a
+  session rooted in this repository"*) and never as the **precondition for the protection to
+  exist**.
+
+**A second-order instance of the same shape.** D71 asserts the stamped guard file's shape —
+deny-only, no `allow` list — but that check reads one file, `goldset-triad-harness/.claude/settings.json`.
+A parent-level settings file carrying an `allow` list sits entirely outside what any shipped
+check can see. D82's *correct rule, wrong universe*, with the universe being which settings
+files exist **above** the one enumerated.
+
+**Options considered**
+- **Rejected: fail the isolation check when an uncovered ancestor is found.** Where somebody
+  opens their editor is not a property of this repository, and failing the build over it
+  reports a working habit as a security defect — D65's lesson about guards people switch off.
+- **Rejected: copy the deny rules up into the workspace settings.** That edits a file
+  governing other projects, and it is the author's call, not the harness's.
+- **Decision ✅** — an advisory `[guard-reach]` line, reported whenever isolation is checked,
+  naming the ancestor and its settings file. Excluded from `ok`, so the exit code never
+  moves — the same construction D70 chose for durability, for the same reason. The
+  attestation now carries the failed re-run **and** states the rooting precondition, and the
+  2026-07-26 entry is kept rather than withdrawn, because it remains the evidence that the
+  rules *do* bind when loaded.
+
+**Rule** — **a guard's coverage depends on how it was loaded, not only on what it says, and
+the loading condition is part of the claim.** Every check here read the *content* of the
+rules and none asked whether they were in force. Enforced by `check_guard_reach` in
+`check_isolation.py` and `tests/test_isolation.GuardReachTests`; the enforcement half of the
+attestation remains, by D30, judgment for a human.
+
+---
+
+## D92 — Usability is a deliverable, and its examples are executed ✅
+
+**Fork:** The harness was complete, tested and swept, and still unusable by a newcomer: three
+repositories with no map, a generator nobody outside the author could run, a `findings.json`
+described but never shown, and a scorecard nobody had seen. A tool a reader cannot start is
+not finished, whatever its test count.
+
+**Options considered**
+- **Rejected: expand the README until it covers everything.** The README's job is to make a
+  reviewer understand *what this is and why it is trustworthy* in one read. Step-by-step
+  operational detail — prerequisites, three-repo layout, regeneration, troubleshooting —
+  buries that.
+- **Decision ✅** — split by audience. `README.md` keeps the argument and gains a **worked
+  example**; `docs/RUNBOOK.md` holds the procedures, every command given for PowerShell and
+  bash. Both are bound by checks: the README's isolation and threshold claims already are
+  (D84), and the runbook joins the documents whose advertised invocations must actually run
+  (D85).
+
+**The examples are real output, not illustrations.** `docs/example-findings.json` ships in
+the repository and produces exactly the scorecard the README prints — an agent that gets all
+but one expectation right and raises one flag on a clean line, so the reader sees a **miss**
+and a **false flag** rather than a flattering perfect score. Writing it by hand and hoping
+would have violated the project's own rule about publishing only what is verified.
+
+**Two things writing it caught.**
+
+- **`confidence` must be a JSON number, and the first draft used a string** — rejected, with
+  the field named. Correct behaviour, and precisely the trap a worked example exists to spare
+  a reader: the *artifact* takes numbers while the *scorecard* emits strings (D37), which is
+  deliberate and surprising.
+- **`test_confidence_must_be_number_in_unit_interval` was rejection-only.** It proved the
+  guard fires and never that it accepts a valid value — the shape D68 named when it observed
+  that a rejection-only test would pass a check that rejected everything. Now both directions,
+  with the accepted value asserted to arrive as a `Decimal`, which is the type the real path
+  produces.
+
+**Rule** — **a published example is generated and re-run, never written.** A hand-written
+snippet is a claim about behaviour with nothing comparing it, which is D59's class aimed at
+the reader who most needs it: the one who has not yet got the tool working. Enforced by
+`docs/example-findings.json` shipping in the repository, so the documented numbers can be
+reproduced by anyone in one command.
+
+---
+
+## D93 — A held-out scorecard is answer-key content, and "scorecards are committed" was not written about it ✅
+
+**Fork:** Documenting the held-out workflow end to end raised a question nobody had asked:
+**may a held-out scorecard be published?** The project's standing policy says scorecards are
+the durable, tamper-evident record, `.gitignore` deliberately does **not** ignore them, and
+the README's own table answers *"Committed? Yes"*.
+
+**What a scorecard actually contains, read from the emitter rather than produced by a run.**
+`build_scorecard` puts `_finding_json(f)` into `missed` for **every expectation the agent
+failed to find** — status, category, scope, `target.document_id`, `target.line_id` and
+`reasoning`. An expected finding's reasoning is the generator's own note:
+
+```
+"reasoning": "seeded TAX_VARIANCE on INV-2003"
+```
+
+So a held-out scorecard with a single miss publishes **which invoice, which line, which
+category, and what was deliberately planted there** — verbatim answer-key content in a file
+whose name says "results". With zero misses it still publishes the key's *shape*, because
+`coverage` states which categories are exercised and `per_category.expected_count` how many
+expectations each holds.
+
+Deliberately established **by reading the emitter, not by scoring the held-out split**:
+producing one would have put those expectations into this session's context, which is the
+contamination the whole architecture exists to prevent.
+
+**Why it went unnoticed.** D14 enumerated what lives outside the tree — inputs, answer key,
+generators, discrepancy design — and it is a list of *authored* artifacts. A scorecard is
+**derived**, produced later by an ordinary command, and it inherits the sensitivity of the
+split it scored without inheriting the rule. The policy "scorecards are committed" is
+correct, and was written about the dev split, whose key is public by design. Correct rule,
+wrong universe (D82) — the universe here being *which splits a rule about scorecards ranges
+over*.
+
+**Options considered**
+- **Rejected: redact `missed` on non-dev splits.** It would break verify — the scored body
+  must recompute identically — and a scorecard that omits its misses is no longer the record
+  it claims to be.
+- **Rejected: gitignore a `scorecard-held-out-*` pattern.** It guesses the identifier, and an
+  ignore rule is the *silent* control this project has twice been bitten by (D42, D44): a
+  file merely ignored is still present on disk and still readable.
+- **Decision ✅** — state the rule where the work happens and check it where the damage
+  would land. The runbook's held-out section carries the warning and routes `--out` outside
+  the repository; a check refuses any **tracked** scorecard whose identifier is not a dev
+  split. Nothing is tracked today, so this locks the class **before** an instance exists —
+  which is the one time D68 says locking is cheap.
+
+**Verified by execution.** The check passes on the current tree, and its premise test
+confirms the pattern classifies `scorecard-held-out-<stamp>.json` as a leak while leaving
+`scorecard-dev-<stamp>.txt` alone — both directions, because a rule that flagged legitimate
+dev scorecards would be as broken as one that missed held-out ones.
+
+**Rule** — **a derived artifact inherits the sensitivity of what it was derived from, and a
+publication rule written about one split does not range over the others.** The question to
+ask of any output is not *"is this a results file?"* but *"what does it let a reader
+reconstruct?"* Enforced by
+`test_repo_shipping.RepositoryShippingTests.test_no_scorecard_from_a_non_dev_split_is_tracked`.
+
+---
+
 ## Not checked — as of 0.25.0 @ D90
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

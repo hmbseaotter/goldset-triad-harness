@@ -97,6 +97,162 @@ PYTHONPATH=src python -m goldset_triad.check_isolation
 $env:PYTHONPATH = 'src'; python -m goldset_triad.check_isolation
 ```
 
+**New here?** [`docs/RUNBOOK.md`](docs/RUNBOOK.md) is a step-by-step guide for someone who
+has never seen this project — prerequisites, the three repositories and which is which, how
+to regenerate the datasets, and the errors you will actually hit.
+
+---
+
+## A worked example: what you give it, and what you get back
+
+Everything below is real output, produced by the file shipped at
+[`docs/example-findings.json`](docs/example-findings.json). You can reproduce it exactly:
+
+```bash
+goldset-triad score --dataset dev --findings docs/example-findings.json --out ./scorecards
+```
+
+```powershell
+goldset-triad score --dataset dev --findings docs\example-findings.json --out .\scorecards
+```
+
+### What you give it — the findings artifact
+
+One JSON file. Your agent writes it; the harness only reads it. That separation is the
+whole isolation story: the agent runs as a separate step and never shares a process with the
+answer key.
+
+```jsonc
+{
+  "schema_version": "1",
+  "findings": [
+    {
+      "status":   "DISCREPANCY",        // DISCREPANCY or MATCH
+      "category": "PRICE_VARIANCE",     // one of the five, exactly
+      "scope":    "LINE",               // LINE or DOCUMENT
+      "target": {
+        "document_id": "INV-2001",      // always the INVOICE under evaluation
+        "line_id":     "2"              // the line's own id, never its position
+      },
+      "confidence": 0.95,               // optional; a NUMBER, never a string
+      "reasoning": "Invoiced unit price exceeds the purchase-order price."
+    },
+    {
+      "status": "DISCREPANCY", "category": "QTY_UNDER_SHIPMENT", "scope": "LINE",
+      "target": { "document_id": "INV-2002", "line_id": "1" }
+      // confidence and reasoning are optional -- omit them entirely if you have none
+    }
+    // ... the shipped example holds nine findings in total
+  ]
+}
+```
+
+**The five rules worth knowing before you write one:**
+
+| Rule | Why |
+|---|---|
+| `category` must be one of the five exactly | Per-category precision and recall are only defined over a fixed vocabulary. `TAX_ERROR` is a schema violation, not a near miss. |
+| `scope` is `LINE` **or** `DOCUMENT`, and it is part of the match key | A tax finding is document-scoped. The same finding flagged line-scoped does **not** match. |
+| For `DOCUMENT` scope, `line_id` must be the sentinel `"__DOCUMENT__"` | Never empty, never absent — an absent line id is malformed, not inferred. |
+| `confidence` is a JSON number | Carried through to the scorecard, never scored. A string is rejected. |
+| `status: "MATCH"` asserts *no* discrepancy | It can neither be a false positive nor satisfy an expectation, so one wrong assertion is counted once. |
+
+### What you get back — the human summary
+
+The agent above gets all but one expectation right, and raises one flag on a clean line:
+
+```text
+Scorecard - dataset dev @ 1.0.0
+============================================================
+Workload: 4 invoice(s), 9 finding(s) submitted
+Overall precision: 0.8889   recall: 0.8889
+False positives: 1  (rate 0.2500 per invoice)
+Duplicate-contention flags: 0   Non-existent-target flags: 0   MATCH assertions: 0
+
+Per-category (precision / recall):
+  PRICE_VARIANCE         TP 4  FP 1  FN 0   P 0.8000  R 1.0000
+  QTY_UNDER_SHIPMENT     TP 1  FP 0  FN 0   P 1.0000  R 1.0000
+  QTY_OVER_SHIPMENT      TP 1  FP 0  FN 0   P 1.0000  R 1.0000
+  QTY_INVOICE_INFLATED   TP 2  FP 0  FN 0   P 1.0000  R 1.0000
+  TAX_VARIANCE           TP 0  FP 0  FN 1   P n/a  R 0.0000
+
+COVERAGE: this dataset exercises all 5 categories (9 expected finding(s)).
+
+Missed findings (1):
+  - TAX_VARIANCE on INV-2003 (document)
+
+False flags (1):
+  - PRICE_VARIANCE on INV-2002 line 4 [no_match]
+```
+
+Read the `TAX_VARIANCE` row carefully, because it shows the metric rules doing real work:
+recall is `0.0000` — the expectation was missed — while precision is `n/a`, because the agent
+raised **no** flag in that category, so there is no ratio to compute. Zero and undefined are
+different answers and the harness refuses to conflate them.
+
+Note also that the report **names** the miss and the false flag individually. Aggregate
+numbers tell you how you did; these tell you what to fix.
+
+### What you get back — the machine-readable scorecard
+
+The same run, abridged. Every value is exact: money and ratios are emitted as **strings**, so
+the bytes are reproducible and no float ever touches the output.
+
+```jsonc
+{
+  "schema_version": "2",
+  "dataset":  { "identifier": "dev", "version": "1.0.0" },
+  "workload": { "invoice_count": 4, "finding_count": 9 },
+
+  "fingerprints": {                     // the four inputs that determine the score
+    "findings_artifact_sha256": "1cdd983f17786dabb02d3089970ae00a1c0157aa28169a62c6fcfe4a4246571b",
+    "answer_key_sha256":        "b108b3df4c533a22d3b120715be2d77a5d2366f624667720dc372fe80981f1cd",
+    "invoice_index_sha256":     "5461f6201c6ea1f38e53456696ff88627ae130e65db8957091efdd6a5f7668e4",
+    "inputs_aggregate_sha256":  "68429b37ee49606938f36c662f7b0e6e61482899257a8a047db31c34f9a6a992"
+  },
+
+  "coverage": {                         // what this dataset can and cannot measure
+    "categories_exercised":     ["PRICE_VARIANCE", "QTY_UNDER_SHIPMENT",
+                                 "QTY_OVER_SHIPMENT", "QTY_INVOICE_INFLATED", "TAX_VARIANCE"],
+    "categories_not_exercised": [],
+    "expected_finding_count":   9,
+    "measures_recall":          true
+  },
+
+  "metrics": {
+    "overall":               { "precision": "0.8889", "recall": "0.8889" },
+    "false_positive_count":  1,
+    "false_positive_rate":   "0.2500",
+    "duplicate_contention_count": 0,
+    "nonexistent_target_count":   0,
+    "match_status_count":         0,
+    "per_category": {
+      "TAX_VARIANCE": {
+        "true_positives": 0, "false_positives": 0, "false_negatives": 1,
+        "precision": null,                // undefined: no flag was raised here
+        "recall":    "0.0000",            // defined, and zero: the expectation was missed
+        "expected_count": 1, "exercised_by_dataset": true
+      }
+      // ... one row per category
+    }
+  },
+
+  "missed":      [ { "category": "TAX_VARIANCE", "scope": "DOCUMENT",
+                     "target": { "document_id": "INV-2003", "line_id": "__DOCUMENT__" } } ],
+  "false_flags": [ { "category": "PRICE_VARIANCE", "scope": "LINE", "reason": "no_match",
+                     "target": { "document_id": "INV-2002", "line_id": "4" } } ],
+
+  "run_metadata": {                     // the ONLY non-deterministic part
+    "run_timestamp": "2026-07-27T09:03:20Z",
+    "load_ms": 48, "score_ms": 0, "total_ms": 48
+  }
+}
+```
+
+`run_metadata` holds exactly the non-deterministic fields and nothing else. Everything above
+it is byte-identical between two runs on the same inputs — which is what makes `verify` able
+to say whether a stored scorecard reports what it claims to.
+
 ---
 
 ## What makes the verdict trustworthy

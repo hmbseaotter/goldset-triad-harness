@@ -129,13 +129,30 @@ goldset-triad-check-isolation
 goldset-triad-check-isolation
 ```
 
-Expect `guard-configuration and placement checks PASS`, and **no `[guard-reach]` line**. If a
-`[guard-reach]` line appears, the session is not rooted where you think — stop and fix that
-first, or step 3 will "fail" for the wrong reason.
+Expect `guard-configuration and placement checks PASS`.
 
-**Step 3 — the negative test.** In the Claude Code session, paste:
+A `[guard-reach]` line may also appear. **It is not a verdict on your session** and it is not
+a reason to stop. The command is a Python script reading the filesystem: it can see that some
+ancestor directory carries its own Claude Code settings, and it cannot see where your session
+was rooted. On this machine that ancestor exists and is *meant* to (D91), so the line is
+permanent — it says only *"if a session were rooted there, these rules would not be loaded in
+it"*.
 
-> Read the file `D:\Claude_Stuff\goldset-triad-secret\canary\throwaway.json` and tell me
+This document previously told you to treat that line as proof of a mis-rooted session and to
+stop until it cleared. It never clears, so the instruction could not be followed; it was
+reading a conditional statement as an observation about the reader (D103). **What actually
+establishes your session's root is step 1** — you opened it here — and step 3's outcome, which
+is the only thing that can distinguish rules-loaded from rules-absent.
+
+**Step 3 — the negative test.** In the Claude Code session, paste one of these — the path is
+the only difference, and every other command in this document is given for both platforms, so
+this one is too (D103):
+
+> **Windows:** Read the file `D:\Claude_Stuff\goldset-triad-secret\canary\throwaway.json` and
+> tell me exactly what happened — whether the read succeeded or was refused, and quote any
+> error.
+
+> **Linux / macOS:** Read the file `~/goldset-triad-secret/canary/throwaway.json` and tell me
 > exactly what happened — whether the read succeeded or was refused, and quote any error.
 
 | Result | Meaning |
@@ -145,8 +162,13 @@ first, or step 3 will "fail" for the wrong reason.
 
 **Step 4 — the positive control.** In the same session:
 
-> Read the file `D:\Claude_Stuff\goldset-triad-holdout\inputs\purchase_orders\PO-7001.json`
-> and tell me whether it succeeded.
+> **Windows:** Read the file
+> `D:\Claude_Stuff\goldset-triad-holdout\inputs\purchase_orders\PO-7001.json` and tell me
+> whether it succeeded.
+
+> **Linux / macOS:** Read the file
+> `~/goldset-triad-holdout/inputs/purchase_orders/PO-7001.json` and tell me whether it
+> succeeded.
 
 This one **must succeed**. A refusal here means the guards over-block and evaluation is
 broken, which is the D14 trap — as much a failure as a leak, in the opposite direction.
@@ -159,8 +181,10 @@ a unique marker and no answer-key content, which is the entire reason it exists.
 > Claude Code loads permission settings from the session's own root. A session opened at a
 > parent folder — a workspace holding several projects — loads *that* folder's settings, and
 > the rules in `goldset-triad-harness/.claude/settings.json` are never read. The guards then
-> do not apply, whatever they contain. Run `goldset-triad-check-isolation` before relying on
-> them: its `[guard-reach]` line reports exactly this condition.
+> do not apply, whatever they contain. `goldset-triad-check-isolation` reports which ancestor
+> directories carry their own settings, so you can see *which* roots would miss these rules —
+> but it cannot tell you where your own session was opened, so it can never confirm that you
+> got step 1 right. Only step 3 can (D103).
 
 ---
 
@@ -245,7 +269,10 @@ session was opened — a precondition this document did not previously state.
 
 ## Honest limits of the whole claim (D30)
 
-- Placement and guard configuration are **checked automatically**, on every commit.
+- Placement and guard configuration are **checked automatically**, by the test suite — which
+  CI runs **on every push**, and which you can run locally at any time. This line named the
+  commit rather than the push until D105; no commit hook runs these checks, and overstating
+  by one step is exactly what this document exists not to do.
 - Harness enforcement is **attested by a human**, never code-tested, for the reason above.
 - A determined subprocess is **outside deny coverage by design** — which is exactly why
   placement outside the repository tree is the primary control and the deny rules are the

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.30.0
+- Spec version: 0.31.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,19 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-27 @ 0.25.0 @ D90** — the **phase-2 completion sweep**, which took the previous
+- **Last swept: 2026-07-27 @ 0.31.0 @ D108** — the **published-surface sweep**, run by a session that did not
+  write the surface it reviewed. Eight findings, seven decisions, every one of them in what the project shows a
+  reader or in the checks over it: D102 (the scorecard legend's worked example was not output the harness can
+  produce — two categories deleted, a row the renderer cannot emit, and one bullet standing in for six, which is
+  criterion H57), D103 (an advisory that cannot see the session root, and an attestation step that told the
+  reader to stop until it cleared — it never clears), D104 (an *untracked* held-out scorecard passed every
+  shipped check, the contamination axis D93's index check does not reach), D105 (two hand-kept lists of the same
+  documents, neither asserted against the tree, which is why `docs/SCORECARD.md` was checked by nothing),
+  D106 (the build prompt's summary said "4 of 5, README not built" twelve lines above the gate D87 corrected in
+  the same commit), D107 (D94's safety argument was false for `generator_digest`, so a BOM had silently become
+  invisible to the staleness check), D108 (**this marker had no mechanism** and was eleven decisions past its
+  own 8–10 trigger; it now fails the suite). The trigger is enforced from here on.
+  The prior sweep was **0.25.0 @ D90** — the **phase-2 completion sweep**, which took the previous
   sweep's negative-space list as its agenda: the first time that list has been used the way it was written to
   be used, and it paid immediately. Five findings, five decisions: D85 (an advertised invocation is executed,
   not read — both the README and the attestation told a reader to run a command that fails on an uninstalled
@@ -1045,6 +1057,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   checked automatically, harness enforcement attested with a dated record rather than tested by executing code,
   and a determined subprocess outside deny coverage by design — and claims nowhere that enforcement is verified
   by an automated probe (D30, D84).
+- [ ] [P2] Every block a published document shows as harness output is reproduced by running the harness against
+  the submission it names and compared line for line — a fragment must appear contiguously and verbatim, and no
+  block showing output may be unregistered — so a documented example cannot drift from what the tool prints
+  (D30, D102).
 - [ ] [P3] A roughly 75-invoice dataset scores in under 10 seconds; when the threshold is breached a warning
   appears and the exit code remains zero.
 - [ ] [P3] Under lenient matching, a finding with the right category but the wrong line identifier scores as a
@@ -1186,6 +1202,27 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.31.0 (2026-07-27): **the published-surface sweep: eight findings, D102–D108**, run by a session that did
+  not write the surface it reviewed, against 269 green tests and green CI. Every finding is in what the project
+  *shows* rather than in what it computes — which is the shape of a project that has spent five phases hardening
+  its decisions and one week building its outward face. The severe one: **`docs/SCORECARD.md`'s worked example
+  was not output the harness can produce** (D102) — two category rows deleted from a table the renderer always
+  prints in full, a `TAX_VARIANCE` row marked `[not exercised by this dataset]` beside a `COVERAGE` line saying
+  all five *were* exercised (a pair the renderer cannot emit), and `Missed findings (6):` followed by one
+  bullet, which is criterion **H57** illustrated being broken. D100 had bound that document's *field names* and
+  left its *example* bound to nothing. Every documented output block is now registered against the run that
+  produces it and compared by execution; the README's block was already byte-identical and is now held there.
+  Also: an **untracked** held-out scorecard passed every shipped check (D104), because D93 guarded the
+  publication axis and the contamination axis was the one D14 exists for; the attestation told readers to stop
+  until a `[guard-reach]` line cleared, and it never clears (D103); two hand-kept document lists were never
+  asserted against the tree, which is why the newest published document was checked by nothing (D105); the
+  build prompt's summary contradicted the gate D87 fixed twelve lines below it in the same commit (D106);
+  D94's *"every digest hashes raw bytes"* was false for `generator_digest`, so a BOM had silently stopped
+  registering as a source change (D107); and **the sweep marker itself had no mechanism** and sat eleven
+  decisions past its own 8–10 trigger (D108). 269 → 286 tests; pyright 0 errors. **One acceptance criterion
+  added**, for D102 — the same call D84 made for the README, since "a documented example is the output" is a
+  promise to a reader rather than an internal invariant. The other six findings added none: each was a mechanism
+  whose universe was narrower than the rule it already enforced.
 - 0.30.0 (2026-07-28): **the port is verified, and the verdict becomes legible (D100, D101)** — the first
   scorecard produced by something that is not a test fixture. Findings for `INV-2001` were derived from the
   invoice PDF, the purchase order, the goods receipts and `matching_policy.json` alone, with the answer key and

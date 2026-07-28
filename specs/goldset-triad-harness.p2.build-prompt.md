@@ -19,14 +19,21 @@ targets **phase 2 only**.
 audit consistent, regeneration reproduces every dataset byte-for-byte. *(Historical — this is what was true
 when the prompt was written, and it stays as written.)*
 
-**State now (2026-07-26, spec `0.23.0` @ D82):** phase 2 is **4 of 5**. Built and verified by execution: the CI
-workflow, verify mode, the run ledger, and the cross-platform observation that turned `H17` from a
-by-construction claim into a result. **Not built: item 4, the README and methodology write-up** — which is also
-the one item in the list below with no `SHALL` in the spec and no acceptance criterion, so nothing failed while
-it was missing. Whether it gets a requirement and a criterion before it gets written is an open question, not a
-settled one. All six items in the phase-2 acceptance gate at the foot of this file pass; that gate never
-covered item 4. An independent sweep over the completed work landed **D77–D82** (twenty-four findings against a
-green suite and green CI) — read those before extending any of it.
+**State now (2026-07-27, spec `0.31.0` @ D108):** phase 2 is **complete — all five items built and verified by
+execution**: the CI workflow, verify mode, the run ledger, the README and methodology write-up, and the
+cross-platform observation that turned `H17` from a by-construction claim into a result. Every item in the
+phase-2 acceptance gate at the foot of this file passes.
+
+Three independent sweeps have run over that work, each by a session that did not build what it reviewed:
+**D77–D82** (twenty-four findings), **D85–D90** (the phase-completion sweep, which also settled regeneration
+idempotence), and **D102–D108** (eight findings, all in the published surface). Read them before extending any
+of it — several are about the gap between what a mechanism checks and what its rule says.
+
+> This block said *"4 of 5 — not built: item 4, the README"* for two days after the README shipped, and went on
+> saying *"all six items in the gate"* after D87 corrected that gate to eight, **twelve lines below, in the same
+> commit**. D87's rule is *"any document that restates the criteria is bound to the count"*, and its check
+> counts the gate's checkboxes — so prose *about* the gate sat outside the universe of the mechanism written to
+> stop exactly this. D106 binds it.
 
 ## Recommended build-time settings
 
@@ -157,6 +164,8 @@ Every `[P2]` criterion in the spec, each passing **by execution**:
   checked automatically, harness enforcement attested with a dated record rather than tested by executing code,
   and a determined subprocess outside deny coverage by design — and claims nowhere that enforcement is verified
   by an automated probe (D30, D84).
+- [ ] Every block a published document shows as harness output is reproduced by running the harness and compared
+  line for line, with no output-shaped block left unregistered (D30, D102).
 - [ ] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.

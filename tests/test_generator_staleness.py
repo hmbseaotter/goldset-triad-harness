@@ -29,11 +29,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
 from tests import support
-from goldset_triad.dataset import generator_digest
+from goldset_triad.dataset import generator_digest, sha256_file
 
 #: Where the generator may be found, in order of authority.
 #:
@@ -173,6 +174,60 @@ class GeneratorFreshnessTests(unittest.TestCase):
             self.assertEqual(
                 _manifest(name).get("generator_sha256"), actual,
                 f"{name} is STALE — {REGENERATE_HINT}",
+            )
+
+    def test_a_byte_order_mark_does_not_move_the_digest(self) -> None:
+        """Pinned deliberately, having been discovered as a side effect (D107).
+
+        D94 switched the shared reader to `utf-8-sig` so a BOM'd findings artifact from a
+        Windows agent would score. `generator_digest` reads through that same function and,
+        by D63, digests *normalized text* rather than raw bytes — so the switch also made a
+        BOM invisible to the D58 staleness check. D94's justification said the opposite
+        (*"every digest hashes RAW BYTES"*), which is true of the fingerprints and not of
+        this one.
+
+        The behaviour is kept because D63's own test says to keep it: for source, the
+        semantic content is the thing and a line ending is transport. A BOM encodes nothing
+        about what the generator *does*, so it should not read as a rule change and send
+        someone regenerating four datasets. What was wrong was that nobody had decided
+        it — so it is decided here, and asserted, rather than left to be re-derived by the
+        next reader who wonders."""
+        import shutil
+        import tempfile
+
+        assert self.generator_dir is not None
+        with tempfile.TemporaryDirectory() as td:
+            copy = Path(td) / "_generators"
+            shutil.copytree(self.generator_dir, copy)
+            baseline = generator_digest(copy)
+
+            source = sorted(p for p in copy.rglob("*.py") if "__pycache__" not in p.parts)[0]
+            source.write_bytes(b"\xef\xbb\xbf" + source.read_bytes())
+            self.assertEqual(
+                generator_digest(copy), baseline,
+                f"a byte-order mark on {source.name} moved the generator digest. It must "
+                f"not: a BOM is transport, like a line ending (D63), and moving the digest "
+                f"would report a stale dataset when no rule changed — a misdiagnosis in "
+                f"the alarming direction (D50, D107)",
+            )
+
+    def test_a_byte_order_mark_does_move_a_dataset_artifact_fingerprint(self) -> None:
+        """The other direction, which must NOT be tolerant (D107).
+
+        Dataset inputs are digested by `read_bytes` (D27), where a BOM is a byte difference
+        and has to register as one — the two really are different files, and a scorecard
+        fingerprints the bytes an agent read. The BOM tolerance is a *reading* concession,
+        never a *hashing* one, and nothing had asserted the boundary between them."""
+        with tempfile.TemporaryDirectory() as td:
+            source = support.DATASETS / "dev" / "dev_invoice_index.json"
+            plain = Path(td) / "plain.json"
+            plain.write_bytes(source.read_bytes())
+            bommed = Path(td) / "bommed.json"
+            bommed.write_bytes(b"\xef\xbb\xbf" + source.read_bytes())
+            self.assertNotEqual(
+                sha256_file(plain), sha256_file(bommed),
+                "a BOM must change an artifact's fingerprint: digests are over raw bytes "
+                "so a scorecard records exactly what was scored (D27)",
             )
 
     def test_digest_notices_a_source_change(self) -> None:

@@ -33,10 +33,11 @@ from pathlib import Path
 
 from tests import support
 
-#: Documents that tell a reader how to invoke this package. Both advertised the bare
+#: The published documents, from the one registry (D105). Two advertised the bare
 #: `python -m goldset_triad.<module>` form, which fails on a checkout that has not been
-#: installed, because the package lives under `src/` (D85).
-INVOCATION_DOCS = ("README.md", "ISOLATION_ATTESTATION.md", "docs/RUNBOOK.md")
+#: installed, because the package lives under `src/` (D85). This list and
+#: `test_published_claims`'s were the same three files maintained twice.
+INVOCATION_DOCS = support.PUBLISHED_DOCS
 
 PACKAGE_DIR = support.SRC / "goldset_triad"
 PYPROJECT = support.REPO_ROOT / "pyproject.toml"
@@ -177,6 +178,7 @@ class AdvertisedInvocationTests(unittest.TestCase):
         one naming a real module — is a command, and a command that fails on an
         uninstalled checkout is D59's defect however carefully the surrounding prose is
         worded."""
+        checked = 0
         for name in INVOCATION_DOCS:
             path = support.REPO_ROOT / name
             with self.subTest(document=name):
@@ -185,15 +187,26 @@ class AdvertisedInvocationTests(unittest.TestCase):
                     line for line in path.read_text(encoding="utf-8").splitlines()
                     if "python -m goldset_triad" in line and "<module>" not in line
                 ]
-                self.assertTrue(
-                    runnable, f"{name} shows no concrete module invocation to check"
-                )
+                # A published document may legitimately show no module invocation --
+                # `docs/SCORECARD.md` is a field reference, not a set of instructions. The
+                # per-document assertion that stood here was correct while this list was
+                # hand-picked as "documents that advertise the module form" and became
+                # wrong the moment it became "every published document" (D105). The floor
+                # below keeps the widened loop from going vacuous.
+                if not runnable:
+                    continue
+                checked += 1
                 for line in runnable:
                     self.assertIn(
                         "PYTHONPATH", line,
                         f"{name} shows `{line.strip()[:60]}...` with no PYTHONPATH, which "
                         f"fails with ModuleNotFoundError on an uninstalled checkout (D85)",
                     )
+        self.assertGreater(
+            checked, 0,
+            "no published document shows a concrete module invocation, so this check "
+            "examined nothing",
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import json
 import tempfile
 import unittest
@@ -76,6 +77,45 @@ class IsolationTests(unittest.TestCase):
             decoy.unlink()
             decoy.parent.rmdir()
         self.assertTrue(any("holdout_answer_key.json" in f for f in failures))
+
+    def test_placement_fails_on_an_untracked_held_out_scorecard(self) -> None:
+        """The contamination axis, which the index check could not see (D104).
+
+        D93 guarded held-out scorecards over *tracked* files, reasoning about publication.
+        An untracked one sits on disk, readable by the agent under evaluation, and passed
+        every shipped check — the exact property D93 cited when it rejected a `.gitignore`
+        rule. Planted in a temporary tree rather than the real one, so a failure here can
+        never be this machine's actual state."""
+        with tempfile.TemporaryDirectory() as t:
+            tree = Path(t)
+            (tree / "scorecards").mkdir()
+            (tree / "scorecards" / "scorecard-held-out-20260728T000000Z.json").write_text(
+                "{}", encoding="utf-8", newline="\n"
+            )
+            failures = ci.check_placement(tree)
+        self.assertTrue(
+            any("held-out" in f and "answer-key content" in f for f in failures),
+            f"an untracked held-out scorecard must be reported by placement; got {failures}",
+        )
+
+    def test_placement_leaves_dev_scorecards_alone(self) -> None:
+        """The positive control, in both directions that matter.
+
+        A rule flagging legitimate dev scorecards would be as broken as one missing held-out
+        cards: the dev keys ship in this repository, so a dev scorecard reveals nothing that
+        is not already committed beside it — and scorecards are the durable record D9 says
+        to keep."""
+        with tempfile.TemporaryDirectory() as t:
+            tree = Path(t)
+            (tree / "scorecards").mkdir()
+            for name in ("scorecard-dev-20260728T000000Z.json",
+                         "scorecard-dev-20260728T000000Z.txt",
+                         "scorecard-dev-zero-defect-20260728T000000Z-2.json",
+                         "scorecard-dev-synthetic-20260728T000000Z.json"):
+                (tree / "scorecards" / name).write_text(
+                    "{}", encoding="utf-8", newline="\n"
+                )
+            self.assertEqual(ci.check_placement(tree), [])
 
     def test_repository_contains_no_heldout_artifact(self) -> None:
         # No held-out key, generator, design artifact, or held-out input in the repo.
@@ -249,6 +289,49 @@ class GuardReachTests(unittest.TestCase):
             )
             warnings = [w for w in ci.check_guard_reach(repo) if "workspace" in w]
             self.assertEqual(warnings, [], "a covering ancestor must not be reported")
+
+    def test_the_advisory_states_a_condition_rather_than_judging_this_session(self) -> None:
+        """It reads the filesystem; it cannot see where a session was rooted (D103).
+
+        The original wording — *"A session rooted at X loads those instead of this
+        repository's"* — is true and was read as a verdict on the reader's own session. The
+        attestation then told them a `[guard-reach]` line meant they were mis-rooted and to
+        stop until it cleared. It never clears: the ancestor exists and is meant to, so the
+        procedure's gate could not be satisfied. A check that cannot observe a thing must
+        not phrase its output as though it had."""
+        with tempfile.TemporaryDirectory() as t:
+            repo = self._workspace(Path(t), deny=["Read(**/something_else)"])
+            warning = next(w for w in ci.check_guard_reach(repo) if "workspace" in w)
+            self.assertIn(
+                "IF a session is rooted at", warning,
+                "the advisory must be conditional: it observed a file on disk, not the "
+                "root of the session reading it",
+            )
+            self.assertIn(
+                "not about your current session", warning,
+                "and it must say so, because the document consuming it read it the other "
+                "way for a whole revision",
+            )
+
+    def test_the_attestation_does_not_gate_on_the_advisory(self) -> None:
+        """The consuming document, checked against the tool's actual capability.
+
+        This is the half that failed: the message was defensible and the procedure built on
+        it was not. Binding them here means a future rewording of either has to keep them
+        agreeing (D53's pattern, applied to a procedure rather than a threshold)."""
+        text = (support.REPO_ROOT / "ISOLATION_ATTESTATION.md").read_text(encoding="utf-8")
+        flattened = re.sub(r"\s+", " ", text)
+        self.assertNotRegex(
+            flattened, r"no `\[guard-reach\]` line",
+            "the attestation must not tell a reader to expect the advisory's ABSENCE: the "
+            "command cannot see the session root, so that expectation is unsatisfiable "
+            "wherever an ancestor legitimately carries its own settings (D103)",
+        )
+        self.assertIn(
+            "It is not a verdict on your session", flattened,
+            "the attestation must say what the advisory is not, since it previously said "
+            "the opposite",
+        )
 
     def test_a_reach_warning_never_changes_the_exit_code(self) -> None:
         """Advisory means advisory (D70's rule, applied to D91's finding). Where you open

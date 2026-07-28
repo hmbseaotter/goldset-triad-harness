@@ -13,6 +13,7 @@ import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Final
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
@@ -211,3 +212,46 @@ def copy_dataset(dataset: str, dest: Path) -> Path:
     src = DATASETS / dataset
     shutil.copytree(src, dest)
     return dest / "manifest.json"
+
+
+# ---------------------------------------------------------------------------
+# The published documents (D105)
+# ---------------------------------------------------------------------------
+#: Every document written for a reader outside this project — someone deciding whether to
+#: trust the harness, or following it to run something. D30 governs what these may claim;
+#: D84, D85, D95 and D102 each bind one aspect of them to what is actually true.
+#:
+#: **One registry, because there were two.** `test_published_claims` carried `COMMAND_DOCS`
+#: and `test_entry_points` carried `INVOCATION_DOCS`: the same three files, in different
+#: orders, in different files, with nothing comparing them and nothing checking either
+#: against the tree. `COMMAND_DOCS` even cited D82 for why it was named rather than globbed
+#: — and then skipped D82's second half, which is that a declared universe must be
+#: *asserted covered*. A fourth document could have arrived and been checked by neither.
+PUBLISHED_DOCS: Final = (
+    "README.md",
+    "ISOLATION_ATTESTATION.md",
+    "docs/RUNBOOK.md",
+    "docs/SCORECARD.md",
+)
+
+#: Markdown that exists for this project's own record-keeping rather than for a reader
+#: following instructions. Listed rather than pattern-matched so that adding one is a
+#: deliberate act, and so `test_every_markdown_document_is_classified` can prove the two
+#: lists together cover the tree.
+INTERNAL_DOCS: Final = (
+    "DECISIONS.md",
+)
+
+#: Where `PUBLISHED_DOCS` and `INTERNAL_DOCS` are required to be exhaustive. Specs live
+#: outside it on purpose: they address a building agent, are versioned as build inputs, and
+#: are bound by their own mechanisms (the criterion checksums, D87's gate count).
+CLASSIFIED_DOC_DIRS: Final = (".", "docs")
+
+
+def markdown_on_disk() -> set[str]:
+    """Every markdown file in the directories the classification claims to cover."""
+    found: set[str] = set()
+    for directory in CLASSIFIED_DOC_DIRS:
+        for path in sorted((REPO_ROOT / directory).glob("*.md")):
+            found.add(path.relative_to(REPO_ROOT).as_posix())
+    return found

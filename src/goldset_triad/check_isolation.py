@@ -140,12 +140,21 @@ def check_guard_reach(root: Path | None = None) -> list[str]:
             deny = permissions.get("deny", []) if isinstance(permissions, dict) else []
             covers = any(SECRET_DIR_NAME in str(rule) for rule in deny)
             if not covers:
+                # Phrased as what was OBSERVED, not as a verdict on the caller's session
+                # (D103). This function reads the filesystem; it cannot see where a Claude
+                # Code session was rooted, and the attestation read the original wording as
+                # if it could -- telling a reader to treat this line as proof their session
+                # was mis-rooted and to stop until it cleared. It never clears while the
+                # ancestor file exists, which the author has confirmed is the intended
+                # arrangement, so the procedure's stop-gate could not be satisfied.
                 warnings.append(
-                    f"{candidate} carries Claude Code settings that do NOT cover the "
-                    f"secret tier ({len(deny)} deny rule(s)). A session rooted at "
-                    f"{ancestor} loads those instead of this repository's, so the "
-                    f"deny-guards are not in force there. Placement outside the tree "
-                    f"still is (D14); this is the second layer only (D91)."
+                    f"{candidate} exists and carries {len(deny)} deny rule(s), none "
+                    f"covering the secret tier. This is a fact about the filesystem, not "
+                    f"about your current session: IF a session is rooted at {ancestor}, it "
+                    f"loads that file instead of this repository's and these deny-guards "
+                    f"are not in force in it. A session rooted at this repository is "
+                    f"unaffected. Placement outside the tree is the primary control either "
+                    f"way (D14, D91)."
                 )
     return warnings
 
@@ -265,8 +274,40 @@ def check_guard_configuration(root: Path | None = None) -> list[str]:
     return failures
 
 
+#: `scorecard-<identifier>-<stamp>[-<ordinal>].(json|txt)`, the pair `cli` emits (D49).
+_SCORECARD_NAME = re.compile(
+    r"^scorecard-(?P<identifier>.+)-\d{8}T\d{6}Z(?:-\d+)?\.(?:json|txt)$"
+)
+
+#: The splits whose scorecards may sit in this tree. Public by design: their answer keys
+#: ship here, so a scorecard naming their expectations reveals nothing that is not already
+#: committed beside it. Every other split's does (D93).
+PUBLISHABLE_SCORECARD_SPLITS = frozenset({"dev", "dev-synthetic", "dev-zero-defect"})
+
+
+def _non_dev_scorecard(name: str) -> str | None:
+    """The split a scorecard belongs to, when that split's key is not public (D93)."""
+    match = _SCORECARD_NAME.match(name)
+    if match is None:
+        return None
+    identifier = match.group("identifier")
+    return None if identifier in PUBLISHABLE_SCORECARD_SPLITS else identifier
+
+
 def check_placement(root: Path | None = None) -> list[str]:
-    """No secret artifact exists anywhere in the repo tree, ignored dirs included."""
+    """No secret artifact exists anywhere in the repo tree, ignored dirs included.
+
+    **Held-out scorecards count, and are checked here rather than only in the git index
+    (D104).** D93 established what one contains — for every expectation the agent missed,
+    the category, the invoice, the line and the generator's own seeding note — and guarded
+    it with a check over *tracked* files, because the harm it was reasoning about was
+    publication. But the harm this project is actually built around is **contamination**: a
+    file readable by the agent under evaluation, in the tree that agent works in. An
+    untracked scorecard is exactly as readable as a tracked one, which is the property D93
+    itself cited when it rejected a `.gitignore` rule — *"a file merely ignored is still
+    present on disk and still readable"*. The index check kept the publication axis; this
+    keeps the one D14 exists for. The route in is the documented held-out workflow with
+    `--out` left at its default."""
     failures: list[str] = []
     base = REPO_ROOT if root is None else root
     for dirpath, _dirnames, filenames in os.walk(base):
@@ -277,6 +318,14 @@ def check_placement(root: Path | None = None) -> list[str]:
         for name in filenames:
             if _is_secret_name(name):
                 failures.append(f"a secret artifact exists inside the repo: {rel / name}")
+            split = _non_dev_scorecard(name)
+            if split is not None:
+                failures.append(
+                    f"a scorecard from the '{split}' split exists inside the repo: "
+                    f"{rel / name}. It names expected findings verbatim, so it is answer-key "
+                    f"content wearing a results file's name (D93). Re-run with --out "
+                    f"pointing outside this repository, and delete this copy"
+                )
     return failures
 
 

@@ -325,10 +325,11 @@ Per-category (precision / recall):
   QTY_INVOICE_INFLATED   TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
   TAX_VARIANCE           TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
 
-COVERAGE: this dataset exercises 1 of 5 categories (1 expected finding(s)).
-NOT measured: QTY_UNDER_SHIPMENT, QTY_OVER_SHIPMENT, QTY_INVOICE_INFLATED, TAX_VARIANCE.
-Their null metrics mean the data lacks these cases, NOT that the agent handled them correctly.
+COVERAGE: this dataset exercises 1 of 5 categories (1 expected finding(s)). NOT measured: QTY_UNDER_SHIPMENT, QTY_OVER_SHIPMENT, QTY_INVOICE_INFLATED, TAX_VARIANCE. Their null metrics mean the data lacks these cases, NOT that the agent handled them correctly.
 ```
+
+The `COVERAGE:` line really is one long line; your terminal wraps it where its width falls. It
+was shown here hand-wrapped at three lines until D102 compared this block against a real run.
 
 Reproduce that yourself with:
 

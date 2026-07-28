@@ -53,9 +53,23 @@ class DatasetError(Exception):
 #: adds a BOM freely — Notepad's "UTF-8", `Out-File -Encoding utf8` on PowerShell 5.1, and
 #: plenty of editors. An agent under test running there can emit one, and rejecting its
 #: findings over three bytes that carry no meaning is refusing to score work for a reason
-#: unrelated to the work. Nothing is weakened: every digest in this project hashes RAW BYTES
-#: via `read_bytes`, so a BOM'd artifact still fingerprints differently from a clean one, as
-#: it should — the two really are different files.
+#: unrelated to the work.
+#:
+#: **What this does and does not touch, corrected (D107).** D94 justified the change with
+#: *"every digest in this project hashes RAW BYTES via `read_bytes`, so a BOM'd artifact
+#: still fingerprints differently"*. That is true of the four scorecard fingerprints and of
+#: the per-file inputs digests — and **false of `generator_digest`**, which D63 deliberately
+#: computes over *normalized text* read through this function, so that a line ending cannot
+#: move it. Switching this constant therefore also made a BOM invisible to the D58 staleness
+#: check, silently and unrecorded, while the sentence doing the safety work said otherwise.
+#:
+#: Kept, on the merits rather than by inheritance: D63's own reasoning is that for *source*
+#: the semantic content is the thing and a line ending is transport, and a BOM is transport
+#: by exactly that test — it encodes nothing about what the generator does. So the digest
+#: ignoring it is right, and it is now **pinned by a test that says so** rather than being a
+#: side effect nobody looked for. What must never change is the other direction: dataset
+#: inputs and artifacts are digested by `read_bytes`, where a BOM is a byte difference and
+#: has to register as one.
 _ENCODING: Final = "utf-8-sig"
 
 

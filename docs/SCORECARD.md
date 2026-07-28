@@ -31,15 +31,31 @@ Duplicate-contention flags: 0   Non-existent-target flags: 0   MATCH assertions:
 
 Per-category (precision / recall):
   PRICE_VARIANCE         TP 3  FP 0  FN 1   P 1.0000  R 0.7500
-  QTY_UNDER_SHIPMENT     TP 0  FP 0  FN 1   P n/a     R 0.0000
-  TAX_VARIANCE           TP 0  FP 0  FN 0   P n/a     R n/a      [not exercised by this dataset]
+  QTY_UNDER_SHIPMENT     TP 0  FP 0  FN 1   P n/a  R 0.0000
+  QTY_OVER_SHIPMENT      TP 0  FP 0  FN 1   P n/a  R 0.0000
+  QTY_INVOICE_INFLATED   TP 0  FP 0  FN 2   P n/a  R 0.0000
+  TAX_VARIANCE           TP 0  FP 0  FN 1   P n/a  R 0.0000
 
 COVERAGE: this dataset exercises all 5 categories (9 expected finding(s)).
 
 Missed findings (6):
   - PRICE_VARIANCE on INV-2002 line 3
+  - QTY_INVOICE_INFLATED on INV-2002 line 3
+  - QTY_INVOICE_INFLATED on INV-2002 line 6
+  - QTY_OVER_SHIPMENT on INV-2002 line 2
+  - QTY_UNDER_SHIPMENT on INV-2002 line 1
+  - TAX_VARIANCE on INV-2003 (document)
+
 False flags: none
 ```
+
+This is a real run, reproduced and compared on every test run (D102): an agent that submitted
+three of the four `PRICE_VARIANCE` expectations and nothing else. **Every category appears,
+always** — a row is not omitted for being empty, and `Missed findings` lists every miss
+individually rather than a sample, which is what criterion H57 requires. The block shown here
+until D102 had two categories deleted, a `TAX_VARIANCE` row marked `[not exercised by this
+dataset]` beside a `COVERAGE` line saying all five *were* exercised, and one bullet standing
+in for six.
 
 | Abbreviation | Full name | JSON field | What it counts |
 |---|---|---|---|

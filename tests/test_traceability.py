@@ -384,6 +384,10 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_scorecard_legend.ScorecardLegendTests.test_the_subtle_distinctions_are_stated_not_merely_listed"),
     ("C84", "the legend is referenced from both entry documents",
      "test_scorecard_legend.ScorecardLegendTests.test_the_legend_is_referenced_from_the_entry_documents"),
+    # The published surface, bound by execution rather than by reading (D102-D108).
+    ("C85", "[P2] every documented block of harness output is reproduced by running the "
+            "harness and compared (D102)",
+     "test_published_examples.PublishedExampleTests.test_every_registered_example_is_what_the_harness_prints"),
 ]
 
 
@@ -609,6 +613,42 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     # The third direction of the traceability map (D82): an exemption naming a test that
     # no longer exists is a claim about nothing.
     "test_traceability.TraceabilityTests.test_no_exemption_outlives_its_test",
+    # The published-surface sweep (D102-D108). C85 carries D102's criterion; everything
+    # here is a mechanism whose rule the project had already stated and whose universe was
+    # narrower than that rule — so none of them is a new promise, which is why none gets a
+    # criterion of its own.
+    #
+    # D102's other three: the completeness half (an output-shaped block bound to no run),
+    # the registry's own premise, and the proof that a deleted row is caught — which is the
+    # direction the legend actually drifted.
+    "test_published_examples.PublishedExampleTests.test_every_output_shaped_block_is_registered",
+    "test_published_examples.PublishedExampleTests.test_the_registry_is_not_empty_and_every_document_is_read",
+    "test_published_examples.PublishedExampleTests.test_a_doctored_example_is_caught",
+    # D103: the advisory says what it observed, and the document consuming it does not
+    # conclude more than the advisory can support. Bound together because the failure was
+    # the pair, not either half.
+    "test_isolation.GuardReachTests.test_the_advisory_states_a_condition_rather_than_judging_this_session",
+    "test_isolation.GuardReachTests.test_the_attestation_does_not_gate_on_the_advisory",
+    # D104: the contamination axis of D93's rule, plus the positive control that a
+    # legitimate dev scorecard is left alone.
+    "test_isolation.IsolationTests.test_placement_fails_on_an_untracked_held_out_scorecard",
+    "test_isolation.IsolationTests.test_placement_leaves_dev_scorecards_alone",
+    # D105: the document registry asserted covered in both directions, and the automation
+    # claim with the fact it rests on.
+    "test_published_claims.DocumentRegistryTests.test_every_markdown_document_is_classified",
+    "test_published_claims.DocumentRegistryTests.test_no_classified_document_has_gone_missing",
+    "test_published_claims.AutomationClaimTests.test_no_published_document_claims_a_commit_hook",
+    "test_published_claims.AutomationClaimTests.test_the_repository_really_has_no_commit_hook_running_these",
+    # D106: prose restating a status, bound to the status.
+    "test_traceability.TraceabilityTests.test_no_document_says_a_built_artifact_is_unbuilt",
+    "test_traceability.TraceabilityTests.test_the_build_prompt_states_the_gate_size_it_actually_has",
+    # D107: the boundary between the tolerant read and the intolerant hash, in both
+    # directions, because tolerating a BOM on a source digest and tolerating one on a
+    # dataset fingerprint are opposite requirements.
+    "test_generator_staleness.GeneratorFreshnessTests.test_a_byte_order_mark_does_not_move_the_digest",
+    "test_generator_staleness.GeneratorFreshnessTests.test_a_byte_order_mark_does_move_a_dataset_artifact_fingerprint",
+    # D108: the sweep marker's own trigger, which was prose for eighteen decisions.
+    "test_traceability.TraceabilityTests.test_the_sweep_marker_has_not_fallen_behind_its_own_trigger",
     "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
     "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
     "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",
@@ -637,7 +677,7 @@ EXPECTED_SPEC_P1_CRITERIA = 132
 # ledger, CI-workflow and cross-platform criteria are mapped as their items land" —
 # described a debt that was paid two commits later and then went on describing it, which
 # is the same stale-restatement class the 0.22.0 sweep removed three instances of.
-EXPECTED_SPEC_P2_CRITERIA = 8
+EXPECTED_SPEC_P2_CRITERIA = 9
 
 
 def _spec_criteria(tag: str) -> list[str]:
@@ -797,6 +837,113 @@ class TraceabilityTests(unittest.TestCase):
             f"{len(unaccounted)} test(s) are neither mapped to a criterion nor exempt: "
             f"{unaccounted}. Map each to the criterion it verifies, or add it to "
             f"EXEMPT_TESTS with a reason.",
+        )
+
+    def test_the_sweep_marker_has_not_fallen_behind_its_own_trigger(self) -> None:
+        """The marker is a mechanism now, not a note (D108).
+
+        The spec's sweep marker states its own trigger — *"~8–10 decisions since the stamp
+        above"* — and ends *"Update this line whenever a sweep completes, or it stops
+        meaning anything."* Nothing checked it. Eleven decisions had accrued past the stamp
+        when this was written, which is the marker's own overdue condition, silently.
+
+        That is D67's thesis turned on the project's own process: a rule recorded as prose
+        is enforced by whoever remembers it. The trigger is deliberately change-based rather
+        than calendar-based, and a change-based trigger is exactly the kind a machine can
+        evaluate — there was never a reason for this one to be manual.
+
+        The ceiling is the *upper* end of the stated range, so a sweep coming due reads as
+        a reminder rather than a failure, and only overshooting it fails."""
+        root = Path(__file__).resolve().parents[1]
+        spec = (root / "specs" / "goldset-triad-harness.md").read_text(encoding="utf-8")
+        decisions = (root / "DECISIONS.md").read_text(encoding="utf-8")
+
+        stamped = re.search(r"\*\*Last swept:[^@]*@[^@]*@\s*D(\d+)\*\*", spec)
+        self.assertIsNotNone(
+            stamped, "the spec's sweep marker no longer states the decision it was taken at"
+        )
+        assert stamped is not None  # for the type checker; the assertion above is the gate
+        swept_at = int(stamped.group(1))
+
+        numbers = sorted(int(n) for n in re.findall(r"(?m)^## D(\d+)", decisions))
+        self.assertTrue(numbers, "no decisions found; this check would pass vacuously")
+        latest = numbers[-1]
+        accrued = len([n for n in numbers if n > swept_at])
+
+        self.assertLessEqual(
+            accrued, 10,
+            f"{accrued} decisions (D{swept_at + 1}–D{latest}) have accrued since the last "
+            f"sweep at D{swept_at}, past the 8–10 trigger the marker states. Run a sweep "
+            f"and update the marker, or the marker stops meaning anything — which is what "
+            f"it says about itself (D108).",
+        )
+
+    def test_no_document_says_a_built_artifact_is_unbuilt(self) -> None:
+        """Prose *about* the criteria, bound at last (D106).
+
+        D87 bound the build prompt's gate to the criterion count and its check counts
+        checkboxes. The same file's summary block went on saying *"4 of 5 — not built: item
+        4, the README"* after the README shipped, and *"all six items in the gate"* after
+        D87 itself corrected that gate to eight, twelve lines below, in the same commit. A
+        mechanism that reads a list does not see the sentence describing the list.
+
+        Deliberately narrow: this checks the one class that has actually gone wrong — a
+        document asserting an artifact does not exist while it does. Prose cannot be
+        machine-checked in general, and pretending otherwise would be the overstatement
+        this project keeps finding in its own checks."""
+        deliverables = {
+            "README and methodology write-up": Path(__file__).resolve().parents[1] / "README.md",
+        }
+        documents = [
+            Path(__file__).resolve().parents[1] / name
+            for name in ("specs/goldset-triad-harness.p2.build-prompt.md",
+                         "specs/goldset-triad-harness.md")
+        ]
+        contradictions: list[str] = []
+        for name, artifact in deliverables.items():
+            if not artifact.is_file():
+                continue
+            for document in documents:
+                flat = re.sub(r"\s+", " ", document.read_text(encoding="utf-8"))
+                for match in re.finditer(rf"[Nn]ot built:[^.]*{re.escape(name)}", flat):
+                    contradictions.append(
+                        f"{document.name}: {flat[match.start():match.end()][:90]!r} "
+                        f"— but {artifact.name} exists"
+                    )
+        self.assertEqual(
+            contradictions, [],
+            f"{len(contradictions)} document(s) say a deliverable is unbuilt while its "
+            f"artifact is on disk: {contradictions}. Update the prose, not just the list "
+            f"beside it (D106).",
+        )
+
+    def test_the_build_prompt_states_the_gate_size_it_actually_has(self) -> None:
+        """The second half of the same drift: a sentence counting the gate.
+
+        `all six items in the phase-2 acceptance gate` outlived the gate becoming eight.
+        Any spelled-out or numeric count the prompt gives for its own gate must match the
+        checkboxes it contains — the count is derived from the file, never restated."""
+        prompt_path = (Path(__file__).resolve().parents[1] / "specs"
+                       / "goldset-triad-harness.p2.build-prompt.md")
+        prompt = prompt_path.read_text(encoding="utf-8")
+        gate = prompt.split("## Phase-2 acceptance gate", 1)[1].split("\n## ", 1)[0]
+        actual = len(re.findall(r"(?m)^- \[ \] ", gate))
+        words = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                 "eight": 8, "nine": 9, "ten": 10}
+        flat = re.sub(r"\s+", " ", prompt)
+        wrong: list[str] = []
+        for match in re.finditer(
+            r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)\b\s+items?\s+in\s+the\s+"
+            r"phase-2 acceptance gate", flat, re.I,
+        ):
+            token = match.group(1).lower()
+            stated = int(token) if token.isdigit() else words[token]
+            if stated != actual:
+                wrong.append(f"{match.group(0)!r} but the gate lists {actual}")
+        self.assertEqual(
+            wrong, [],
+            f"the build prompt miscounts its own gate: {wrong}. Say 'every item' rather "
+            f"than a number, or keep the number derived (D106).",
         )
 
     def test_no_exemption_outlives_its_test(self) -> None:

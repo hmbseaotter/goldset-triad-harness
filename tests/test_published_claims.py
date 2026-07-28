@@ -29,10 +29,11 @@ from goldset_triad.audit_key import _CAP, _FLOOR, _RATE
 
 README = support.REPO_ROOT / "README.md"
 
-#: Every document outside the secret tier that shows a reader a shell command. Named
-#: rather than globbed, because "whatever markdown happens to exist" is not a universe
-#: (D82) — a new user-facing document must be added here deliberately.
-COMMAND_DOCS = ("README.md", "docs/RUNBOOK.md", "ISOLATION_ATTESTATION.md")
+#: The published documents, from the one registry (D105). This file used to carry its own
+#: `COMMAND_DOCS` while `test_entry_points` carried an identical `INVOCATION_DOCS`, neither
+#: compared to the other nor to the tree — a declared universe with D82's assert-it-covered
+#: half missing, in the comment that cited D82.
+COMMAND_DOCS = support.PUBLISHED_DOCS
 
 #: The visible labels. A fenced block's language tag drives the syntax highlighter and is
 #: invisible in every rendered markdown viewer, so a reader looking at the published page
@@ -112,6 +113,35 @@ def _flattened(text: str) -> str:
     return re.sub(r"\s+", " ", without_quotes)
 
 
+class DocumentRegistryTests(unittest.TestCase):
+    """The registry is asserted covered, not merely declared (D105).
+
+    D82's rule has two halves — name the universe, and prove the universe is complete — and
+    every list of documents in this suite had only the first. A new user-facing document
+    could arrive and be checked by nothing, which is how `docs/SCORECARD.md` came to publish
+    output the harness could not produce (D102): it was written after the lists were."""
+
+    def test_every_markdown_document_is_classified(self) -> None:
+        classified = set(support.PUBLISHED_DOCS) | set(support.INTERNAL_DOCS)
+        on_disk = support.markdown_on_disk()
+        unclassified = sorted(on_disk - classified)
+        self.assertEqual(
+            unclassified, [],
+            f"{len(unclassified)} markdown document(s) are neither published nor internal: "
+            f"{unclassified}. Add each to support.PUBLISHED_DOCS — where the claim, "
+            f"invocation, shell-label and example checks will then reach it — or to "
+            f"support.INTERNAL_DOCS with the reason it addresses no outside reader.",
+        )
+
+    def test_no_classified_document_has_gone_missing(self) -> None:
+        """The other direction: a registry entry for a file that no longer exists is a
+        claim about nothing, the same shape `test_registry_has_no_stale_entries` guards for
+        the claims registry."""
+        on_disk = support.markdown_on_disk()
+        missing = sorted((set(support.PUBLISHED_DOCS) | set(support.INTERNAL_DOCS)) - on_disk)
+        self.assertEqual(missing, [], f"registered document(s) that do not exist: {missing}")
+
+
 class PublishedIsolationClaimTests(unittest.TestCase):
     def setUp(self) -> None:
         self.assertTrue(README.is_file(), f"{README} is missing")
@@ -183,6 +213,47 @@ class PublishedIsolationClaimTests(unittest.TestCase):
                 self.assertNotRegex(self.text, forbidden)
 
 
+class AutomationClaimTests(unittest.TestCase):
+    """No published document may claim more automation than exists (D105).
+
+    The attestation said the isolation checks run *"on every commit"*. They do not: there is
+    no commit hook, and CI is `on: push`. One step's overstatement, in the document whose
+    opening paragraph promises that *"anything not actually verified is named as such"*.
+
+    Note which document drifted. The README makes the same claims and is bound by the tests
+    above; the attestation was bound by none, and it is the one that overstated. That is
+    D53's thesis — bind the published text or watch it drift — arriving as evidence rather
+    than as an argument."""
+
+    def test_no_published_document_claims_a_commit_hook(self) -> None:
+        offenders: list[str] = []
+        for name in support.PUBLISHED_DOCS:
+            text = _flattened((support.REPO_ROOT / name).read_text(encoding="utf-8"))
+            for match in re.finditer(r"on every commit", text, re.I):
+                start = max(0, match.start() - 90)
+                offenders.append(f"{name}: …{text[start:match.end() + 20]}…")
+        self.assertEqual(
+            offenders, [],
+            f"published document(s) claim something happens on every commit: {offenders}. "
+            f"No commit hook runs the checks; CI runs them on every PUSH. Say push.",
+        )
+
+    def test_the_repository_really_has_no_commit_hook_running_these(self) -> None:
+        """The premise, so the rule above rests on a fact rather than on a memory.
+
+        If a commit hook is ever added, this fails and the claim becomes sayable again —
+        which is the right way round: the document follows the mechanism."""
+        hook = support.REPO_ROOT / ".git" / "hooks" / "pre-commit"
+        if not hook.is_file():
+            return
+        body = hook.read_text(encoding="utf-8", errors="replace")
+        self.assertNotIn(
+            "check_isolation", body,
+            "a pre-commit hook now runs the isolation check, so the published wording may "
+            "be strengthened — update this test and the attestation together",
+        )
+
+
 class WrappedPhraseScanTests(unittest.TestCase):
     """The premise the assertions above rest on, proven rather than assumed (D55).
 
@@ -227,14 +298,28 @@ class PublishedCommandTests(unittest.TestCase):
 
         Read off the RAW file, not the flattened prose: a fenced block is a line-structure
         fact, and the flattener that makes phrase matching safe destroys exactly the
-        structure this one needs."""
-        bash = len(re.findall(r"(?m)^```bash$", self.raw))
-        powershell = len(re.findall(r"(?m)^```powershell$", self.raw))
-        self.assertGreater(bash, 0, "the README documents no runnable command at all")
-        self.assertEqual(
-            bash, powershell,
-            f"{bash} bash block(s) against {powershell} PowerShell block(s): every "
-            f"documented command is given for both shells",
+        structure this one needs.
+
+        **Over every published document, not the README alone (D105).** The shell *labels*
+        were checked across all of them and the *parity* across one — so the runbook's
+        twenty-two pairs, the largest body of commands in the project, were unguarded. Two
+        checks of the same property with two different universes, in the same file."""
+        checked = 0
+        for name in support.PUBLISHED_DOCS:
+            raw = (support.REPO_ROOT / name).read_text(encoding="utf-8")
+            bash = len(re.findall(r"(?m)^```bash$", raw))
+            powershell = len(re.findall(r"(?m)^```powershell$", raw))
+            if bash == 0 and powershell == 0:
+                continue  # a document may legitimately show no runnable command
+            checked += 1
+            with self.subTest(document=name):
+                self.assertEqual(
+                    bash, powershell,
+                    f"{name}: {bash} bash block(s) against {powershell} PowerShell "
+                    f"block(s); every documented command is given for both shells",
+                )
+        self.assertGreater(
+            checked, 0, "no published document documents a runnable command at all"
         )
 
 

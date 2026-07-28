@@ -3518,9 +3518,18 @@ files exist **above** the one enumerated.
 confirmed that *"it was known from the start that the guards only work if AI is launched from
 the project"*, and that **the current placement is correct**. So this is **not** a design
 defect and the rules are not moving. What was defective is narrower and still worth the
-entry: the precondition was known to the author and **written down nowhere**, so the
-attestation was run from the wrong root and recorded a PASS that a differently-rooted session
-silently reversed. A guard whose operating condition lives only in the author's memory is
+entry: the precondition was known to the author and **written down nowhere**, so nothing
+told a later session which root its result depended on. The 2026-07-26 attestation passed —
+correctly, from a session rooted at this repository — and recorded the refusal as a property
+of *the rules* rather than of *the rules plus that root*. A differently-rooted session then
+reversed it, and the document had no vocabulary for why.
+
+> *Corrected by the D102–D108 sweep.* This paragraph read *"the attestation was run from the
+> wrong root and recorded a PASS that a differently-rooted session silently reversed"*,
+> which inverts the log two sections below: the passing run was the correctly-rooted one and
+> the failing run was the parent-rooted one. A wrongly-rooted session cannot record a
+> refusal — that is the whole finding. The substance was right and the sentence compressed
+> two runs into one clause, in an entry whose value is that it distinguishes them. A guard whose operating condition lives only in the author's memory is
 enforced by whoever remembers it — D67's thesis, applied to a configuration rather than a
 rule. The fix is therefore visibility, not relocation: state it early in the README, state it
 in the runbook, state it in the attestation's own method, and have the isolation command say
@@ -3954,13 +3963,331 @@ threshold.
 
 ---
 
-## Not checked — as of 0.25.0 @ D90
+## D102 — A published example is executed output, not an illustration ✅
+
+**Fork:** D100 built `docs/SCORECARD.md` so a reader could hold their own scorecard against a
+reference, and bound the legend to the emitter by **field name**. The legend's *worked
+example* — the block a reader actually compares against — was bound to nothing, and had
+drifted three ways at once. Measured by scoring the run it claims to show:
+
+| Documented | Actually emitted |
+|---|---|
+| three category rows | **five** — the renderer never omits an empty category |
+| `TAX_VARIANCE … FN 0 … R n/a  [not exercised by this dataset]` | `TAX_VARIANCE … FN 1 … R 0.0000`, no marker |
+| `Missed findings (6):` then **one** bullet | six bullets |
+
+The second row is the sharp one: `[not exercised by this dataset]` sat in the same block as
+`COVERAGE: … exercises all 5 categories`, a pair the renderer **cannot** emit. The third is
+sharper still — criterion **H57** is *"the summary names each miss and each false flag
+individually"*, so the document explaining the output illustrated the harness breaking one of
+its own acceptance criteria.
+
+**Why hand-checking was never going to hold.** These blocks are twenty lines and the
+differences that matter are one row and one bullet. D53 met the same problem in
+`matching_policy.json` and answered it by deriving the published text from the shipped
+constants; the equivalent for output is to **re-run the run and diff**.
+
+**Options considered**
+- **Rejected: mark the block as illustrative.** Honest, and it gives up the thing the
+  document is for — a reader cannot calibrate against an example that might be edited.
+- **Rejected: generate the docs.** It would work and it would make the published surface a
+  build artifact, which no other document here is; the drift is cheap to *detect* and the
+  toolchain is not.
+- **Decision ✅** — every block showing harness output is registered against the exact
+  submission that produces it, and the test scores that submission and compares. A document
+  may show a **fragment** (the runbook shows a tail, to make a point about thin coverage
+  without reprinting a header); a fragment must appear contiguously and verbatim inside the
+  real output. Submissions are **content-addressed, never positional** — `expected[:3]` would
+  quietly mean something else the day a key gains a record, and the example would still pass
+  while illustrating a different run.
+
+**And the universe is asserted, not just declared.** Any fenced block containing
+`Scorecard - dataset`, `Per-category (precision / recall):` or `COVERAGE:` must be
+registered. Without that half this file would check the three examples someone remembered —
+which is precisely how the legend's block came to be unchecked while its field names were
+bound.
+
+**Verified by execution.** The check was written first and failed on both defects on its
+first run: the legend's block and the runbook's hand-wrapped `COVERAGE:` line, which the
+renderer emits as one long line. The README's block was **already byte-identical** and is now
+held there.
+
+**Rule** — **a document that shows what a tool prints is making a claim about the tool, and
+the only check for it is to run the tool.** Field names, thresholds and counts can be bound
+by derivation; output can only be bound by execution. Enforced by
+`tests/test_published_examples.py`.
+
+---
+
+## D103 — An advisory names what it observed, never what it inferred about the reader ✅
+
+**Fork:** D91's `[guard-reach]` advisory reads the filesystem for ancestor settings files. It
+**cannot see where a Claude Code session was rooted** — it is a Python script. Its message
+said *"A session rooted at `<ancestor>` loads those instead of this repository's"*, which is
+true and conditional. The attestation then built a procedure on it:
+
+> Expect … **no `[guard-reach]` line**. If a `[guard-reach]` line appears, the session is not
+> rooted where you think — stop and fix that first.
+
+**The line never clears.** The ancestor file exists, and D91 records the author's
+confirmation that this placement is **correct and not moving**. Running the documented
+command from inside the repository prints the advisory anyway — verified. So the procedure's
+stop-gate could not be satisfied, at the step whose entire job is to make the attestation
+unambiguous before the canary test. Either the author read past their own written instruction
+when logging the *"PASS, all routes"* entry, or the deviation went unrecorded.
+
+**The defect is not the message; it is the reading, and the message invited it.** A
+conditional sentence in a diagnostic tool will be read as a verdict about the reader, because
+that is what diagnostics usually are.
+
+**Options considered**
+- **Rejected: suppress the advisory when an ancestor is the *conventional* workspace.** It
+  would make the common case silent — and the common case is exactly the one D91 found.
+- **Rejected: teach the check to detect the session root.** Nothing on disk records it; the
+  only honest source is the human who opened the session.
+- **Decision ✅** — the advisory states what it observed and says what it is *not*: *"This is
+  a fact about the filesystem, not about your current session: IF a session is rooted at
+  `<ancestor>` …"*. The attestation drops the stop-gate and says plainly that **step 3 is the
+  only thing that can distinguish rules-loaded from rules-absent** — which was always true.
+  The canary and positive-control steps also gain Linux paths, since every other command in
+  that document is given for both platforms and these two were Windows-only.
+
+**Rule** — **a check may report only what it can observe, and a document consuming it may
+conclude only what the check can support.** Both halves failed here, and the pair is what
+made an unsatisfiable instruction look reasonable. Enforced by
+`test_isolation.GuardReachTests.test_the_advisory_states_a_condition_rather_than_judging_this_session`
+and `…test_the_attestation_does_not_gate_on_the_advisory`, which bind the tool's wording and
+the procedure built on it together.
+
+---
+
+## D104 — A derived artifact is checked where it lands, not only where it is published ✅
+
+**Fork:** D93 established that a held-out scorecard is verbatim answer-key content — for
+every expectation the agent missed, the category, the invoice, the line and the generator's
+own seeding note — and guarded it with a check over **tracked** files. Planting an
+**untracked** one and running everything shipped:
+
+```
+isolation: guard-configuration and placement checks PASS.     exit=0
+test_no_scorecard_from_a_non_dev_split_is_tracked ... ok
+```
+
+Nothing said anything. The route in is the documented held-out workflow with `--out` left at
+its default.
+
+**The gap is the axis, and D93 named it in its own reasoning.** It rejected a `.gitignore`
+rule because *"a file merely ignored is still present on disk and still readable"* — and then
+chose a control that sees only the index, which has that same blind spot for untracked files.
+Both controls are correct for **publication**. Neither covers **contamination**: a file
+readable by the agent under evaluation, in the tree that agent works in, which is what D14
+exists for.
+
+**Options considered**
+- **Rejected: gitignore the pattern.** Rejected once already, on grounds that still hold, and
+  it would additionally hide the file from the index check that does work.
+- **Rejected: refuse to write the scorecard at all when `--out` is inside the repo.** It
+  would break the legitimate dev workflow, which writes scorecards here by design.
+- **Decision ✅** — `check_placement` — the check whose stated job is *"no secret artifact
+  exists anywhere in the repo tree, ignored dirs included"* — now also refuses a scorecard
+  whose split is not one of the three public dev splits. The index check stays: the two axes
+  are different and each keeps its own.
+
+**Verified by execution.** The planted file is now reported by name with the reason and the
+remedy; dev, dev-synthetic and dev-zero-defect scorecards, in both extensions and with a
+collision ordinal, are left alone. A rule flagging legitimate dev scorecards would be as
+broken as one missing held-out cards.
+
+**Rule** — **ask of any output not "is this a results file?" but "who can read it where it
+lands?"** D93 asked the first question well and answered for one axis. Enforced by
+`test_isolation.IsolationTests.test_placement_fails_on_an_untracked_held_out_scorecard` and
+its positive control.
+
+---
+
+## D105 — One registry of published documents, asserted complete ✅
+
+**Fork:** Two test modules each carried a hand-written list of the same three documents —
+`COMMAND_DOCS` in `test_published_claims`, `INVOCATION_DOCS` in `test_entry_points` — in
+different orders, with nothing comparing them to each other or to the tree.
+`COMMAND_DOCS`'s own comment cited **D82** for why it was named rather than globbed, and then
+omitted D82's second half: *a declared universe must be asserted covered.*
+
+**What that cost, concretely.** `docs/SCORECARD.md` was written after both lists and appears
+in neither, so no claim check, no invocation check and no shell-label check ever reached it —
+and it is the document that turned out to publish output the harness cannot produce (D102).
+Separately, shell **labels** were checked across three documents and shell **parity** across
+one, so the runbook's twenty-two command pairs — the largest body of commands in the project
+— were unguarded. Two checks of the same property, in the same file, with two universes.
+
+**A third instance, found by the widening itself.** The attestation claimed placement and
+guard configuration are *"checked automatically, **on every commit**"*. No commit hook runs
+them; CI is `on: push`. One step's overstatement, in the document whose opening paragraph
+promises that *"anything not actually verified is named as such"*. Note **which** document
+drifted: the README makes the same claims and is bound by tests; the attestation was bound by
+none. That is D53's thesis arriving as evidence rather than as an argument.
+
+**Decision ✅** — one `PUBLISHED_DOCS` registry in `tests/support.py`, with `INTERNAL_DOCS`
+for markdown that addresses no outside reader, and a test asserting the two together account
+for **every** markdown file at the root and under `docs/`. Both former lists now read from it.
+Shell parity extends to every published document that shows a command. The attestation says
+*push*.
+
+**Verified by execution.** Widening the universe immediately failed two assumptions that had
+been safe only because the lists were hand-picked — a per-document demand for a module
+invocation, which a field reference legitimately has none of, and my own corrected wording
+tripping the commit-hook scan. Both are the completeness check doing its job on its first run.
+
+**Rule** — **when two lists name the same things, they are one list that has not been written
+yet; and a declared universe is worth nothing until something proves it covers the tree.**
+Enforced by `test_published_claims.DocumentRegistryTests` and `…AutomationClaimTests`.
+
+---
+
+## D106 — Prose that restates a status is bound to the status ✅
+
+**Fork:** D87 bound the phase-2 build prompt's acceptance gate to the criterion count, after
+finding it listed six of eight. In **the same commit**, twelve lines above that gate, the same
+file's summary block went on saying:
+
+> phase 2 is **4 of 5** … **Not built: item 4, the README** … the one item with no `SHALL` and
+> no acceptance criterion … All **six** items in the phase-2 acceptance gate pass
+
+`README.md` was 25 KB on disk. D84 had given it the criterion. D87 had just put that criterion
+into the gate below. Every clause was false, and D87's check — which counts checkboxes —
+could not see a sentence.
+
+**This is the project's most-repeated shape, at its narrowest yet.** D87's rule is *"any
+document that restates the criteria is bound to the count"*, and its universe was *the list*
+while the rule's universe is *the document*. The same pattern as D64a, D82, D93 and D105.
+
+**Options considered**
+- **Rejected: delete the summary block.** It is the first thing a fresh build session reads,
+  and the reason D87 called that document more important than its obscurity suggests.
+- **Rejected: check the prose generally.** Prose is not machine-checkable, and a check that
+  claimed to verify it would be the overstatement this project keeps finding in its own
+  checks.
+- **Decision ✅** — bind the two classes that have actually gone wrong. A document may not
+  assert a named deliverable is unbuilt while its artifact is on disk; and any count a
+  document gives for the phase-2 gate must equal that gate's checkboxes, spelled out or
+  numeric. Narrow on purpose: these are the two sentences that were false, not a claim to
+  have solved prose.
+
+**Rule** — **a mechanism that reads a list does not see the sentence describing the list.**
+Enforced by `test_traceability.TraceabilityTests.test_no_document_says_a_built_artifact_is_unbuilt`
+and `…test_the_build_prompt_states_the_gate_size_it_actually_has`.
+
+---
+
+## D107 — The byte-order mark's reach, and a justification corrected ✅
+
+**Fork:** D94 switched the shared reader to `utf-8-sig` so a Windows agent's BOM'd findings
+artifact would score rather than be refused over three meaningless bytes. Sound. Its safety
+argument was:
+
+> Nothing is weakened: every digest in this project hashes RAW BYTES via `read_bytes`, so a
+> BOM'd artifact still fingerprints differently from a clean one.
+
+That is true of the four scorecard fingerprints and of the per-file inputs digests. It is
+**false of `generator_digest`**, which D63 deliberately computes over *normalized text* read
+through this very function. Measured on a copy of the real generator:
+
+```
+file BOM-ed : gen_rules.py
+DIGEST MOVED : False
+```
+
+So D94 also changed what the **D58 staleness check** can see — silently, unrecorded, and
+justified by the one sentence that did not hold.
+
+**The outcome is right; the reasoning was not, and that distinction is the entry.** D63's own
+test is that for *source*, semantic content is the thing and a line ending is transport. A BOM
+is transport by exactly that test: it encodes nothing about what the generator does. Moving
+the digest for one would report a stale dataset when no rule changed — a misdiagnosis in the
+alarming direction, which D50 and D59 both rank worse than silence.
+
+**Decision ✅** — keep the behaviour, on the merits rather than by inheritance, and **pin it
+with a test that says so**, so it is a decision rather than a side effect nobody looked for.
+Pin the opposite direction too: a BOM on a dataset artifact **must** move its fingerprint,
+because those are hashed as raw bytes and the two really are different files. Nothing had
+asserted the boundary between the tolerant read and the intolerant hash.
+
+**Rule** — **when a change widens what a shared function accepts, its blast radius is every
+caller, not the one the change was written for.** The justification named the callers its
+author had in mind. Enforced by
+`test_generator_staleness.GeneratorFreshnessTests.test_a_byte_order_mark_does_not_move_the_digest`
+and `…test_a_byte_order_mark_does_move_a_dataset_artifact_fingerprint`.
+
+---
+
+## D108 — The sweep marker is a mechanism ✅
+
+**Fork:** The spec's sweep marker states its own trigger — *"~8–10 decisions since the stamp
+above"* — and closes *"Update this line whenever a sweep completes, or it stops meaning
+anything."* Nothing checked it. At the time of this sweep the stamp read `@ D90` and the
+record ran to **D101**: eleven decisions, past the marker's own overdue threshold, silently.
+
+**This is D67's thesis turned on the project's own process.** *A rule recorded as prose is
+enforced by whoever remembers it* — and the marker is the one piece of process explicitly
+designed to stop documents going stale. It went stale. The trigger is deliberately
+change-based rather than calendar-based, and a change-based trigger is precisely the kind a
+machine can evaluate, so there was never a reason for this one to be manual.
+
+**Decision ✅** — a test parses the stamp out of the marker, counts decisions above it, and
+fails past **10** — the upper end of the stated range, so a sweep coming due reads as a
+reminder in the marker's own words rather than as a build failure, and only overshooting it
+fails.
+
+**Also corrected here:** D91's account of its own evidence. It read *"the attestation was run
+from the wrong root and recorded a PASS that a differently-rooted session silently
+reversed"*, which inverts the attestation log two sections below — the passing run was the
+correctly-rooted one, and a wrongly-rooted session cannot record a refusal, which is the whole
+finding. The substance was right; one clause compressed two runs into one, in the entry whose
+value is that it tells them apart.
+
+**Rule** — **a process rule that states a numeric trigger has already done the hard part;
+leaving the arithmetic to a human is the easy part done wrong.** Enforced by
+`test_traceability.TraceabilityTests.test_the_sweep_marker_has_not_fallen_behind_its_own_trigger`.
+
+---
+
+## Not checked — as of 0.31.0 @ D108
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The published-surface sweep (0.31.0, D102–D108)
+
+It examined the published documents and the mechanisms binding them — README, runbook,
+scorecard legend, attestation — plus every code change since D82 and the secret tier's
+diff. Eight findings, all in the published surface or the checks over it. It did **not**
+examine:
+
+- **The `[P3]`–`[P5]` decisions taken in this range.** D97, D98, D99 and D101 are marked
+  ⏭️ and schedule future work — an outcome class for "cannot adjudicate", the tolerance
+  selection rule, the fixture-reduction dimensions, the inference-conclusion threshold.
+  They were read for internal consistency and **not** evaluated as designs. Each commits
+  a later phase to something, and none has a criterion yet.
+- **`worked-example/` in the secret tier.** Confirmed present and correctly placed
+  out-of-tree (D93's rule applied to a real artifact, which is the good news). Its 267-line
+  README and the scorecard pair it carries were **not** read, because reading a held-out
+  scorecard is the contamination this architecture exists to prevent — the same restraint
+  D93 exercised when it established the risk by reading the emitter instead.
+- **The `dataset_guarantees` text itself (D96).** It is now published in four
+  `matching_policy.json` files and checked for presence; whether its claim is *true* — that
+  every purchase-order line in every split carries at least one goods receipt — was not
+  verified against the data. It is a claim about the datasets that nothing compares to them.
+- **`scoring.py` and `scorecard.py` arithmetic.** The renderer's *output* is now bound by
+  D102, which is a different thing from its arithmetic being right. Carried forward
+  unexamined for the third sweep running.
+- **The reserve-then-create race**, carried forward for the third time. D104 added a
+  filesystem walk to `check_placement` and did not touch it.
+- **Whether the four ⏭️ decisions leave the spec self-consistent.** The spec is at 0.31.0
+  with `[P3]`–`[P5]` blocks that several new decisions now constrain; no pass was made to
+  confirm those blocks still say what the decisions assume they say.
 
 ### The phase-completion sweep (0.25.0, D85–D89)
 

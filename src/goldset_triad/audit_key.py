@@ -92,6 +92,32 @@ def _derive_line(line: _Line) -> set[str]:
 def _derive_tax(
     po_tax: Decimal, po_taxable: Decimal, inv_tax: Decimal, inv_taxable: Decimal
 ) -> bool:
+    """Whether the invoice's tax diverges materially from the PO's rate.
+
+    **The cross-multiplication has a precondition, and it was neither stated nor
+    enforced (D117).** Comparing `|variance| >= threshold` without dividing means
+    multiplying both sides by `po_taxable` — which preserves the inequality only while
+    `po_taxable > 0`. Zero is handled above; below zero the right-hand side goes negative
+    and `left`, an absolute value, is always greater, so **every invoice flags**. Measured
+    end to end: a purchase order with a taxable subtotal of `-3312.51` and a tax of
+    `-265.00` — exactly consistent, zero variance — loaded cleanly and made this function
+    report a TAX_VARIANCE that is not there. The auditor crying wolf about the answer key
+    is the alarming-direction misdiagnosis D50 ranks worse than silence, from the one tool
+    whose value is being trusted about the key.
+
+    `validate_taxable_subtotal` now rejects a negative subtotal at load, so this is
+    unreachable through `audit()`. The guard stays anyway: the loader's rejection is what
+    makes the dataset well-formed, and this is what keeps the *arithmetic* honest if the
+    function is ever called from somewhere else. A silent inversion is exactly the failure
+    that should not depend on a caller two modules away having run first."""
+    if po_taxable < 0:
+        raise DatasetError(
+            f"cannot derive tax against a negative taxable subtotal ({po_taxable}): the "
+            f"comparison is cross-multiplied to avoid division (D28) and inverts below "
+            f"zero, which would flag every invoice. The loader rejects this at load "
+            f"(D117); reaching it here means the derivation was called on unvalidated "
+            f"inputs"
+        )
     if po_taxable == 0:
         magnitude = inv_tax if inv_tax >= 0 else -inv_tax
         return magnitude >= _threshold(Decimal(0))
@@ -199,10 +225,18 @@ def _derive_expected(key: dict[str, object], inputs: _Inputs) -> set[_Key]:
         line_id = str(entry["invoice_line_id"])
         pon = str(entry["po_number"])
         pln = str(entry["po_line_no"])
-        # Named causes rather than a bare KeyError. `audit()` resolves the manifest
-        # directly and does NOT run the loader's validation, so it can still meet an
-        # unresolved reference; reporting it as "audit error: KeyError ('PO-X','P1')"
-        # would name a tuple instead of the fault (D50).
+        # Named causes rather than a bare KeyError. This described `audit()` as resolving
+        # the manifest directly and NOT running the loader's validation — which stopped
+        # being true at D62, sixty lines below, where `audit()` now calls `load_dataset`
+        # first. Corrected by the D117 sweep: a comment asserting the opposite of the code
+        # beside it is the drift this project treats as a defect, and it was standing next
+        # to the branch it justified.
+        #
+        # The branches below are therefore unreachable through `audit()` — the loader
+        # rejects a correspondence row naming an absent invoice line or PO line (C22–C25)
+        # before the derivation runs. They are kept as defence for a caller that reaches
+        # `_derive_expected` directly, and because naming the fault costs two lines while
+        # a bare `KeyError ('PO-X','P1')` names a tuple instead (D50).
         try:
             inv_ln = inputs.inv_lines[(iid, line_id)]
         except KeyError:

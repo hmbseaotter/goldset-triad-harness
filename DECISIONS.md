@@ -4595,13 +4595,110 @@ which other instances exist — asked at the time, not at the next sweep.** Enfo
 
 ---
 
-## Not checked — as of 0.34.0 @ D116
+## D117 — The auditor's own arithmetic had an unstated precondition ✅
+
+**Fork:** `audit_key.py` had never been swept. It is the project's defence against the one failure nothing else
+can catch — a wrong answer key produces confidently wrong scores, and every scoring test asserts the scorer
+agrees with the key — so it is the last place a defect should sit unexamined.
+
+**(a) The cross-multiplied tax test inverts below zero.** D28 forbids division on any flagging path, so
+`_derive_tax` compares `|variance| >= threshold` by multiplying through by `po_taxable`:
+
+```python
+left = abs(inv_tax * po_taxable - po_tax * inv_taxable)
+return left >= threshold * po_taxable
+```
+
+That preserves the inequality **only while `po_taxable > 0`**. Zero is handled separately; negative is not, and
+below zero the right-hand side goes negative while `left` is an absolute value — so *every* invoice flags:
+
+```
+po_taxable=   1000  inv_tax == expected exactly -> flags=False
+po_taxable=  -1000  inv_tax == expected exactly -> flags=True
+```
+
+**Reached through the real pipeline, not just the function.** A purchase order with a taxable subtotal of
+`-3312.51` and a tax of `-265.00` — exactly 8%, zero variance — **loaded cleanly** and made the auditor report
+`DERIVED-BUT-ABSENT: TAX_VARIANCE` against a correct key. The auditor crying wolf about the key is the
+alarming-direction misdiagnosis D50 ranks worse than silence, from the one tool whose entire value is being
+trusted about the key.
+
+**(b) `taxable` is load-bearing, and neither reader validated it.** Both the loader and the audit test
+`ln.get("taxable") is True`. Neither checked the field is present or a boolean, so an omitted flag or a truthy
+`1` silently drops the line from the tax basis — measured, `taxable: 1` moved PO-3001's taxable subtotal from
+`3312.51` to `2466.66`, and both readers accepted it.
+
+**The sharp part is that the audit could not catch this.** D35 makes it the check on the key by deriving
+independently — and here it shares the identity test with the loader, so the two agree **by sharing one silent
+default** rather than by computing the same answer. That is the failure mode the audit exists to prevent,
+occurring inside the audit. The D68 scanner cannot see it either: it looks for `X.get(k, <default>)`, and this
+is a one-argument `.get()` whose default is `None` by language rule — absence becoming a value, in a shape the
+lock does not model.
+
+**Options considered**
+- **Rejected: absorb the sign in the arithmetic** (`left >= threshold * abs(po_taxable)`). Mathematically
+  correct and it accepts data this dataset family does not model. A negative taxable subtotal means credit
+  lines; D96 publishes what the data guarantees precisely so an agent is never asked to adjudicate something
+  out of scope, and a later phase can add it deliberately.
+- **Decision ✅** — reject both at load, on the purchase-order **and** the invoice-index side. The index side
+  had no `taxable` validation whatever while `audit_key` summed exactly those lines into `inv_taxable`: the
+  same rule, half its universe (D82). The precondition is **also** asserted in `_derive_tax`, which is now
+  unreachable through `audit()` and stays because a silent inversion must not depend on a caller two modules
+  away having run first.
+
+**(c) A comment asserting the opposite of the code beside it.** `_derive_expected` carried *"`audit()` resolves
+the manifest directly and does NOT run the loader's validation"* — untrue since D62, sixty lines below, where
+`audit()` calls `load_dataset` first. The `try/except KeyError` it justified is unreachable too, the loader
+having rejected phantom correspondence references (C22–C25) before the derivation runs. Both corrected and
+stated as defence-in-depth rather than as live handling.
+
+**Locked at zero (D68).** All 42 lines across every split already carry a real bool and a non-negative
+subtotal, so the class closes before an instance exists.
+
+**What the sweep found sound.** The formulas match the published policy — `max($0.05, min(2%·basis, $25))`,
+`min(ordered, received)`, basis as the *payable* extended amount (H34). All five categories are derived, no
+generator code is imported, the `NUMERIC_DEFAULTS` unreachability claims hold against the shipped data, and
+removing one expectation from a key produces exactly one divergence on every split that has expectations.
+
+**Rule** — **an arithmetic identity used to avoid division carries a precondition, and the precondition is part
+of the check.** Cross-multiplying is the standard way to honour D28; nothing had asked what it assumes about
+the sign. Enforced by `test_audit_score_parity.TaxDerivationPreconditionTests`,
+`…TaxableFlagShippedStateTests`, and three new entries in the validity-parity `MALFORMATIONS` list.
+
+---
+
+## Not checked — as of 0.35.0 @ D117
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The key-audit sweep (0.35.0, D117)
+
+Targeted: `audit_key.py`'s re-derivation, carried unexamined by every prior sweep and named
+by the last one as the place a defect would make two artifacts agree for the wrong reason.
+Three findings, all in it. It did **not** examine:
+
+- **The generator's side of the same rules.** *Method: read `audit_key`'s
+  `_threshold`/`_payable`/`_derive_line`/`_derive_tax` against `matching_policy.json`'s
+  published text and constants.* The generator lives out of tree and was not opened, so
+  "the two implementations agree" remains checked only through the audit's own diff — which
+  is D35's stated limitation, not a new gap, and it is why (b) above mattered: a shared
+  silent default defeats the whole arrangement.
+- **The multi-PO tax path.** *Method: read `_derive_expected`'s `invoices_seen` loop and
+  confirmed `test_shipped_datasets_have_no_multi_po_invoice` holds.* Tax is derived once
+  per `(invoice, PO)` pair and the results collapse into a set, so two POs on one invoice
+  could in principle disagree; C30 rejects differing rates, which makes them agree, and no
+  shipped split exercises it. Unexercised rather than unsound.
+- **Direction of price variance.** *Method: read `_derive_line`.* It flags on `abs()`, so an
+  invoice priced *below* the PO raises `PRICE_VARIANCE` too. That reads as intended — the
+  category name is direction-neutral and the published policy states no direction — but no
+  shipped case exercises under-pricing, so the intent is inferred rather than confirmed.
+- **`scorecard.py`'s arithmetic.** *Method: none — not opened.* Fifth sweep carrying this.
+  D102 binds its *output* and D113 touched what feeds it; its own arithmetic remains
+  unexamined, which is now the oldest untouched item in the project.
 
 ### The scoring-input sweep (0.34.0, D113–D116)
 

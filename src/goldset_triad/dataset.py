@@ -53,6 +53,70 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def validate_taxable_flag(line: dict[str, Any], where: str) -> None:
+    """``taxable`` is present and a real boolean (D117).
+
+    It decides whether a line enters the tax basis, so it is load-bearing arithmetic — and
+    it was read as ``ln.get("taxable") is True`` in **both** the loader and the key audit,
+    with no validation anywhere. An absent field, or a truthy non-bool like ``1``, silently
+    dropped the line from the subtotal: measured, `taxable: 1` moved PO-3001's taxable
+    subtotal from `3312.51` to `2466.66` and both readers accepted it.
+
+    The sharp part is that the *audit could not catch it*. D35 makes the audit the check on
+    the key, and it works by deriving independently — but here it shares the identity test
+    with the loader, so the two agree by sharing one silent default rather than by
+    computing the same answer. That is the failure mode the audit exists to prevent,
+    arriving inside the audit.
+
+    The D68 scanner cannot see this either: it looks for `X.get(k, <default>)`, and this is
+    a one-argument `.get()` whose default is `None` by language rule. Absence becoming a
+    value, in the shape the lock does not model.
+
+    Locked at zero: all 42 lines across every split carry a real bool today."""
+    if "taxable" not in line:
+        raise DatasetError(
+            f"{where} declares no 'taxable' flag. It decides whether the line enters the "
+            f"tax basis, and treating an absent flag as 'not taxable' would silently "
+            f"change the subtotal every tax comparison is measured against (D117)"
+        )
+    value = line["taxable"]
+    if not isinstance(value, bool):
+        raise DatasetError(
+            f"{where} has 'taxable' as {type(value).__name__} {value!r}, not a boolean. "
+            f"Both the loader and the key audit test it with `is True`, so a truthy "
+            f"non-bool reads as NOT taxable and quietly leaves the line out of the tax "
+            f"basis (D117)"
+        )
+
+
+def validate_taxable_subtotal(subtotal: Decimal, where: str) -> None:
+    """A taxable subtotal is never negative (D117).
+
+    This is the precondition `audit_key._derive_tax` needs and never stated. Its tax test
+    is cross-multiplied to avoid division (D28) — `left >= threshold * po_taxable` — which
+    is equivalent to comparing the variance against the threshold **only while
+    `po_taxable > 0`**. The zero case is handled separately; the negative case inverts the
+    inequality, so `left` (an absolute value) is always greater and *every* invoice flags.
+
+    Reached through the real pipeline, not just the function: a purchase order with a
+    taxable subtotal of `-3312.51` and a tax of `-265.00` — exactly consistent, zero
+    variance — loaded cleanly and made the auditor report a TAX_VARIANCE that is not there.
+    The auditor crying wolf about the answer key is the alarming-direction misdiagnosis
+    D50 ranks worse than silence, in the one tool whose whole value is being trusted about
+    the key.
+
+    Rejected at load rather than absorbed in the arithmetic. A negative taxable subtotal
+    means credit lines, which this dataset family does not model — D96 publishes what the
+    data guarantees precisely so an agent is never asked to adjudicate a case that is out
+    of scope, and a later phase can add one deliberately."""
+    if subtotal < 0:
+        raise DatasetError(
+            f"{where} has a negative taxable subtotal ({subtotal}). Credit lines are not "
+            f"modelled by this dataset family, and the tax comparison is cross-multiplied "
+            f"(D28), which inverts below zero and would flag every invoice (D117)"
+        )
+
+
 def _reject_duplicate_expectations(expected: tuple[Finding, ...], path: Path) -> None:
     """No two expectations may share a match key (D113).
 
@@ -344,6 +408,12 @@ def load_invoice_index(path: Path) -> InvoiceIndex:
         lines = inv.get("lines")
         if not isinstance(lines, list) or not lines:
             raise DatasetError(f"invoice {invoice_id} has no lines")
+        # The invoice's taxable subtotal, validated on the same terms as the purchase
+        # order's (D117). It was not validated here at all, while `audit_key` sums exactly
+        # these lines into `inv_taxable` and uses it for the tax threshold — so the field
+        # deciding half the tax comparison was checked on one side of the correspondence
+        # and not the other. The same rule, half its universe (D82).
+        invoice_taxable = Decimal(0)
         for ln in lines:
             if not isinstance(ln, dict):
                 raise DatasetError(f"invoice {invoice_id} has a malformed line")
@@ -352,7 +422,13 @@ def load_invoice_index(path: Path) -> InvoiceIndex:
                 raise DatasetError(
                     f"invoice {invoice_id} has a line with no explicit 'line_id' (D22)"
                 )
+            validate_taxable_flag(ln, f"invoice {invoice_id} line {line_id!r}")
+            if ln["taxable"] is True:
+                invoice_taxable += _decimal(
+                    ln.get("extended"), f"invoice {invoice_id} line {line_id} extended"
+                )
             line_targets.add((invoice_id, line_id))
+        validate_taxable_subtotal(invoice_taxable, f"invoice {invoice_id}")
 
     inventory = LineInventory(
         line_targets=frozenset(line_targets),
@@ -426,7 +502,8 @@ def _validate_purchase_orders(inputs_dir: Path) -> None:
         for ln in lines:
             if not isinstance(ln, dict):
                 raise DatasetError(f"purchase order {po_number} has a malformed line")
-            if ln.get("taxable") is True:
+            validate_taxable_flag(ln, f"PO {po_number} line {ln.get('line_no')!r}")
+            if ln["taxable"] is True:
                 taxable_subtotal += _decimal(
                     ln.get("extended"), f"PO {po_number} line extended"
                 )
@@ -435,6 +512,7 @@ def _validate_purchase_orders(inputs_dir: Path) -> None:
                 f"purchase order {po_number} is malformed: it has no taxable lines "
                 f"(taxable subtotal zero) yet charges tax {po_tax} (D29)"
             )
+        validate_taxable_subtotal(taxable_subtotal, f"purchase order {po_number}")
 
 
 def _validate_goods_receipts(inputs_dir: Path) -> None:

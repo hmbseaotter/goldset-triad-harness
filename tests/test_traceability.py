@@ -399,6 +399,13 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_cross_artifact_validation.DuplicateExpectationTests.test_two_expectations_sharing_a_match_key_are_rejected"),
     ("C89", "losing the scorecard-filename race retries and never tracebacks (D114)",
      "test_cli_end_to_end.CliEndToEndTests.test_losing_the_filename_race_retries_instead_of_tracebacking"),
+    # The key audit's own arithmetic, swept for the first time (D117).
+    ("C90", "the cross-multiplied tax test refuses a negative taxable subtotal rather "
+            "than inverting and flagging every invoice (D117)",
+     "test_audit_score_parity.TaxDerivationPreconditionTests.test_a_negative_taxable_subtotal_is_refused_rather_than_inverted"),
+    ("C91", "every line's `taxable` flag is a present boolean, on both the purchase-order "
+            "and the invoice-index side (D117)",
+     "test_audit_score_parity.TaxableFlagShippedStateTests.test_every_shipped_line_declares_a_boolean_taxable_flag"),
 ]
 
 
@@ -691,6 +698,13 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code",
     # D116: the project's other stamped marker, which D108's mechanism did not reach.
     "test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current",
+    # D117's controls. C90 and C91 carry the criteria; these are the surrounding cases —
+    # a zero-variance invoice must not flag (which is what the inversion broke), a material
+    # variance must still flag (so the guard cannot be met by never flagging), and D28's
+    # zero-subtotal boundary must be untouched by the new negative guard.
+    "test_audit_score_parity.TaxDerivationPreconditionTests.test_a_zero_variance_invoice_does_not_flag",
+    "test_audit_score_parity.TaxDerivationPreconditionTests.test_a_material_variance_still_flags",
+    "test_audit_score_parity.TaxDerivationPreconditionTests.test_the_zero_subtotal_case_is_untouched",
     # D112: the same binding as D102's, applied to what the harness prints when something
     # goes WRONG. C85 carries the criterion for published output as a whole; these three
     # are its failure-message half — the registered message provoked and compared, the
@@ -713,7 +727,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 136
+EXPECTED_SPEC_P1_CRITERIA = 137
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

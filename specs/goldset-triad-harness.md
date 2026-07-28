@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.34.0
+- Spec version: 0.35.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,8 +17,17 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.34.0 @ D116** — the **scoring-input sweep**, which took the negative-space list as its agenda and closed the item it had carried three times. Five findings, four decisions: D113 (an answer key's *record order* reached the scored body — two expectations sharing a match key were accepted, and which one was reported missed depended on their order in the file; the metrics never moved, so D26's tie-break reasoning held exactly as written, but byte-identity of the scored body did not), D114 (the reserve-then-create race produced a `FileExistsError` traceback instead of a named halt — recorded three sweeps running and fixed by none, the record having become a substitute for the fix), D115 (two literals restating what the tree already knows, both written inside the sweep that deleted the previous two), D116 (the project's *other* stamped marker had no mechanism). **Caveat on its authority:** this pass reviewed work the same session wrote, so three findings are self-review; an independent pass would likely find more.
-  The prior sweep was **0.31.0 @ D108** — the **published-surface sweep**, run by a session that did not
+- **Last swept: 2026-07-28 @ 0.35.0 @ D117** — the **key-audit sweep**, targeting `audit_key.py`'s re-derivation: the project's defence against a wrong answer key, and the last major surface no sweep had opened. Three findings, one decision (D117). The cross-multiplied tax test — cross-multiplied precisely to honour D28's no-division rule — inverts below zero, so a purchase order with a negative taxable subtotal made the auditor report a TAX_VARIANCE against a *correct* key; it loaded cleanly, so this was reachable through the real pipeline. And `taxable`, which decides the tax basis, was validated by neither reader: both test it with `is True`, so a truthy `1` or an absent flag silently dropped the line — **and the audit could not catch it, because it shares the default with the loader rather than computing the same answer independently.** Locked at zero; all 42 shipped lines are clean.
+  The prior sweep was **0.34.0 @ D116** — the **scoring-input sweep**, which took the negative-space list as its
+  agenda and closed the item it had carried three times: D113 (an answer key's *record order* reached the scored
+  body — two expectations sharing a match key were accepted, and which one was reported missed depended on their
+  order in the file; the metrics never moved, so D26's tie-break reasoning held exactly as written, but
+  byte-identity of the scored body did not), D114 (the reserve-then-create race produced a `FileExistsError`
+  traceback instead of a named halt — recorded three sweeps running and fixed by none, the record having become
+  a substitute for the fix), D115 (two literals restating what the tree already knows, both written inside the
+  sweep that deleted the previous two), D116 (the project's *other* stamped marker had no mechanism). That pass
+  reviewed work the same session wrote, so three of its five findings were self-review.
+  Before it, **0.31.0 @ D108** — the **published-surface sweep**, run by a session that did not
   write the surface it reviewed. Eight findings, seven decisions, every one of them in what the project shows a
   reader or in the checks over it: D102 (the scorecard legend's worked example was not output the harness can
   produce — two categories deleted, a row the renderer cannot emit, and one bullet standing in for six, which is
@@ -935,6 +944,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] An answer key declaring two expected findings with the same match key is rejected at load, naming
   both positions — they cannot be satisfied independently, and which one is reported missed would otherwise
   depend on their order in the file and so reach the scored body (D113).
+- [ ] [P1] Every purchase-order and invoice-index line declares `taxable` as a present boolean, and a taxable
+  subtotal is never negative — both are rejected at load, because each decides the tax basis and the key
+  audit's cross-multiplied comparison inverts below zero (D117).
 - [ ] [P1] A scoring run that loses the scorecard-filename race to a concurrent run reserves another name and
   completes; if every reservation is taken it halts naming that cause, writes nothing, and leaves the winning
   run's scorecard untouched (D114).
@@ -1276,6 +1288,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.35.0 (2026-07-28): **the key-audit sweep: three findings, D117**, targeting the one surface no prior sweep
+  had opened — `audit_key.py`'s independent re-derivation, which exists to catch the failure nothing else can
+  (a wrong answer key, against which every scoring test is circular). **Its tax test inverts below zero.** The
+  comparison is cross-multiplied precisely to honour D28's no-division rule, and multiplying through by
+  `po_taxable` preserves the inequality only while that is positive; the zero case was handled and the negative
+  case was not, so `left` — an absolute value — is always the greater and *every* invoice flags. Reached
+  through the real pipeline: a purchase order with a taxable subtotal of `-3312.51` and a tax of `-265.00`,
+  exactly consistent and zero-variance, loaded cleanly and produced `DERIVED-BUT-ABSENT: TAX_VARIANCE` against
+  a correct key — the auditor crying wolf about the key, which is D50's alarming-direction misdiagnosis from
+  the tool whose whole value is being trusted about it. **And `taxable` — the field deciding the tax basis —
+  was validated by neither reader**: both test `is True`, so `taxable: 1` moved PO-3001's subtotal from
+  `3312.51` to `2466.66` and both accepted it. The audit could not catch that, because it shares the default
+  with the loader rather than deriving the same answer independently — D35's arrangement defeated from inside.
+  The invoice-index side had no `taxable` validation at all while the audit summed exactly those lines. Both
+  rejected at load now, on both sides, with the precondition also asserted in the arithmetic; and a comment
+  claiming `audit()` skips the loader's validation, untrue since D62, corrected. Locked at zero: all 42 shipped
+  lines carry a real bool and a non-negative subtotal. 308 → 313 tests; pyright 0 errors; 1 acceptance
+  criterion added.
 - 0.34.0 (2026-07-28): **the scoring-input sweep: five findings, D113–D116**, which took the negative-space
   list as its agenda and closed the item it had carried three times. The severe one is in the engine itself:
   **an answer key's record order was reaching the scored body** (D113). `score()` sorts contending *flags* by

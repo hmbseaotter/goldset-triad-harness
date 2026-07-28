@@ -85,6 +85,44 @@ def _tax_against_nothing_taxable(root: Path) -> None:
     _write(path, po)
 
 
+def _negative_taxable_subtotal(root: Path) -> None:
+    """A PO whose taxable subtotal goes below zero, with tax kept exactly consistent.
+
+    The variance is zero, so a correct derivation raises nothing — and before D117 the
+    cross-multiplied tax test inverted below zero and flagged it anyway."""
+    path = next((root / "inputs" / "purchase_orders").glob("*.json"))
+    po = json.loads(path.read_text(encoding="utf-8"))
+    subtotal = Decimal(0)
+    for line in po["lines"]:
+        if line.get("taxable") is True:
+            line["extended"] = "-" + str(line["extended"]).lstrip("-")
+            subtotal += Decimal(str(line["extended"]))
+    po["tax"] = str((subtotal * Decimal("0.08")).quantize(Decimal("0.01")))
+    _write(path, po)
+
+
+def _taxable_flag_is_not_a_bool(root: Path) -> None:
+    """`taxable: 1` — truthy, and not `True`.
+
+    Both readers test the flag with `is True`, so this silently drops the line from the
+    tax basis in each of them *identically*: the audit cannot catch what it shares."""
+    path = next((root / "inputs" / "purchase_orders").glob("*.json"))
+    po = json.loads(path.read_text(encoding="utf-8"))
+    for line in po["lines"]:
+        if line.get("taxable") is True:
+            line["taxable"] = 1
+            break
+    _write(path, po)
+
+
+def _invoice_line_omits_its_taxable_flag(root: Path) -> None:
+    """The index side, which was never validated at all while the audit summed it."""
+    path = root / "dev_invoice_index.json"
+    index = json.loads(path.read_text(encoding="utf-8"))
+    del index["invoices"][0]["lines"][0]["taxable"]
+    _write(path, index)
+
+
 #: Each mutation makes the dev split invalid in a way the loader models.
 MALFORMATIONS = [
     ("a dropped correspondence row", _drop_a_correspondence_row),
@@ -94,7 +132,93 @@ MALFORMATIONS = [
     ("an empty correspondence list", _empty_correspondence),
     ("a purchase order missing its tax field", _purchase_order_missing_its_tax_field),
     ("tax charged against nothing taxable", _tax_against_nothing_taxable),
+    # D117 — the three the audit sweep found. Each is load-bearing arithmetic that both
+    # readers consumed without either validating it.
+    ("a negative taxable subtotal", _negative_taxable_subtotal),
+    ("a taxable flag that is not a bool", _taxable_flag_is_not_a_bool),
+    ("an invoice line omitting its taxable flag", _invoice_line_omits_its_taxable_flag),
 ]
+
+
+class TaxDerivationPreconditionTests(unittest.TestCase):
+    """The cross-multiplied tax test had an unstated precondition (D117).
+
+    D28 forbids division on any flagging path, so `_derive_tax` compares
+    `|variance| >= threshold` by multiplying both sides by `po_taxable`. That preserves
+    the inequality only while `po_taxable > 0` — the zero case is handled separately, and
+    the negative case inverts it, making `left` (an absolute value) always the greater and
+    flagging **every** invoice regardless of its tax."""
+
+    def test_a_zero_variance_invoice_does_not_flag(self) -> None:
+        """The control. An invoice taxed at exactly the PO's rate has no variance, so
+        nothing may flag — this is what the inversion broke."""
+        self.assertFalse(
+            audit_key._derive_tax(
+                Decimal("80"), Decimal("1000"), Decimal("80"), Decimal("1000")
+            )
+        )
+
+    def test_a_material_variance_still_flags(self) -> None:
+        """The converse, so the guard cannot be satisfied by refusing to flag at all."""
+        self.assertTrue(
+            audit_key._derive_tax(
+                Decimal("80"), Decimal("1000"), Decimal("120"), Decimal("1000")
+            )
+        )
+
+    def test_a_negative_taxable_subtotal_is_refused_rather_than_inverted(self) -> None:
+        """Kept in the arithmetic as well as the loader (D117).
+
+        The loader now rejects a negative subtotal, so this is unreachable through
+        `audit()`. The guard stays because a silent inversion must not depend on a caller
+        two modules away having run first — and because the old behaviour was to return a
+        confident, wrong `True`."""
+        with self.assertRaises(DatasetError) as caught:
+            audit_key._derive_tax(
+                Decimal("-80"), Decimal("-1000"), Decimal("-80"), Decimal("-1000")
+            )
+        message = str(caught.exception)
+        self.assertIn("negative taxable subtotal", message)
+        self.assertIn("cross-multiplied", message)
+
+    def test_the_zero_subtotal_case_is_untouched(self) -> None:
+        """D28's own boundary (H45): with nothing taxable, any tax at or above the floor
+        is a variance. The negative guard must not have moved this."""
+        self.assertTrue(
+            audit_key._derive_tax(Decimal(0), Decimal(0), Decimal("0.05"), Decimal(0))
+        )
+        self.assertFalse(
+            audit_key._derive_tax(Decimal(0), Decimal(0), Decimal("0.04"), Decimal(0))
+        )
+
+
+class TaxableFlagShippedStateTests(unittest.TestCase):
+    """Locked at zero (D68), which is what makes D117 cheap.
+
+    Every line on every split this machine can see already carries a real bool and a
+    non-negative subtotal, so the class closes before an instance exists rather than
+    after one is found."""
+
+    def test_every_shipped_line_declares_a_boolean_taxable_flag(self) -> None:
+        checked = 0
+        for split in support.known_splits():
+            for po_path in sorted((split.inputs / "purchase_orders").glob("*.json")):
+                po = json.loads(po_path.read_text(encoding="utf-8"))
+                for line in po["lines"]:
+                    checked += 1
+                    with self.subTest(document=po_path.name, line=line.get("line_no")):
+                        self.assertIsInstance(line.get("taxable"), bool)
+            index = json.loads(split.index.read_text(encoding="utf-8"))
+            for invoice in index["invoices"]:
+                for line in invoice["lines"]:
+                    checked += 1
+                    with self.subTest(invoice=invoice["invoice_id"],
+                                      line=line.get("line_id")):
+                        self.assertIsInstance(line.get("taxable"), bool)
+        self.assertGreater(
+            checked, 20,
+            "the scan found almost no lines, so it is passing over an empty set",
+        )
 
 
 class ValidityParityTests(unittest.TestCase):

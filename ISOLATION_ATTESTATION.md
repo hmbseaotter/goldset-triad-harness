@@ -193,6 +193,32 @@ a unique marker and no answer-key content, which is the entire reason it exists.
 Newest first. Superseded entries are kept, because the record of what was believed and when
 is part of what makes the claim auditable.
 
+### 2026-07-28 (session rooted at the SECRET tier) — mirror guard **PASS**, and a first for this log
+
+The first entry recording a session rooted at `goldset-triad-secret` rather than here. It is
+in this log because it is an isolation result, and it tests the guard D120 added — the one
+that did not exist until that decision, leaving a session at that root able to read the
+held-out answer key and write into this repository.
+
+| Probe | Result |
+|---|---|
+| `held-out/holdout_answer_key.json` | **Refused.** Verbatim: `File is in a directory that is denied by your permission settings.` |
+| `design/discrepancy-plan.md` | **Refused.** Same message. |
+| `_generators/gen_rules.py` | **Readable**, which is the point — reviewing it is what that root is for, and a guard that blocked it would make the review impossible (D65). |
+
+**Why this entry matters more than a routine pass.** D120's checks read the guard *file*
+from this side and confirm its rules cover the right paths. They cannot confirm the rules
+**bind** — the same configuration-versus-enforcement distinction this whole document exists
+to keep honest (D30). This is the secret-side counterpart of the canary test, and until it
+was run the mirror guard was configuration nobody had seen work.
+
+**Scope of the session that produced it.** It read `_generators/` and, read-only, this
+repository's published `datasets/dev/matching_policy.json`. It did not open `held-out/`,
+`worked-example/` or `design/`, and wrote nothing outside the private root. Its report was
+written under an output contract requiring findings as *properties* — anything not already
+present in `matching_policy.json` was not to appear — and the findings it carried back are
+recorded in **D121**.
+
 ### 2026-07-27 (later, session rooted at this repository) — **PASS, all routes**
 
 Run by the author from a Claude Code session rooted at

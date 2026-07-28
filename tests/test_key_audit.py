@@ -14,8 +14,28 @@ from goldset_triad.dataset import DatasetError
 
 
 class KeyAuditTests(unittest.TestCase):
-    def test_shipped_dev_key_is_consistent(self) -> None:
-        self.assertEqual(audit("dev", support.DATASETS), [])
+    def test_every_shipped_key_is_consistent_with_an_independent_derivation(self) -> None:
+        """The audit runs on **every** split this machine can see (D121).
+
+        It ran on `dev` alone. That is the single most important check in the project —
+        the only thing standing between a wrong answer key and confidently wrong scores,
+        because every scoring test asserts the scorer agrees with the key — and three of
+        the four splits were outside it, including **held-out**, the one whose numbers
+        carry weight. D64a's shape again, in the check it can least afford to be.
+
+        Found while triaging a generator review's finding that the key could, under an
+        input shape no shipped split contains, be authored from receipt data absent from
+        the emitted documents. The reply to that is *"the audit would catch it"* — which
+        holds only where the audit runs, and on held-out it did not.
+
+        `known_splits()` narrows to what is present, so a clone with no secret tier checks
+        the three dev splits and stays green (D14)."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                self.assertEqual(
+                    audit(str(split.manifest), support.DATASETS), [],
+                    f"{split.name}: the key and an independent re-derivation disagree",
+                )
 
     def test_corrupted_key_reports_divergence_naming_the_finding(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -4868,13 +4868,114 @@ answer key in it. Enforced by `test_isolation.SecretTierMirrorGuardTests`.
 
 ---
 
-## Not checked — as of 0.38.0 @ D120
+## D121 — The generator review, and the check it exposed on this side ✅
+
+**Fork:** D119 established that the generator cannot be read from a session reviewing this repository, and D120
+built the mirror guard that makes a secret-rooted review safe. This is what that review found, and what acting
+on it exposed here.
+
+**The guard binds.** Recorded in `ISOLATION_ATTESTATION.md`: the held-out key and the discrepancy design were
+both refused with `File is in a directory that is denied by your permission settings`, and `_generators/` was
+readable. D120 was configuration nobody had seen work; it now has its enforcement half.
+
+---
+
+### The finding on THIS side, which the review surfaced rather than contained
+
+**`audit()` ran on `dev` alone.** The suite's key-consistency check — *the only mechanism in the project that
+can detect a wrong answer key*, because every scoring test asserts the scorer agrees with the key — iterated one
+of four splits. **Held-out**, the split whose numbers carry weight, was never checked by it.
+
+Found by triaging the review's **B3**: under an input shape no shipped split contains, the key could be authored
+from receipt quantities absent from the emitted documents, producing a key an agent cannot re-derive from the
+inputs it is given. The natural reply is *"the audit would catch that"* — and it holds only where the audit
+runs. All four splits pass today; three were merely unasserted. D64a's shape, in the check least able to afford
+it. Now iterates `known_splits()`, narrowing to what is present so a clone stays green (D14).
+
+**H14's record overstated its own evidence.** It read *"reads it back and asserts it matches the index"*. The
+review read the renderer this project had only ever described, and the parse-back is **membership, not
+position** (a column or row swap satisfies it), covers a **subset** of fields (header fields and computed footer
+totals are unchecked), and verifies **rendering, not data** — document and index come from one canonical record,
+so their agreement is constructive and the parse-back's job is the residual mis-rendering case. All three
+properties were claimed by a record that had never been compared to the code. Corrected in the traceability map
+and in the criterion.
+
+**One caveat the review flagged as unverified is settled, and needs no action.** It could not read
+`generator_digest` to know whether `__pycache__` or its own report file would perturb the stamp. Measured here:
+the digest includes `.py` files only and skips `__pycache__` explicitly, and the live digest computed **with**
+`REVIEW-2026-07-28.md` present matches all three shipped manifests exactly. The report does not cause drift and
+should not be relocated. Its caution was correct to record and correct to mark unverified rather than assert.
+
+---
+
+### What the review found in the generator, recorded for the author
+
+These need a generator change and therefore cannot be done from here. Stated as properties, per the output
+contract the review was given; nothing below reproduces content absent from `matching_policy.json`.
+
+- **B1 — two published entries leave a branch-selecting condition undetermined.** `price_variance` and
+  `tax_variance` state signed expressions and do not state how the variance is reduced to the magnitude that
+  meets the threshold. Two readings of each are possible and only one matches the implementation; **no shipped
+  split contains an input that distinguishes them**, so an implementer choosing the other reading scores
+  identically today and diverges the moment a future line exercises the branch. This is the exact failure D53
+  and D119 exist to prevent — an agent judged against a rule it was not told — surviving in the two entries
+  where the silence is invisible from the data. **Highest priority of the four.**
+- **B3 — no assertion ties the receipt sequence to the emitted receipt documents.** The consequence is the one
+  above: a key authored from data absent from the agent's inputs. Bounded now that the audit runs on every
+  split, but bounded *downstream*; an assertion at the point of authoring fails where the mistake is made.
+- **B2 — the published `dataset_guarantees` is not enforced where the data is authored.** It holds today and
+  the harness checks it (C78, C79), so this is about where a violation surfaces, not whether it does.
+- **Six of eight policy entries are hand-written literals.** Only `categories` and `materiality_threshold` are
+  derived from the rule module's constants. The other six can drift silently — which is precisely the failure
+  the derived threshold text was introduced to close, applied to one entry out of eight. Deriving the rest
+  would close B1 structurally rather than by wording.
+
+**The review also confirmed two claims this project makes about the generator**, which is worth as much as the
+findings: no rule it applies is missing a published entry (verified by re-deriving the policy object from the
+generator source and comparing it to the shipped file, every key agreeing), and `generator_digest` is imported
+from the harness rather than reimplemented (D58's claim), with no local digest anywhere in `_generators/`.
+
+**Rule** — **a finding that cannot be acted on where it was found still names who can act on it and what
+changes.** The four generator items are recorded as properties with the reason each matters, so the author can
+act without this repository ever holding the rule text. Enforced for the harness half by
+`test_key_audit.KeyAuditTests.test_every_shipped_key_is_consistent_with_an_independent_derivation`; the
+generator half is judgement, and is listed under `## Not checked` until it lands.
+
+---
+
+## Not checked — as of 0.39.0 @ D121
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The generator review (0.39.0, D121)
+
+The generator was read at last — from its own root, under the D120 mirror guard, by a
+session that never touched this repository. Four questions asked, four answered. What is
+**still open, and now on the author rather than on this repository**:
+
+- **The four generator-side items in D121** (B1, B3, B2, and deriving the six literal
+  policy entries). *Method: the review read `_generators/` and re-derived the policy object
+  from source.* None can be actioned from here; B1 is the one that would mislead an agent
+  today, and deriving the literals closes it structurally.
+- **Whether the four are fixed.** *Method: none available from this side.* Nothing here can
+  observe a generator change. The signal that they landed is a regeneration — the stamp
+  moves and `test_generator_staleness` notices — but the stamp cannot say *what* changed.
+- **The five dormant paths beyond B1–B3.** *Method: reported by the review, not
+  re-verified here.* B4 (the floor term of the materiality threshold governs no shipped
+  decision) and B5 (the zero-taxable branch never flags) are both fully published, so an
+  implementer is not misled — they are corpus gaps, and `[P3]`'s expansion is where they
+  stop being dormant.
+- **The renderer beyond the parse-back's stated limits.** *Method: the review read
+  `pdf_invoice.py`; this repository still cannot.* H14 now records what the check does and
+  does not establish, which is a better record and not a stronger check.
+- **Whether the review's own reading was complete.** *Method: none — one session, one
+  pass, no second reader.* Every sweep in this project has found something in the one
+  before it; this one has had no successor, and it is the only review of the most sensitive
+  code in the project.
 
 ### The mirror-guard pass (0.38.0, D120)
 

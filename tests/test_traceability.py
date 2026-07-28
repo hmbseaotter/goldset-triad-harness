@@ -48,8 +48,19 @@ CRITERIA: list[tuple[str, str, str]] = [
             "entry describes what the code does (D119)",
      "test_ground_truth.PolicyTests.test_every_published_rule_describes_what_the_code_does"),
     ("H14", "generation emits doc+index from one record with parse-back",
-     "MANUAL: generation-side (D36); the generator renders each PDF, reads it back and "
-     "asserts it matches the index — run during the build, parse-back passed."),
+     "MANUAL: generation-side (D36). The generator renders each PDF, reads the bytes back "
+     "before writing them, and raises on mismatch — an explicit exception, not a bare "
+     "`assert`, so `python -O` cannot strip it. **Narrowed by the D121 generator review, "
+     "which read the renderer this record had only ever described.** The check is "
+     "MEMBERSHIP, not position: it asserts each value appears somewhere among the page's "
+     "text tokens, so a column- or row-swap satisfies it, as does a value coinciding with "
+     "any other token on the page. It covers a SUBSET of fields — the document "
+     "identifier, the tax figure and four per-line fields — leaving header fields and the "
+     "computed footer totals unchecked. And it verifies RENDERING only: the PDF and the "
+     "index entry come from one canonical record, so their agreement is constructive and "
+     "the parse-back's job is the residual mis-rendering case. This entry previously read "
+     "'asserts it matches the index', which claimed all three of those properties it does "
+     "not have."),
     ("H15", "editing one input byte changes the aggregate inputs digest",
      "test_dataset_loading.DatasetLoadingTests.test_inputs_digest_changes_when_one_byte_edited"),
     ("H16", "a digest mismatch reports which files diverged",
@@ -417,6 +428,9 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C94", "a session rooted at the secret tier cannot reach the held-out answer key, and "
             "cannot write into the published harness (D120)",
      "test_isolation.SecretTierMirrorGuardTests.test_nothing_can_be_written_into_the_published_repository"),
+    ("C95", "every shipped key agrees with an independent re-derivation, on every split "
+            "this machine can see — not dev alone (D121)",
+     "test_key_audit.KeyAuditTests.test_every_shipped_key_is_consistent_with_an_independent_derivation"),
 ]
 
 
@@ -567,7 +581,6 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_cross_artifact_validation.CorrespondenceCompletenessTests.test_every_shipped_dataset_is_complete",
     "test_cross_artifact_validation.CorrespondenceReferenceTests.test_shipped_datasets_map_each_line_exactly_once",
     "test_isolation.IsolationTests.test_placement_passes_on_clean_tree",
-    "test_key_audit.KeyAuditTests.test_shipped_dev_key_is_consistent",
     "test_dataset_loading.DatasetLoadingTests.test_inputs_digest_stable_on_recompute",
     "test_dataset_loading.DatasetLoadingTests.test_no_input_file_modified_by_a_load",
     "test_dataset_loading.DatasetLoadingTests.test_resolves_by_identifier_and_by_path",
@@ -761,7 +774,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 138
+EXPECTED_SPEC_P1_CRITERIA = 139
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

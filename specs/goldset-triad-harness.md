@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.38.0
+- Spec version: 0.39.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,16 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.37.0 @ D119** — the **generator-rules sweep**, taking the last item every prior
+- **Last swept: 2026-07-28 @ 0.39.0 @ D121** — the **generator review**, run from the secret tier under the
+  D120 mirror guard by a session that never touched this repository. The guard was attested working first, which
+  makes D120 the rare guard with an enforcement record and not only a configuration one. Acting on the report
+  exposed a finding here that the report could not see: **`audit()` — the only mechanism able to detect a wrong
+  answer key, since every scoring test asserts the scorer agrees with the key — was asserted on `dev` alone**,
+  leaving three splits including **held-out** outside it. All four pass; three were merely unasserted. Found by
+  triaging a generator item whose natural rebuttal is *"the audit would catch that"*. Also corrected **H14's
+  record**, which claimed the parse-back "asserts it matches the index" when it checks membership rather than
+  position, over a subset of fields, and establishes rendering rather than data (D121).
+  Before it, **0.37.0 @ D119** — the **generator-rules sweep**, taking the last item every prior
   sweep had carried. It found the reason it had been carried: the generator **cannot be read** from a session
   that reviews this repository — deny-guarded by a directory rule and per-filename rules, because D14 holds that
   generators leak worse than the key. The guards are not loaded in a parent-rooted session (D91), which is an
@@ -833,6 +842,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] The key-audit command run against a deliberately corrupted answer key reports the divergence and
   names the affected finding; run against the shipped key it reports none.
 - [ ] [P1] The key-audit command is not invoked by any scoring code path.
+- [ ] [P1] Every shipped answer key agrees with an independent re-derivation, on **every split this machine can
+  see** — the dev splits always, and the held-out split whenever the secret tier is present. It ran on `dev`
+  alone, leaving the split whose numbers carry weight unchecked by the one mechanism that can detect a wrong
+  key (D121).
 - [ ] [P1] The secret tier carries its own permission settings: a session rooted there cannot read the held-out
   answer key, its index, the discrepancy design or a held-out scorecard, and cannot write into the published
   harness tree — while the generator itself stays readable, since reviewing it is what that root is for (D120).
@@ -842,8 +855,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   repository: it is out of tree and deny-guarded (D14, D17), so a criterion promising that comparison promised
   what nothing here can perform. The generator is reached through the chain instead — the audit derives from the
   published rules and `audit()` diffs that against the key the generator produced, on every split (D119).
-- [ ] [P1] Generation emits each invoice document and its index entry from one canonical record, and the
-  generation-time parse-back confirms the document matches the index for every clean-tier invoice.
+- [ ] [P1] Generation emits each invoice document and its index entry from one canonical record, and a
+  generation-time parse-back reads the rendered bytes back before writing them, raising on mismatch for every
+  clean-tier invoice. What that parse-back establishes is bounded and stated rather than assumed: it checks a
+  **subset** of fields by **membership** in the page's text, not by position, so it catches mis-rendering and
+  not a column or row swap — the document and the index agreeing is constructive, both coming from one record
+  (D36, D121).
 - [ ] [P1] Editing one byte of one input file, leaving the answer key and dataset version untouched, changes
   the aggregate inputs digest — so the altered run cannot masquerade as the original.
 - [ ] [P1] Verification against a scorecard whose inputs have changed reports which specific files diverged,
@@ -1314,6 +1331,20 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.39.0 (2026-07-28): **the generator was reviewed, and the review found something here (D121)**. Under the
+  D120 mirror guard — attested working before anything was read, so that guard now has an enforcement record and
+  not merely a configuration one — a secret-rooted session read `_generators/` and answered the questions this
+  repository cannot: every rule the generator applies has a published policy entry, and `generator_digest` is
+  imported from the harness rather than reimplemented. It also found four generator-side gaps, recorded in D121
+  as properties for the author; the sharpest is that **two published entries do not state that variance is
+  compared on magnitude**, leaving two readings that no shipped split distinguishes — an agent judged against a
+  rule it was not told, the exact failure D53 and D119 exist to prevent, surviving where the data cannot expose
+  it. Triaging one of the four turned up a defect on this side: **`audit()` ran on `dev` alone**, so the
+  project's only defence against a wrong answer key never covered **held-out**. It now iterates every split the
+  machine can see. **H14's record was corrected** against the code it described for the first time. And the
+  review's one unverified caution is settled: the generator digest covers `.py` only and skips `__pycache__`,
+  and the live digest computed with the review file present matches all three shipped manifests — no drift, no
+  relocation needed.
 - 0.38.0 (2026-07-28): **the guard model was one-directional (D120)**. Asking how to sweep the generator
   *safely* — a session rooted at `goldset-triad-secret`, where the harness's rules do not apply and no guard is
   therefore bypassed — turned up the reason it was not safe: **that tier had no `.claude/` directory at all.**

@@ -31,12 +31,15 @@ from __future__ import annotations
 
 import difflib
 import re
+import tempfile
 import unittest
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from tests import support
 from goldset_triad import scorecard as sc
+from goldset_triad.check_isolation import check_placement
 from goldset_triad.dataset import load_dataset
 from goldset_triad.schema import Category, Finding
 from goldset_triad.scoring import score
@@ -99,6 +102,75 @@ EXAMPLES: tuple[Example, ...] = (
     Example("docs/RUNBOOK.md", "exercises 1 of 5 categories", "dev-synthetic", _nothing,
             fragment=True),
 )
+
+
+#: Substrings that make a fenced block a claim about what the harness prints **when
+#: something goes wrong** (D112). Failure messages are the half of published output a
+#: reader meets at their worst moment, and the half most likely to be reworded later by
+#: someone improving the message with no idea a document quotes it.
+FAILURE_MARKERS = (
+    "ISOLATION CHECK FAILED",
+    "VERIFY FAILED",
+    "[placement]",
+    "[guard-reach]",
+    "[durability]",
+)
+
+#: **What this covers, stated rather than implied.** Fenced blocks only. Several
+#: troubleshooting sections quote a message inline in a heading or a sentence — `error: …
+#: is not UTF-8 text` — and those are deliberately out of scope: they are elided, so there
+#: is no verbatim text to compare, and pretending to check them would be the overstatement
+#: this project keeps finding in its own checks. A fenced block is different: it is
+#: presented as *what you will see*, unabridged.
+_MESSAGE_SCOPE = "fenced blocks"
+
+
+@dataclass(frozen=True)
+class Message:
+    """One failure message a document quotes, and the code path that produces it."""
+
+    document: str
+    marker: str
+    produce: Callable[[], str]
+    #: Regexes replaced by a placeholder on BOTH sides before comparing. A document has to
+    #: show a concrete path and a test run produces one from a temporary directory, so the
+    #: path is the one part that legitimately differs — and the separator differs by
+    #: platform on top of that. Everything else is the message, and the message is the
+    #: claim.
+    volatile: tuple[str, ...] = ()
+
+
+def _held_out_scorecard_in_the_tree() -> str:
+    """The failure `docs/RUNBOOK.md` §5.8 quotes: a held-out scorecard left in the repo."""
+    with tempfile.TemporaryDirectory() as t:
+        tree = Path(t)
+        (tree / "scorecards").mkdir()
+        (tree / "scorecards" / "scorecard-held-out-20260728T000000Z.json").write_text(
+            "{}", encoding="utf-8", newline="\n"
+        )
+        failures = check_placement(tree)
+    if not failures:
+        raise AssertionError(
+            "check_placement reported nothing for a held-out scorecard in the tree, so "
+            "the message the runbook documents no longer exists (D104)"
+        )
+    return failures[0]
+
+
+MESSAGES: tuple[Message, ...] = (
+    Message(
+        "docs/RUNBOOK.md",
+        "ISOLATION CHECK FAILED",
+        _held_out_scorecard_in_the_tree,
+        volatile=(r"scorecards[\\/]scorecard-held-out-\d{8}T\d{6}Z\.json",),
+    ),
+)
+
+
+def _normalised(text: str, volatile: tuple[str, ...]) -> str:
+    for pattern in volatile:
+        text = re.sub(pattern, "<PATH>", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _blocks(document: str) -> list[str]:
@@ -196,6 +268,67 @@ class PublishedExampleTests(unittest.TestCase):
         self.assertFalse(
             _contains_run(real, doctored),
             "a block with a row removed must not read as a contiguous fragment either",
+        )
+
+
+class PublishedFailureMessageTests(unittest.TestCase):
+    """A quoted failure message is provoked and compared, not transcribed (D112).
+
+    §5.8 of the runbook quotes the placement failure verbatim so a reader can match what
+    their terminal says against the page. That is the same claim as a quoted scorecard —
+    *this is what the tool prints* — and it drifts the same way, except more easily: nobody
+    rewording an error message goes looking for a document that quotes it."""
+
+    def test_every_quoted_failure_message_is_what_the_code_emits(self) -> None:
+        for message in MESSAGES:
+            with self.subTest(document=message.document, marker=message.marker):
+                matching = [b for b in _blocks(message.document) if message.marker in b]
+                self.assertEqual(
+                    len(matching), 1,
+                    f"{message.document}: expected exactly one block containing "
+                    f"{message.marker!r}, found {len(matching)}",
+                )
+                documented = _normalised(matching[0], message.volatile)
+                real = _normalised(message.produce(), message.volatile)
+                self.assertIn(
+                    real, documented,
+                    f"{message.document} quotes a failure message the code no longer "
+                    f"emits.\n  documented: {documented}\n  emitted   : {real}",
+                )
+
+    def test_every_failure_shaped_block_is_registered(self) -> None:
+        """The completeness half, over the scope this file declares (D82, D102)."""
+        registered = {(m.document, m.marker) for m in MESSAGES}
+        unregistered: list[str] = []
+        for document in EXAMPLE_DOCS:
+            for block in _blocks(document):
+                if not any(marker in block for marker in FAILURE_MARKERS):
+                    continue
+                if not any(doc == document and marker in block
+                           for doc, marker in registered):
+                    unregistered.append(f"{document}: {block.splitlines()[0][:60]!r}")
+        self.assertEqual(
+            unregistered, [],
+            f"{len(unregistered)} block(s) quote a failure message and are bound to "
+            f"nothing: {unregistered}. Register each in MESSAGES with the code path that "
+            f"produces it. Scope is {_MESSAGE_SCOPE} — an elided message quoted inline in "
+            f"prose is deliberately out of reach (D112).",
+        )
+
+    def test_a_reworded_message_is_caught(self) -> None:
+        """The premise (D73). The defect this guards is a message reworded in the code
+        while the document keeps the old text, so the check must fail on exactly that."""
+        message = MESSAGES[0]
+        real = _normalised(message.produce(), message.volatile)
+        reworded = real.replace("answer-key content", "sensitive content")
+        self.assertNotEqual(reworded, real, "the fixture must genuinely differ")
+        documented = _normalised(
+            next(b for b in _blocks(message.document) if message.marker in b),
+            message.volatile,
+        )
+        self.assertNotIn(
+            reworded, documented,
+            "a reworded message must not still read as matching the documented block",
         )
 
 

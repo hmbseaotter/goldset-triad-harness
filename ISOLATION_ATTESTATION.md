@@ -57,7 +57,7 @@ being enforced?* It runs two checks and prints up to two kinds of advisory note.
 | It checks | Meaning |
 |---|---|
 | **Guard configuration** | The deny rules exist, parse, and name every secret path — the secret directory, the held-out answer key, the held-out invoice index, the three generator files, the discrepancy-design artifact — **and do not name the held-out inputs**, which the agent must be able to read. |
-| **Placement** | No secret artifact sits anywhere inside the repository tree, including under directories `.gitignore` hides. |
+| **Placement** | No secret artifact sits anywhere inside the repository tree, including under directories `.gitignore` hides — **and no scorecard from a non-public split**, since a held-out scorecard names expected findings verbatim and is answer-key content whatever its filename suggests (D93, D104). Checked on the filesystem rather than in the git index, because an untracked file is exactly as readable as a committed one. |
 
 | It also reports (advisory, never changes the exit code) | Meaning |
 |---|---|

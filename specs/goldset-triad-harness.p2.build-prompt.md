@@ -165,7 +165,8 @@ Every `[P2]` criterion in the spec, each passing **by execution**:
   and a determined subprocess outside deny coverage by design — and claims nowhere that enforcement is verified
   by an automated probe (D30, D84).
 - [ ] Every block a published document shows as harness output is reproduced by running the harness and compared
-  line for line, with no output-shaped block left unregistered (D30, D102).
+  line for line, with no output-shaped block left unregistered — success output and failure messages alike
+  (D30, D102, D112).
 - [ ] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.

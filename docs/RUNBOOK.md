@@ -265,8 +265,15 @@ goldset-triad-check-isolation
 ```
 
 See [`ISOLATION_ATTESTATION.md`](../ISOLATION_ATTESTATION.md) for what it does and does not
-prove. Note the `[guard-reach]` line if it appears — it means the deny rules are not in force
-for a session opened above this folder.
+prove.
+
+Two things it reports are worth knowing before you meet them:
+
+- A **`[guard-reach]`** line is advisory and never changes the exit code. It says some folder
+  *above* this one carries its own Claude Code settings, so a session rooted **there** would
+  not load these deny rules. It is not a statement about the session you are in (D103).
+- A **`[placement]` failure naming a scorecard** is a real failure, exit 1, and it means a
+  held-out scorecard is sitting in this tree. §5.8 has the fix.
 
 ### 2.6 The held-out workflow, end to end
 
@@ -308,8 +315,13 @@ goldset-triad score \
   --out ~/agent-runs/scorecards
 ```
 
-Note `--out`: it points **outside** the harness repository, so a held-out scorecard cannot be
-committed here by accident.
+Note `--out`: it points **outside** the harness repository, so no held-out scorecard is ever
+written here in the first place — which is stronger than not committing one, because a file
+sitting untracked in this tree is still readable by whatever agent works in it.
+
+**If you forget it, the harness tells you — afterwards, not at the time.** The score still
+runs and the scorecard is still written; it is `goldset-triad-check-isolation` that then
+fails, and the test suite with it. See §5.8 for the exact message and what to do.
 
 #### Step 3 — read a thin-coverage scorecard
 
@@ -600,6 +612,36 @@ differently in a scorecard. That is correct and deliberate: what widened is what
 Expected when the secret tier is absent — those tests need out-of-tree data. A clone without
 it still passes the full suite.
 
+### 5.8 `[placement] a scorecard from the 'held-out' split exists inside the repo`
+
+The most likely way to meet this is scoring the held-out split with `--out` left at its
+default, so the scorecard landed in `scorecards/` here instead of outside the repo (§2.6).
+
+`goldset-triad-check-isolation` exits **1** and prints:
+
+```text
+ISOLATION CHECK FAILED:
+  [placement] a scorecard from the 'held-out' split exists inside the repo: scorecards\scorecard-held-out-20260728T000000Z.json. It names expected findings verbatim, so it is answer-key content wearing a results file's name (D93). Re-run with --out pointing outside this repository, and delete this copy
+```
+
+**The test suite goes red at the same time** — three tests, including one about repository-root
+resolution whose subject looks unrelated. If you are staring at a puzzling suite failure, run
+the isolation check first: it names the cause in one line.
+
+**The fix**, in order:
+
+1. **Delete the scorecard from this tree.** It is answer-key content, and being untracked does
+   not help — a file merely ignored or untracked is still on disk and still readable by an
+   agent working here, which is the whole reason this is checked on the filesystem rather than
+   in the git index (D104).
+2. **Re-run the score with `--out` pointing outside the repository** (§2.6, Step 2). Nothing is
+   lost: scoring is deterministic, so the same inputs produce the same scorecard.
+3. **If you already committed it**, deleting the file is not enough — treat the held-out key as
+   compromised and regenerate the split (§6, rule 6). It is in history.
+
+This fires on *presence*, not on tracking, and only for splits whose keys are not public. Dev,
+dev-synthetic and dev-zero-defect scorecards belong here and are left alone.
+
 ---
 
 ## 6. Safety rules
@@ -612,10 +654,13 @@ it still passes the full suite.
 3. **Never hand-edit a dataset file.** Change the generator and regenerate (§3).
 4. **Never delete a scorecard.** They are the durable record. The harness itself cannot
    overwrite one — it creates files exclusively, so the operating system refuses.
-5. **Never commit a held-out scorecard into this repository.** Its `missed` array names
-   expectations verbatim — category, invoice, line, and the generator's own note — so it is
-   answer-key content wearing a results file's name. Point `--out` outside the repo (§2.6).
-5. **If a key ever lands in public git history, treat it as permanently compromised.**
+5. **Never let a held-out scorecard exist inside this repository** — not committed, and not
+   sitting untracked either. Its `missed` array names expectations verbatim — category,
+   invoice, line, and the generator's own note — so it is answer-key content wearing a results
+   file's name, and an untracked file is exactly as readable to an agent working here as a
+   committed one. Point `--out` outside the repo (§2.6). The isolation check enforces this on
+   the filesystem and fails if one appears (§5.8, D104).
+6. **If a key ever lands in public git history, treat it as permanently compromised.**
    Rewriting history does not reliably remove it; regenerate the held-out split instead.
 
 ---

@@ -669,6 +669,14 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_published_claims.PublishedPortGuaranteeTests.test_the_published_guarantee_matches_the_shipped_parser",
     # The `[P3]` criterion checksum, which had no counterpart while `[P1]` and `[P2]` did.
     "test_traceability.TraceabilityTests.test_spec_p3_criterion_count_is_unchanged",
+    # D112: the same binding as D102's, applied to what the harness prints when something
+    # goes WRONG. C85 carries the criterion for published output as a whole; these three
+    # are its failure-message half — the registered message provoked and compared, the
+    # completeness scan over the declared scope, and the premise that a rewording is
+    # caught. Verified by mutation against the shipped message, not only on a fixture.
+    "test_published_examples.PublishedFailureMessageTests.test_every_quoted_failure_message_is_what_the_code_emits",
+    "test_published_examples.PublishedFailureMessageTests.test_every_failure_shaped_block_is_registered",
+    "test_published_examples.PublishedFailureMessageTests.test_a_reworded_message_is_caught",
     "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
     "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
     "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",

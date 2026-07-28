@@ -4391,6 +4391,54 @@ carry its own method.
 
 ---
 
+## D112 — A quoted failure message is provoked and compared, like any other published output ✅
+
+**Fork:** D104 made `check_placement` refuse a held-out scorecard anywhere in the tree, and the documents
+describing that workflow still spoke only of *committing* one. Bringing them up to date meant publishing the
+failure verbatim, so a reader can match their terminal against the page — and that put a fourth block of literal
+tool output into the published surface, in a project that had just spent a sweep discovering what happens to
+those (D102).
+
+**The gap was going to be recorded rather than closed.** The honest version of the runbook fix ends *"§5.8 now
+quotes tool output and nothing binds it"*, filed in the negative-space list. That is a defensible move and it is
+the weaker one: D102's whole finding was that the scorecard legend's example had been drifting **because the
+mechanism covered field names and not the example**, and shipping a new unbound example the same week would have
+been the same defect with the ink still wet.
+
+**Failure messages drift more easily than success output, not less.** Nobody improving an error message goes
+looking for a document that quotes it — and the reader who meets that message is, by definition, already in
+trouble and least able to absorb a page that no longer matches.
+
+**Where the comparison has to be loose, and exactly there.** A document must show a concrete path; a test run
+produces one from a temporary directory, with a separator that differs by platform. So the path is declared
+`volatile` per message and replaced by a placeholder on both sides. Everything else is compared — the message is
+the claim, and the path is the illustration.
+
+**Options considered**
+- **Rejected: assert only that the block contains some stable keyword.** It would survive the message being
+  rewritten around the keyword, which is the drift being guarded.
+- **Rejected: extend the scan to messages quoted inline in prose.** Several troubleshooting headings quote an
+  *elided* message — `error: … is not UTF-8 text` — and there is no verbatim text to compare. Claiming to check
+  them would be the overstatement this project keeps finding in its own checks. The scope is **fenced blocks**,
+  and the module says so rather than implying it.
+- **Decision ✅** — every fenced block quoting a failure message is registered against the code path that
+  produces it, provoked, and compared with volatile parts normalised; and any unregistered failure-shaped block
+  fails, which is D102's completeness half applied to the same document set.
+
+**Verified by mutation, and the first attempt proved nothing.** Rewording the shipped message in
+`check_isolation.py` must turn the check red. The first mutation targeted a phrase that spans a line break
+inside an f-string, so `sed` changed nothing and the suite stayed green — a mutation test that did not mutate,
+which is a vacuous proof of exactly the kind D73 was. Re-run against a fragment genuinely on one line
+(`wearing a results file's name` → `wearing a RESULTS FILENAME`), the check failed and named the document. 301
+tests, pyright 0 errors.
+
+**Rule** — **a document quoting what a tool prints is making the same claim whether the tool succeeded or
+failed, and gets the same binding.** D102 established it for output; the half a reader meets at their worst
+moment was left out, one week and one decision apart. Enforced by
+`test_published_examples.PublishedFailureMessageTests`.
+
+---
+
 ## Not checked — as of 0.31.0 @ D108
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

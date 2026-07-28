@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.32.0
+- Spec version: 0.33.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -1090,7 +1090,8 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P2] Every block a published document shows as harness output is reproduced by running the harness against
   the submission it names and compared line for line — a fragment must appear contiguously and verbatim, and no
   block showing output may be unregistered — so a documented example cannot drift from what the tool prints
-  (D30, D102).
+  (D30, D102). This holds for **failure** output as well as success: a quoted error message is provoked from the
+  code path that emits it and compared, with only machine-specific paths normalised (D112).
 - [ ] [P3] A roughly 75-invoice dataset scores in under 10 seconds; when the threshold is breached a warning
   appears and the exit code remains zero.
 - [ ] [P3] Under lenient matching, a finding with the right category but the wrong line identifier scores as a
@@ -1268,6 +1269,20 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.33.0 (2026-07-28): **the documentation half of D104, and the binding it needed (D112)**. `check_placement`
+  began refusing a held-out scorecard anywhere in the tree, and the documents describing that workflow still
+  spoke only of *committing* one — so a reader who forgot `--out` met exit 1 and three red tests, one of them
+  about repository-root resolution, with nothing pointing at the cause. The runbook gains a troubleshooting entry
+  quoting the failure verbatim with the fix in order; §2.6, §2.5 and the safety rules say *exists in the tree*
+  rather than *committed*, since the check fires on presence; and the attestation's Placement row, which is what
+  a reader consults for what that check covers, now mentions scorecards at all. Quoting the message put a fourth
+  block of literal tool output into the published surface, which D102 had just shown is exactly what drifts — so
+  **D112** binds it: a quoted failure message is provoked from the code path that emits it and compared, with
+  only machine-specific paths normalised, and any unregistered failure-shaped block fails. Verified by mutating
+  the shipped message; the first mutation targeted a phrase spanning a line break inside an f-string, changed
+  nothing, and left the suite green — a vacuous proof caught and redone. Also fixed: two safety rules were both
+  numbered 5. 298 → 301 tests; pyright 0 errors; the D102 criterion is extended rather than a new one added,
+  because failure output is the same promise as success output.
 - 0.32.0 (2026-07-28): **the plan and the specification had diverged, and one negative-space entry was wrong
   (D109–D111)** — a pre-agent sweep over the published-surface sweep. **D111:** that sweep flagged
   `dataset_guarantees` as verified for presence only, its truth "never verified against the data". It was

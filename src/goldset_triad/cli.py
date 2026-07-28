@@ -12,6 +12,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Final
 
 from . import ledger
 from . import scorecard as sc
@@ -63,11 +64,9 @@ def run_score(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = run_metadata.run_timestamp.replace(":", "").replace("-", "")
-    json_path, txt_path = _reserve_scorecard_paths(
-        out_dir, loaded.manifest.identifier, stamp
+    json_path, txt_path = _claim_scorecard_pair(
+        out_dir, loaded.manifest.identifier, stamp, card_json, summary
     )
-    _write_new_file(json_path, card_json)
-    _write_new_file(txt_path, summary)
 
     # WHEN a run completes, one record is appended to the JSONL ledger. A failure here
     # warns and the run still exits zero: D9 makes the ledger a derived, regenerable
@@ -161,6 +160,63 @@ def _write_new_file(path: Path, text: str) -> None:
     identical scorecard content on Windows and on Linux."""
     with open(path, "x", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
+
+
+#: How many times to re-reserve when another process claims the name first (D114). Each
+#: retry costs one filesystem round trip and only happens when two runs genuinely collide,
+#: so a small bound is enough to make the race vanishingly unlikely while still terminating
+#: rather than spinning: if this many consecutive reservations are all taken, something
+#: other than a race is going on and saying so beats retrying forever.
+_CLAIM_ATTEMPTS: Final = 8
+
+
+def _claim_scorecard_pair(
+    out_dir: Path, identifier: str, stamp: str, card_json: str, summary: str
+) -> tuple[Path, Path]:
+    """Reserve a free stem and write both halves, retrying if another run gets there first.
+
+    **The gap this closes.** `_reserve_scorecard_paths` checks `.exists()` and
+    `_write_new_file` then creates with mode `"x"`. Between those two steps another process
+    can take the name, and `"x"` raises `FileExistsError` — which is neither `DatasetError`
+    nor `SchemaError`, so it escaped `main()` and surfaced as a traceback. That breaks the
+    failure policy ("every halt names its specific cause and exits non-zero") in a project
+    whose whole posture is that a defect must not present as a defect in something else.
+
+    Three sweeps recorded this in the negative-space list and none fixed it. Recording a
+    gap is the right move when closing it needs a decision; this one needed six lines, and
+    the record was standing in for the fix.
+
+    **The exclusive create stays.** D49 chose `"x"` so that overwriting a scorecard is
+    impossible at the operating-system level rather than merely unintended, and that is
+    exactly what makes the retry safe: the loser of a race is *told* it lost instead of
+    silently destroying the winner's record. The retry re-reserves rather than incrementing
+    blindly, so it cannot skip past a name another run has already released.
+
+    **The `.txt` half can also lose**, and losing it after the `.json` landed would leave a
+    half-written pair. So the pair is claimed together and the JSON is removed if the text
+    half is taken — the same "never straddle two stems" rule `_reserve_scorecard_paths`
+    already applies to the reservation."""
+    for _attempt in range(_CLAIM_ATTEMPTS):
+        json_path, txt_path = _reserve_scorecard_paths(out_dir, identifier, stamp)
+        try:
+            _write_new_file(json_path, card_json)
+        except FileExistsError:
+            continue
+        try:
+            _write_new_file(txt_path, summary)
+        except FileExistsError:
+            # Undo the half that landed. Removing a file this run created moments ago is
+            # not the "never delete a scorecard" rule (D49) — nothing has read it, and
+            # leaving it would publish a scorecard with no human summary beside it.
+            json_path.unlink(missing_ok=True)
+            continue
+        return json_path, txt_path
+    raise DatasetError(
+        f"could not claim a scorecard filename in {out_dir} after {_CLAIM_ATTEMPTS} "
+        f"attempts: another process took every name this run reserved. Nothing was "
+        f"written and no existing scorecard was touched; re-run, or give this run its own "
+        f"--out directory (D114)"
+    )
 
 
 def _reserve_scorecard_paths(out_dir: Path, identifier: str, stamp: str) -> tuple[Path, Path]:

@@ -393,6 +393,12 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C85", "[P2] every documented block of harness output is reproduced by running the "
             "harness and compared (D102)",
      "test_published_examples.PublishedExampleTests.test_every_registered_example_is_what_the_harness_prints"),
+    # The scoring engine's input, swept for the first time since phase 1 (D113, D114).
+    ("C88", "two expectations sharing a match key are rejected at load, so the key's "
+            "record order cannot reach the scored body (D113)",
+     "test_cross_artifact_validation.DuplicateExpectationTests.test_two_expectations_sharing_a_match_key_are_rejected"),
+    ("C89", "losing the scorecard-filename race retries and never tracebacks (D114)",
+     "test_cli_end_to_end.CliEndToEndTests.test_losing_the_filename_race_retries_instead_of_tracebacking"),
 ]
 
 
@@ -669,6 +675,22 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_published_claims.PublishedPortGuaranteeTests.test_the_published_guarantee_matches_the_shipped_parser",
     # The `[P3]` criterion checksum, which had no counterpart while `[P1]` and `[P2]` did.
     "test_traceability.TraceabilityTests.test_spec_p3_criterion_count_is_unchanged",
+    # The scoring-input sweep (D113–D116). C88 and C89 carry the two criteria; these are
+    # the controls and the converses around them.
+    #
+    # D113: the shipped keys are already clean, which is what makes this a lock at zero
+    # (D68) rather than a repair — and two DIFFERENT categories on one line stay legal,
+    # because H28 requires exactly that and a check forbidding it would break the dev split.
+    "test_cross_artifact_validation.DuplicateExpectationTests.test_the_shipped_keys_declare_no_duplicate_expectation",
+    "test_cross_artifact_validation.DuplicateExpectationTests.test_distinct_expectations_on_the_same_line_are_still_allowed",
+    # D114: the retry terminates. A bounded retry that never gives up is a hang wearing a
+    # fix's clothes, so exhausting it is a named halt.
+    "test_cli_end_to_end.CliEndToEndTests.test_exhausting_the_retries_is_a_named_halt",
+    # D115: the publishable splits are discovered, so a new split needs no code edit —
+    # which is the property a literal could not have.
+    "test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code",
+    # D116: the project's other stamped marker, which D108's mechanism did not reach.
+    "test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current",
     # D112: the same binding as D102's, applied to what the harness prints when something
     # goes WRONG. C85 carries the criterion for published output as a whole; these three
     # are its failure-message half — the registered message provoked and compared, the
@@ -691,7 +713,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 134
+EXPECTED_SPEC_P1_CRITERIA = 136
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule
@@ -922,6 +944,42 @@ class TraceabilityTests(unittest.TestCase):
             f"sweep at D{swept_at}, past the 8–10 trigger the marker states. Run a sweep "
             f"and update the marker, or the marker stops meaning anything — which is what "
             f"it says about itself (D108).",
+        )
+
+    def test_the_negative_space_section_is_stamped_current(self) -> None:
+        """The project's *other* stamped marker, which D108's check could not see (D116).
+
+        D108 mechanised the spec's sweep marker and stopped there. `DECISIONS.md` carries a
+        second one — `## Not checked — as of <version> @ D<n>` — whose whole purpose is to
+        tell the next reader how current the gap list is, and it drifted four decisions
+        behind while the mechanism written to stop exactly this drift looked elsewhere.
+        D108's universe was *the marker I was fixing*; the rule was *stamped markers go
+        stale*.
+
+        The tolerance is the same 10 the sweep trigger uses, and for the same reason: this
+        list is the sweep's own output, so the two go stale together and a single threshold
+        keeps them in step."""
+        root = Path(__file__).resolve().parents[1]
+        decisions = (root / "DECISIONS.md").read_text(encoding="utf-8")
+
+        stamped = re.search(r"^## Not checked — as of \S+ @ D(\d+)", decisions, re.M)
+        self.assertIsNotNone(
+            stamped,
+            "DECISIONS.md's negative-space section no longer carries a `as of <version> @ "
+            "D<n>` stamp, so nothing says how current its gap list is",
+        )
+        assert stamped is not None  # for the type checker; the assertion above is the gate
+        stamped_at = int(stamped.group(1))
+
+        numbers = sorted(int(n) for n in re.findall(r"(?m)^## D(\d+)", decisions))
+        self.assertTrue(numbers, "no decisions found; this check would pass vacuously")
+        accrued = len([n for n in numbers if n > stamped_at])
+        self.assertLessEqual(
+            accrued, 10,
+            f"the negative-space list is stamped at D{stamped_at} and {accrued} decisions "
+            f"(D{stamped_at + 1}–D{numbers[-1]}) have landed since. A gap list that is not "
+            f"current is worse than none: the next reader takes it as the state of things "
+            f"(D111). Add this pass's entry and restamp the heading (D116).",
         )
 
     def test_no_document_says_a_built_artifact_is_unbuilt(self) -> None:

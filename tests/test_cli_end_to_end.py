@@ -8,8 +8,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests import support
+from goldset_triad import cli
 from goldset_triad.cli import main
 from goldset_triad.dataset import per_file_digests, resolve_manifest
 
@@ -72,6 +74,81 @@ class CliEndToEndTests(unittest.TestCase):
             rc = main(["score", "--dataset", "nope", "--datasets-root",
                        str(support.DATASETS), "--findings", str(fp), "--out", str(Path(td) / "o")])
             self.assertNotEqual(rc, 0)
+
+    def test_losing_the_filename_race_retries_instead_of_tracebacking(self) -> None:
+        """The gap three sweeps recorded and none closed (D114).
+
+        `_reserve_scorecard_paths` checks `.exists()`; `_write_new_file` then creates with
+        mode `"x"`. Between those steps another process can take the name, and `"x"` raises
+        `FileExistsError` — neither `DatasetError` nor `SchemaError`, so it escaped `main()`
+        and surfaced as a traceback rather than a halt naming its cause.
+
+        Simulated by taking the name at exactly that moment: the reservation is wrapped so
+        that the first stem it hands back is occupied before the write reaches it."""
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "out"
+            out.mkdir()
+            findings = Path(td) / "f.json"
+            _write_findings(findings, self._perfect_findings())
+
+            real_reserve = cli._reserve_scorecard_paths
+            stolen: list[Path] = []
+
+            def steal_once(out_dir: Path, identifier: str, stamp: str):
+                json_path, txt_path = real_reserve(out_dir, identifier, stamp)
+                if not stolen:  # only the first reservation loses the race
+                    stolen.append(json_path)
+                    json_path.write_text("{}", encoding="utf-8", newline="\n")
+                return json_path, txt_path
+
+            with mock.patch.object(cli, "_reserve_scorecard_paths", steal_once):
+                code = main(["score", "--dataset", "dev", "--datasets-root",
+                             str(support.DATASETS), "--findings", str(findings),
+                             "--out", str(out)])
+
+            self.assertEqual(code, 0, "losing one race must not fail a correct run")
+            self.assertTrue(stolen, "the fixture did not actually steal a name")
+            cards = sorted(p for p in out.glob("scorecard-*.json") if p != stolen[0])
+            self.assertEqual(
+                len(cards), 1,
+                f"the run must land on a different stem; found {[p.name for p in cards]}",
+            )
+            self.assertEqual(
+                stolen[0].read_text(encoding="utf-8"), "{}",
+                "the file that won the race must be untouched — D49's exclusive create is "
+                "what makes the retry safe",
+            )
+            self.assertTrue(
+                cards[0].with_suffix(".txt").is_file(),
+                "both halves of the pair must land together",
+            )
+
+    def test_exhausting_the_retries_is_a_named_halt(self) -> None:
+        """When every reservation is taken, it halts naming the cause rather than
+        spinning. A bounded retry that never gives up is a hang wearing a fix's clothes."""
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "out"
+            out.mkdir()
+            findings = Path(td) / "f.json"
+            _write_findings(findings, self._perfect_findings())
+
+            real_reserve = cli._reserve_scorecard_paths
+
+            def always_steal(out_dir: Path, identifier: str, stamp: str):
+                json_path, txt_path = real_reserve(out_dir, identifier, stamp)
+                json_path.write_text("{}", encoding="utf-8", newline="\n")
+                return json_path, txt_path
+
+            err = io.StringIO()
+            with mock.patch.object(cli, "_reserve_scorecard_paths", always_steal), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(err):
+                code = main(["score", "--dataset", "dev", "--datasets-root",
+                             str(support.DATASETS), "--findings", str(findings),
+                             "--out", str(out)])
+            self.assertEqual(code, 2, "an unresolvable collision is a named halt, exit 2")
+            self.assertIn("could not claim a scorecard filename", err.getvalue())
+            self.assertIn("no existing scorecard was touched", err.getvalue())
 
     def test_run_does_not_modify_any_input_file(self) -> None:
         m = resolve_manifest("dev", support.DATASETS)

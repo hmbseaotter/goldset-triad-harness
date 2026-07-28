@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.33.0
+- Spec version: 0.34.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,8 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-27 @ 0.31.0 @ D108** — the **published-surface sweep**, run by a session that did not
+- **Last swept: 2026-07-28 @ 0.34.0 @ D116** — the **scoring-input sweep**, which took the negative-space list as its agenda and closed the item it had carried three times. Five findings, four decisions: D113 (an answer key's *record order* reached the scored body — two expectations sharing a match key were accepted, and which one was reported missed depended on their order in the file; the metrics never moved, so D26's tie-break reasoning held exactly as written, but byte-identity of the scored body did not), D114 (the reserve-then-create race produced a `FileExistsError` traceback instead of a named halt — recorded three sweeps running and fixed by none, the record having become a substitute for the fix), D115 (two literals restating what the tree already knows, both written inside the sweep that deleted the previous two), D116 (the project's *other* stamped marker had no mechanism). **Caveat on its authority:** this pass reviewed work the same session wrote, so three findings are self-review; an independent pass would likely find more.
+  The prior sweep was **0.31.0 @ D108** — the **published-surface sweep**, run by a session that did not
   write the surface it reviewed. Eight findings, seven decisions, every one of them in what the project shows a
   reader or in the checks over it: D102 (the scorecard legend's worked example was not output the harness can
   produce — two categories deleted, a row the renderer cannot emit, and one bullet standing in for six, which is
@@ -931,6 +932,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   scorecard — and absent, unopenable and undecodable are reported as three distinct causes (D77).
 - [ ] [P1] A dataset containing a timestamp lacking the `Z` suffix or second precision is rejected as
   malformed.
+- [ ] [P1] An answer key declaring two expected findings with the same match key is rejected at load, naming
+  both positions — they cannot be satisfied independently, and which one is reported missed would otherwise
+  depend on their order in the file and so reach the scored body (D113).
+- [ ] [P1] A scoring run that loses the scorecard-filename race to a concurrent run reserves another name and
+  completes; if every reservation is taken it halts naming that cause, writes nothing, and leaves the winning
+  run's scorecard untouched (D114).
 - [ ] [P2] Verify mode on a scorecard whose stored numbers have been altered detects the difference and
   exits non-zero.
 - [ ] [P2] Verify mode pointed at a dataset other than the one a scorecard records reports that as its own
@@ -1269,6 +1276,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.34.0 (2026-07-28): **the scoring-input sweep: five findings, D113–D116**, which took the negative-space
+  list as its agenda and closed the item it had carried three times. The severe one is in the engine itself:
+  **an answer key's record order was reaching the scored body** (D113). `score()` sorts contending *flags* by
+  `canonical()` — D26 settled that — and takes the misses as `exp[matched:]` in *key file order*, so two
+  expectations sharing a match key produced a different `missed` block depending on which came first in the
+  file. The metrics never moved, so D26's reasoning held exactly as written; what moved is the scored body, and
+  its byte-identity is U4 and C1. Rejected at load rather than sorted, because two expectations sharing a match
+  key cannot be satisfied independently — and the loader already refused a duplicated *correspondence* row
+  (C39), so the rule simply never reached expectations. Locked at zero: no shipped key has one today, and D110
+  has just written a `[P3]` requirement that would introduce the first. Also: the reserve-then-create race
+  produced a `FileExistsError` traceback rather than a named halt, **recorded by three sweeps and fixed by
+  none** until the record had become a substitute for the fix (D114); two literals restated what the tree
+  already knows, both written *inside* the sweep that deleted the previous two, one of them defended in a
+  comment (D115); and the project's other stamped marker — the negative-space heading — had no mechanism,
+  D108 having guarded only the marker it was written for (D116). **This pass reviewed work the same session
+  wrote**, so three of the five findings are self-review and an independent pass would likely find more; the
+  caveat is recorded in the sweep marker rather than left for a reader to infer. 301 → 308 tests; pyright 0
+  errors; 2 acceptance criteria added.
 - 0.33.0 (2026-07-28): **the documentation half of D104, and the binding it needed (D112)**. `check_placement`
   began refusing a held-out scorecard anywhere in the tree, and the documents describing that workflow still
   spoke only of *committing* one — so a reader who forgot `--out` met exit 1 and three red tests, one of them

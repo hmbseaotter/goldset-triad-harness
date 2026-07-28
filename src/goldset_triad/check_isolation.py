@@ -279,19 +279,45 @@ _SCORECARD_NAME = re.compile(
     r"^scorecard-(?P<identifier>.+)-\d{8}T\d{6}Z(?:-\d+)?\.(?:json|txt)$"
 )
 
-#: The splits whose scorecards may sit in this tree. Public by design: their answer keys
-#: ship here, so a scorecard naming their expectations reveals nothing that is not already
-#: committed beside it. Every other split's does (D93).
-PUBLISHABLE_SCORECARD_SPLITS = frozenset({"dev", "dev-synthetic", "dev-zero-defect"})
+def publishable_scorecard_splits(root: Path) -> frozenset[str]:
+    """The splits whose scorecards may sit in this tree — discovered, not listed (D115).
+
+    The rule is *"a scorecard is publishable here iff its key is public"*, and a key is
+    public exactly when its split ships in this repository. Reading `datasets/` states that
+    rule; a literal restates it, and the two drift the moment a split is added — the
+    scorecards of a new dev split would have been reported as answer-key leaks.
+
+    This stood as `frozenset({"dev", "dev-synthetic", "dev-zero-defect"})` while
+    `tests/support.py` discovered the same set from disk: one typed, one derived, nothing
+    comparing them. D104 wrote the literal in the sweep that closed two other instances of
+    the same pattern.
+
+    A directory counts as a split when it carries a `manifest.json`, which is what makes it
+    loadable at all. The held-out split has one too — out of tree, where this never looks,
+    which is the whole point.
+
+    **With no `datasets/` at all this returns the empty set, so every scorecard reads as
+    non-publishable and is flagged.** That is the deliberate direction: an isolation check
+    that cannot establish which splits are public should err toward naming a file a human
+    clears in seconds, not toward silence about a possible answer-key leak. It is also
+    barely reachable — a checkout with no `datasets/` fails most of the suite long before
+    this matters."""
+    datasets = root / "datasets"
+    if not datasets.is_dir():
+        return frozenset()
+    return frozenset(
+        entry.name for entry in datasets.iterdir()
+        if (entry / "manifest.json").is_file()
+    )
 
 
-def _non_dev_scorecard(name: str) -> str | None:
+def _non_dev_scorecard(name: str, publishable: frozenset[str]) -> str | None:
     """The split a scorecard belongs to, when that split's key is not public (D93)."""
     match = _SCORECARD_NAME.match(name)
     if match is None:
         return None
     identifier = match.group("identifier")
-    return None if identifier in PUBLISHABLE_SCORECARD_SPLITS else identifier
+    return None if identifier in publishable else identifier
 
 
 def check_placement(root: Path | None = None) -> list[str]:
@@ -310,6 +336,7 @@ def check_placement(root: Path | None = None) -> list[str]:
     `--out` left at its default."""
     failures: list[str] = []
     base = REPO_ROOT if root is None else root
+    publishable = publishable_scorecard_splits(base)
     for dirpath, _dirnames, filenames in os.walk(base):
         rel = Path(dirpath).relative_to(base)
         parts = set(rel.parts)
@@ -318,7 +345,7 @@ def check_placement(root: Path | None = None) -> list[str]:
         for name in filenames:
             if _is_secret_name(name):
                 failures.append(f"a secret artifact exists inside the repo: {rel / name}")
-            split = _non_dev_scorecard(name)
+            split = _non_dev_scorecard(name, publishable)
             if split is not None:
                 failures.append(
                     f"a scorecard from the '{split}' split exists inside the repo: "

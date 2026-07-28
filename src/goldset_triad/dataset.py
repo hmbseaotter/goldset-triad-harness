@@ -53,6 +53,55 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _reject_duplicate_expectations(expected: tuple[Finding, ...], path: Path) -> None:
+    """No two expectations may share a match key (D113).
+
+    **Why this is a defect in the key, not a curiosity.** The match key is
+    `(status, category, scope, document_id, line_id)` — everything the scorer compares.
+    Two expectations sharing one are indistinguishable to it: the second can never be
+    satisfied independently, because one agent flag on that key matches one of them and
+    the other is recorded as a miss whatever the agent does.
+
+    **And which one is recorded depends on the key's record order**, which reaches the
+    durable record. `score()` sorts contending *flags* by `canonical()` — D26 settled that
+    — and takes `exp[matched:]` for the misses, in file order. Measured: two expectations
+    differing only in `reasoning`, one flag, and the two orderings produce different
+    `missed` blocks and therefore a different `deterministic_body`. The metrics are
+    identical, so D26's reasoning holds exactly as written; what moves is the scored body,
+    and byte-identity of the scored body is the determinism claim itself (U4, C1).
+
+    Rejecting is right rather than sorting `exp` too: sorting would make the output stable
+    while leaving a key that asks the scorer an unanswerable question. The loader already
+    refuses a duplicated correspondence row (C39) and an invoice line mapped twice (C38);
+    that rule simply never reached expectations — the same correct-rule/wrong-universe
+    shape this project keeps finding (D82).
+
+    Locked at zero: no shipped key has a duplicate today, which D68 identifies as the
+    cheapest possible moment to close a class."""
+    seen: dict[tuple[str, str, str, str, str], int] = {}
+    collisions: list[str] = []
+    for position, finding in enumerate(expected):
+        key = finding.match_key()
+        first = seen.get(key)
+        if first is None:
+            seen[key] = position
+            continue
+        collisions.append(
+            f"expected_findings[{first}] and expected_findings[{position}] both name "
+            f"{finding.status.value}/{finding.category.value}/{finding.scope.value} on "
+            f"{finding.target.document_id} line {finding.target.line_id}"
+        )
+    if collisions:
+        raise DatasetError(
+            f"answer key {path} declares {len(collisions)} duplicate expectation(s): "
+            + "; ".join(collisions)
+            + ". Two expectations sharing a match key cannot be satisfied independently — "
+            "one agent flag matches one of them and the other is a miss regardless — and "
+            "which one is reported depends on the order they appear in this file, which "
+            "would put the key's record order into the scored body (D113)"
+        )
+
+
 def load_findings_artifact(path: Path) -> tuple[tuple[Finding, ...], str]:
     """Read, validate and digest an agent's findings artifact — in one place (D77).
 
@@ -240,6 +289,7 @@ def load_answer_key(path: Path) -> AnswerKey:
         expected = tuple(parse_finding(item, i) for i, item in enumerate(findings_raw))
     except SchemaError as exc:
         raise DatasetError(f"answer key contains a malformed expected finding: {exc}") from exc
+    _reject_duplicate_expectations(expected, path)
     correspondence_raw = raw.get("correspondence", [])
     if not isinstance(correspondence_raw, list):
         raise DatasetError("answer key 'correspondence', when present, must be a list")

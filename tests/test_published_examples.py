@@ -49,10 +49,19 @@ from goldset_triad.scoring import score
 #: this file would check the three examples someone remembered (D82).
 OUTPUT_MARKERS = ("Scorecard - dataset", "Per-category (precision / recall):", "COVERAGE:")
 
-#: The documents this ranges over. Held here rather than imported from the published-document
-#: registry because that registry answers "which documents make claims"; this answers "which
-#: documents show output", and the day those differ, conflating them would hide it.
-EXAMPLE_DOCS = ("README.md", "docs/RUNBOOK.md", "docs/SCORECARD.md", "ISOLATION_ATTESTATION.md")
+#: The documents this ranges over — the one registry (D105, D115).
+#:
+#: This was its own literal, with a comment arguing that the registry answers *"which
+#: documents make claims"* while this answers *"which documents show output"*. The two
+#: lists held the same four files in a different order, neither was checked against the
+#: other, and this one was never checked against the tree at all. So it was D105's defect
+#: exactly — written in the same sweep that deleted the first two instances of it, and
+#: defended in prose, which is what a plausible rationalisation looks like from the inside.
+#:
+#: The distinction the comment drew was real and did not matter: showing output is one way
+#: of making a claim, every document doing the first does the second, and if that ever
+#: stops being true the registry gains an entry rather than this file gaining a list.
+EXAMPLE_DOCS = support.PUBLISHED_DOCS
 
 
 def _sorted_by_target(findings: tuple[Finding, ...]) -> list[Finding]:

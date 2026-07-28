@@ -260,6 +260,73 @@ class CorrespondenceReferenceTests(unittest.TestCase):
             )
 
 
+class DuplicateExpectationTests(unittest.TestCase):
+    """No two expectations may share a match key (D113).
+
+    The match key is everything the scorer compares, so two expectations sharing one are
+    indistinguishable to it — and `score()` takes `exp[matched:]` for the misses in *key
+    file order*, so which of the two is reported missed depends on the order the records
+    appear in. Measured: two expectations differing only in `reasoning`, one agent flag,
+    and the two orderings produce different `missed` blocks and a different
+    `deterministic_body`. The metrics do not move, so D26's tie-break reasoning holds
+    exactly as written; what moves is the scored body, which is the determinism claim.
+
+    The loader already refuses a duplicated correspondence row (C39) and an invoice line
+    mapped twice (C38). The rule never reached expectations."""
+
+    def _key_with(self, findings: list[dict]) -> dict:
+        return {"version": "1.0.0", "identifier": "dev", "expected_findings": findings,
+                "correspondence": []}
+
+    def test_two_expectations_sharing_a_match_key_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            manifest = support.copy_dataset("dev", Path(td) / "d")
+            key_path = manifest.parent / "dev_answer_key.json"
+            key = support.read_json(key_path)
+            first = key["expected_findings"][0]
+            twin = {**first, "reasoning": "a second expectation on the same line"}
+            key["expected_findings"] = [*key["expected_findings"], twin]
+            key_path.write_text(
+                json.dumps(key, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8", newline="\n",
+            )
+            with self.assertRaises(DatasetError) as caught:
+                load_dataset(str(manifest), support.DATASETS)
+        message = str(caught.exception)
+        self.assertIn("duplicate expectation", message)
+        self.assertIn(first["target"]["document_id"], message)
+        self.assertIn("record order", message)
+
+    def test_the_shipped_keys_declare_no_duplicate_expectation(self) -> None:
+        """The positive control, and the reason this locks at zero (D68): every split this
+        machine can see is already clean, so the class is closed before an instance
+        exists rather than after one is found."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                loaded = load_dataset(str(split.manifest), support.DATASETS)
+                keys = [f.match_key() for f in loaded.answer_key.expected_findings]
+                self.assertEqual(
+                    len(keys), len(set(keys)),
+                    f"{split.name}: the key declares two expectations with one match key",
+                )
+
+    def test_distinct_expectations_on_the_same_line_are_still_allowed(self) -> None:
+        """The converse. Two findings of DIFFERENT categories on one invoice line is
+        ordinary — H28 requires exactly that (a both-wrong line yields one price and one
+        quantity finding) — and a check that rejected it would break the dev split."""
+        loaded = load_dataset("dev", support.DATASETS)
+        by_target: dict[tuple[str, str], set[str]] = {}
+        for finding in loaded.answer_key.expected_findings:
+            slot = (finding.target.document_id, finding.target.line_id)
+            by_target.setdefault(slot, set()).add(finding.category.value)
+        shared = {slot: cats for slot, cats in by_target.items() if len(cats) > 1}
+        self.assertTrue(
+            shared,
+            "the dev split is supposed to contain a line carrying two different "
+            "categories (H28); if it no longer does, this control proves nothing",
+        )
+
+
 class DocumentIdentityTests(unittest.TestCase):
     """A document must carry its own identifier, and it must match its filename (D71).
 

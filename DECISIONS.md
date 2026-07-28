@@ -4439,13 +4439,205 @@ moment was left out, one week and one decision apart. Enforced by
 
 ---
 
-## Not checked — as of 0.31.0 @ D108
+## D113 — An answer key's record order was reaching the scored body ✅
+
+**Fork:** The scoring engine had not been swept since phase 1 — the negative-space list
+carried *"`scoring.py` and `scorecard.py` arithmetic"* for three sweeps running. Reading the
+matching loop found the expectations side is used in **key file order** while the flags side
+is sorted:
+
+```python
+exp     = expected_by_key.get(key, [])                      # key file order
+flags   = sorted(flags_by_key.get(key, []), key=canonical)  # canonical order (D26)
+matched = min(len(exp), len(flags))
+missed.extend(exp[matched:])                                # <- which ones?
+```
+
+**Measured.** Two expectations sharing a match key, differing only in `reasoning`, and one
+agent flag:
+
+```
+key order A,B: missed=['ZZZ seeded second']  recall=0.5000
+key order B,A: missed=['AAA seeded first']   recall=0.5000
+scored bodies identical across key orderings: False
+```
+
+**D26's reasoning holds exactly as written and does not cover this.** It settled the
+tie-break for contending *flags*, and reasoned that ordering by an unscored field "cannot
+move any metric" — true here too: recall is `0.5000` both ways. What moves is the **scored
+body**, because `missed` carries each expectation's `reasoning` verbatim (which is why D93
+established a held-out scorecard is answer-key content). Byte-identity of the scored body is
+U4 and C1, the determinism claim itself.
+
+**Options considered**
+- **Rejected: sort `exp` by `canonical()` too.** It makes the output stable and leaves a key
+  that asks the scorer an unanswerable question — two expectations that no agent can satisfy
+  independently, one of which is a guaranteed miss whatever the agent does.
+- **Decision ✅** — reject at load, naming both positions. The match key is everything the
+  scorer compares; two expectations sharing one are indistinguishable to it, and that is a
+  defect in the key.
+
+**The universe again.** The loader already refuses a duplicated correspondence row (C39) and
+an invoice line mapped twice (C38). Duplicate-rejection reached correspondence and never
+reached expectations — and expectations are the scorer's *primary* input.
+
+**Locked at zero (D68).** No shipped key has a duplicate today, on any split this machine can
+see, which is the cheapest possible moment. It is also about to matter: D110 has just written
+a `[P3]` requirement to *"carry every discrepancy flavour once in isolation, and combine…"*,
+which is exactly the change that introduces one.
+
+**Rule** — **an input whose ordering can reach the output is part of the determinism claim,
+even when it moves no metric.** Enforced by
+`test_cross_artifact_validation.DuplicateExpectationTests`, with a positive control that two
+*different* categories on one line stay legal (H28 requires it).
+
+---
+
+## D114 — The reserve-then-create race becomes a named halt ✅
+
+**Fork:** `_reserve_scorecard_paths` checks `.exists()`; `_write_new_file` then creates with
+mode `"x"`. Between those two steps another process can take the name, and `"x"` raises
+`FileExistsError` — neither `DatasetError` nor `SchemaError`, so it escaped `main()`:
+
+```
+FileExistsError: [Errno 17] File exists: ...scorecard-dev-20260728T000000Z.json
+is it a named halt? False
+```
+
+That breaks *"every halt names its specific cause and exits non-zero"* — the same class D77
+closed for reads, in a project whose posture is that a defect must never present as a defect
+in something else.
+
+**This was recorded three times and fixed none.** The negative-space list carried it after
+the D77–D82 sweep, again after D85–D90, again after D102–D108, each time correctly and each
+time with the note that D49 chose exclusive creation deliberately and a retry is a design
+change. Recording a gap is right when closing it needs a decision. This one needed six lines,
+and the record had become a substitute for the fix — which is the failure mode D111 named for
+the list's *contents* and this is the same failure in its *use*.
+
+**The exclusive create stays, and is what makes the retry safe.** D49's `"x"` means the loser
+of a race is *told* it lost rather than silently destroying the winner's record. The retry
+re-reserves rather than incrementing blindly, so it cannot skip a name another run released.
+
+**The `.txt` half can lose too**, and losing it after the `.json` landed would publish a
+scorecard with no summary beside it. The pair is claimed together and the JSON is removed if
+the text half is taken — removing a file this run created moments ago, which nothing has
+read, is not the "never delete a scorecard" rule.
+
+**Bounded at 8.** A retry that never gives up is a hang wearing a fix's clothes; exhausting it
+halts naming the cause, writes nothing, and says the winner's scorecard was untouched.
+
+**Rule** — **a check-then-act on a shared filesystem is a race, and the failure policy applies
+to the loser.** Enforced by `test_cli_end_to_end`'s two race tests, which steal the reserved
+name at exactly the moment the real race would.
+
+---
+
+## D115 — A literal that restates a discoverable fact is a parallel list ✅
+
+**Fork:** Two of these, both written *inside the sweep that deleted the previous two*:
+
+- **`EXAMPLE_DOCS`** in `test_published_examples.py` held the same four documents as
+  `support.PUBLISHED_DOCS` in a different order, checked against neither the registry nor the
+  tree — with a comment arguing the two answer different questions (*"which documents make
+  claims"* vs *"which show output"*). The distinction is real and does not matter: every
+  document doing the second does the first.
+- **`PUBLISHABLE_SCORECARD_SPLITS`** in `check_isolation.py` typed
+  `{"dev", "dev-synthetic", "dev-zero-defect"}` while `tests/support.py` discovered the same
+  names from `datasets/`. Add a fourth dev split and its scorecards are reported as answer-key
+  leaks until somebody edits the constant.
+
+**What makes this worth its own entry rather than a footnote to D105.** D105 established the
+rule and I wrote both of these afterwards, one of them with a paragraph explaining why it was
+fine. A rationalisation is indistinguishable from a reason while you are inside it, and the
+test that separates them is mechanical: *is this list derivable from something the tree
+already knows?* Both were.
+
+**Decision ✅** — `EXAMPLE_DOCS` becomes the registry. The publishable splits are
+**discovered** from `datasets/`, which states the actual rule — *a scorecard is publishable
+here iff its key is public, and a key is public iff its split ships in this repository* —
+rather than restating its current answer. With no `datasets/` at all the set is empty and
+every scorecard is flagged: an isolation check that cannot establish which splits are public
+should err toward naming a file a human clears in seconds.
+
+**Rule** — **before writing a list, ask what would have to be true for it to be wrong; if the
+answer is "somebody adds a file", derive it.** Enforced by
+`test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code`
+and by `EXAMPLE_DOCS` no longer existing.
+
+---
+
+## D116 — Every stamped marker is checked, not only the one the mechanism was written for ✅
+
+**Fork:** D108 made the spec's sweep marker a mechanism because *"a rule recorded as prose is
+enforced by whoever remembers it"*. `DECISIONS.md` carries a second stamped marker —
+`## Not checked — as of <version> @ D<n>` — whose entire purpose is to tell the next reader
+how current the gap list is. Nothing checked it.
+
+**Stated precisely, because the first draft of this finding overstated it.** The stamp read
+`@ D108` while the record ran to D112 — **four decisions, inside the 8–10 tolerance the
+project uses**, so it had *not* drifted past its own threshold. The defect is not that it was
+stale; it is that nothing would have said so if it were. Correcting that overstatement here
+rather than shipping it is D111's rule applied to the sweep that wrote D111's fix.
+
+**Why it is the same shape as D108 rather than a repeat of it.** D108's universe was *the
+marker being fixed*. The rule it recorded was *stamped markers go stale*. One marker got the
+mechanism and the other did not — for the fifth time in this project, the enforcement stopped
+at the boundary of what someone had in front of them.
+
+**Decision ✅** — the same check, the same 10-decision tolerance, over both markers. One
+threshold keeps them in step, which is right because the gap list is the sweep's own output:
+they go stale together.
+
+**Rule** — **when a mechanism is written for one instance of a class, the next question is
+which other instances exist — asked at the time, not at the next sweep.** Enforced by
+`test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current`.
+
+---
+
+## Not checked — as of 0.34.0 @ D116
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The scoring-input sweep (0.34.0, D113–D116)
+
+**Its own weakness first, since that shapes everything below:** this pass reviewed work the
+same session had written (D102–D108, D112). Three of its five findings are against that work,
+which is the argument for self-review being worth something — and an independent session
+would very likely find more, because the blind spot that produced a defect is the one you
+bring to reviewing it. It took the negative-space list as its agenda, which is what that list
+is for.
+
+It examined `scoring.py`'s matching loop, the scorecard-writing path, the document and split
+registries, and the two stamped markers. It did **not** examine:
+
+- **`scorecard.py`'s arithmetic and rendering.** *Method: read `scoring.py`'s `score()` and
+  `_category_metrics` line by line and `_ratio`'s decimal context; opened `scorecard.py` only
+  for `deterministic_body` and `human_summary`'s call signature.* The renderer's *output* is
+  bound by D102 and its *arithmetic* is not, which is a different property. Fourth sweep
+  carrying this.
+- **`audit_key.py`'s independent re-derivation.** *Method: `grep` for its call sites and the
+  D35 import guard; the derivation itself was not read.* It is the one place a defect would
+  make two artifacts agree for the wrong reason, and it has never been swept.
+- **Whether `[P3]`'s seven criteria are satisfiable as written.** *Method: counted them
+  against `[P3]`'s eight SHALL requirements and confirmed D97–D101 are each referenced in the
+  spec (5, 3, 15 and 5 times).* Counting is not reading: no pass judged whether the criteria
+  describe checkable outcomes, and they bind to no tests because the phase is unbuilt.
+- **`worked-example/` in the secret tier.** *Method: `git diff --stat` on that repository
+  only.* Its held-out scorecard was deliberately not opened — reading one is the
+  contamination this architecture exists to prevent, the same restraint D93 exercised.
+- **The four `⏭️` decisions as designs.** *Method: read for internal consistency and for
+  whether the spec references them.* Whether the escalation outcome class, the tolerance
+  selection rule, the reduction dimensions and the inference threshold are *good* designs is
+  untouched, and each commits a later phase.
+- **Concurrency beyond the one race D114 closed.** *Method: exercised the reserve/create
+  window directly.* Two runs appending to the ledger simultaneously, or a rebuild racing an
+  append, were not examined; the ledger is derived and regenerable, which lowers the stakes
+  without settling the question.
 
 ### The published-surface sweep (0.31.0, D102–D108)
 

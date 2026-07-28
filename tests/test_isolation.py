@@ -98,6 +98,21 @@ class IsolationTests(unittest.TestCase):
             f"an untracked held-out scorecard must be reported by placement; got {failures}",
         )
 
+    def _tree_with_splits(self, root: Path, *splits: str) -> Path:
+        """A checkout-shaped tree: `datasets/<split>/manifest.json` for each split.
+
+        The publishable set is DISCOVERED from `datasets/` (D115), so a fixture without one
+        is not a harness checkout and every scorecard in it correctly reads as non-public.
+        Building the directory is what makes this a test of the rule rather than of the
+        fallback."""
+        for split in splits:
+            (root / "datasets" / split).mkdir(parents=True)
+            (root / "datasets" / split / "manifest.json").write_text(
+                "{}", encoding="utf-8", newline="\n"
+            )
+        (root / "scorecards").mkdir()
+        return root / "scorecards"
+
     def test_placement_leaves_dev_scorecards_alone(self) -> None:
         """The positive control, in both directions that matter.
 
@@ -107,15 +122,35 @@ class IsolationTests(unittest.TestCase):
         to keep."""
         with tempfile.TemporaryDirectory() as t:
             tree = Path(t)
-            (tree / "scorecards").mkdir()
+            cards = self._tree_with_splits(tree, "dev", "dev-synthetic", "dev-zero-defect")
             for name in ("scorecard-dev-20260728T000000Z.json",
                          "scorecard-dev-20260728T000000Z.txt",
                          "scorecard-dev-zero-defect-20260728T000000Z-2.json",
                          "scorecard-dev-synthetic-20260728T000000Z.json"):
-                (tree / "scorecards" / name).write_text(
-                    "{}", encoding="utf-8", newline="\n"
-                )
+                (cards / name).write_text("{}", encoding="utf-8", newline="\n")
             self.assertEqual(ci.check_placement(tree), [])
+
+    def test_a_newly_added_split_is_publishable_without_editing_code(self) -> None:
+        """The reason discovery beats a literal (D115).
+
+        `PUBLISHABLE_SCORECARD_SPLITS` was a typed frozenset while `tests/support.py`
+        discovered the same names from disk — one restating what the other derived. A
+        fourth dev split would have had its scorecards reported as answer-key leaks until
+        somebody remembered to edit the constant."""
+        with tempfile.TemporaryDirectory() as t:
+            tree = Path(t)
+            cards = self._tree_with_splits(tree, "dev", "dev-multi-po")
+            (cards / "scorecard-dev-multi-po-20260728T000000Z.json").write_text(
+                "{}", encoding="utf-8", newline="\n"
+            )
+            self.assertEqual(
+                ci.check_placement(tree), [],
+                "a split that ships in this repository has a public key, so its scorecard "
+                "belongs here — no code change required",
+            )
+            self.assertEqual(
+                ci.publishable_scorecard_splits(tree), frozenset({"dev", "dev-multi-po"})
+            )
 
     def test_repository_contains_no_heldout_artifact(self) -> None:
         # No held-out key, generator, design artifact, or held-out input in the repo.

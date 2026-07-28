@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.28.0
+- Spec version: 0.29.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -397,6 +397,17 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   SHALL NOT fail, because a suite that is red on every clone is a suite nobody reads (D58, D14).
 - [P1] The staleness stamp SHALL live in the manifest, which sits outside the inputs directory, so re-stamping
   SHALL NOT alter the aggregate inputs digest and SHALL NOT invalidate any scorecard already emitted (D58, D27).
+
+*Published contract completeness (D96)*
+- [P1] The published matching policy SHALL state what the dataset guarantees as well as how to compute with it,
+  because a contract that specifies an operation while omitting its boundary case has not been specified — and an
+  implementer who resolves the omission differently from the key is scored against a rule never published (D96,
+  D53).
+- [P1] Every purchase-order line in every split SHALL carry at least one goods receipt, so payable quantity is
+  always computable and the empty-receipt case does not arise; the guarantee SHALL be asserted rather than
+  assumed, because it is published (D96).
+- [P1] Every invoice line SHALL resolve to exactly one purchase-order line, and the policy SHALL say so, so an
+  implementer need not build an escalation path that scored data can never reach (D96, D48, D50, D56).
 
 *Claim coverage and defect-class locks (D67, D68)*
 - [P1] Every field in which an artifact asserts something about other state SHALL be registered against the
@@ -1002,6 +1013,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   as shipped does not trip that check (D71).
 - [ ] [P1] A purchase order or goods receipt omitting its identifier is rejected naming the file and the field, an
   identifier disagreeing with its filename is rejected, and every shipped document on every split matches (D71).
+- [ ] [P1] Every purchase-order line on every split, held-out included, carries at least one goods receipt, and the
+  published policy states that guarantee (D96).
+- [ ] [P1] Every invoice line corresponds one-to-one with a correspondence row on every split, and the published
+  policy states that guarantee (D96).
+- [ ] [P1] Each split's inputs directory resolves from its manifest and holds documents, so a loop over inputs
+  cannot pass by having looked in a directory that does not exist (D96).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -1054,11 +1071,37 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - Goal: scale the dataset to portfolio size and add the metrics that only matter at scale.
 - Includes: roughly 100 purchase orders and 75 invoices with goods receipts; additional vendors and
   customers; wider discrepancy taxonomy; the 10-second performance budget as a warning; lenient match mode.
+- **Document-quality variation is the primary axis, not a rider (D99).** For a consumer whose rule layer is
+  deterministic, extraction is the only component that can fail on one input and succeed on another — so scanned,
+  skewed, noisy and multi-layout documents are where evaluation earns its keep, while a sixth discrepancy category
+  is handled as reliably as the fifth. Each quality variance appears alone before it appears combined.
+- **Coverage structure:** each discrepancy flavour once in isolation; then combinations only where two
+  discrepancies **share a computed value**, since discrepancies on different lines do not interact and testing
+  them together adds nothing over testing each alone. `H28` (a both-wrong line yielding one price and one quantity
+  finding) and `H41` (a price error on a taxable line yielding no tax finding) are the interactions already
+  identified.
+- **Document-set completeness cases** — a purchase order with no invoice, an invoice with no receipt, and the
+  symmetric shapes — require D97's "cannot adjudicate" outcome class first, because D96's published guarantees
+  currently promise those cases are absent and the model has no way to express a declined adjudication.
+- **Alternate cohorts:** later datasets reuse the same filenames with randomised content, so knowledge of one
+  cohort transfers to none. Every document must then carry a cohort token the loader **asserts** against the
+  manifest — a marker that is merely present, rather than compared, is an unchecked claim (D67), and two cohorts
+  with identical filenames are otherwise indistinguishable after a single mistaken file copy.
 
-### phase 4 — compliance categories
-- Goal: cover the rare, expensive checks that go beyond arithmetic.
+### phase 4 — compliance categories and model enrichment
+- Goal: cover the rare, expensive checks that go beyond arithmetic, and restore the dimensions `[P1]`
+  deliberately cut.
 - Includes: statutory and jurisdiction tax; segregation-of-duties violations; vendor-master and sanctions
   mismatches; currency mismatches.
+- **A "cannot adjudicate" outcome class (D97)** — an invoice with no purchase-order reference, a reference that
+  does not resolve, a lost goods receipt, a late delivery. All four end in human review for *different* reasons,
+  and today the vocabulary is discrepancy / `MATCH` / silence, so an agent that correctly declines to decide is
+  scored as having missed a finding. Touches the payload schema, the per-category block and coverage reporting.
+- **Named global tolerance sets with a published selection rule (D98)** — by supplier or by jurisdiction, never
+  per-purchase-order overrides, which would scatter the readable contract D53 depends on across every document.
+- **The dimensions cut from the originating fixtures (D99)** — purchase-order status, `amount_invoiced_to_date`
+  for cross-invoice over-billing, catch-weight, UOM and pack-size conversion, charges without a purchase-order
+  line, revision mismatch, and consolidated invoices (which D47 anticipates but leaves unimplemented).
 
 ### phase 5 — audience expansion
 - Goal: make the harness usable by a developer who is not its author.
@@ -1126,6 +1169,27 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.29.0 (2026-07-27): **the published contract says what the data guarantees, and the cut dimensions are
+  scheduled (D96–D99)** — preparation for building the consumer agent, whose rule layer will be deterministic
+  Python implemented *from* `matching_policy.json`. That choice exposed a fair-test hole: `payable_quantity`
+  published how to **sum** goods receipts and never what an **empty set** means, so an implementer could read it
+  as zero (yielding `QTY_UNDER_SHIPMENT`) or as not-computable (yielding an escalation). The key is authored on
+  the first reading, so the second — the better business answer — would have scored as a false negative for a
+  convention nobody published, which is exactly what D53 exists to prevent. **Measured before fixing, and the
+  measurement changed the fix:** the case does not occur, since every purchase-order line on all four splits
+  carries at least one goods receipt, so the repair is to publish the **guarantee** rather than invent a
+  convention (**D96**), asserted on every split because a published guarantee is a claim. Writing that check
+  produced a vacuous pass — held-out reported "0 lines, 0 without receipts" from globbing a directory that does
+  not exist — because `support.Split` resolved key, index and policy from the manifest but not inputs; it now
+  resolves all four. Three deferrals recorded rather than rediscovered: a **"cannot adjudicate" outcome class**
+  (**D97**), since four real AP situations all end in human review for different reasons and the vocabulary today
+  is discrepancy / `MATCH` / silence, so a correct refusal scores as a miss; **named global tolerance sets with a
+  published selection rule** (**D98**), not the originating fixtures' per-purchase-order overrides, which would
+  scatter D53's readable contract across fifty documents; and the **deliberate reduction from
+  `reconciliation-fixtures`** with its dimensions named (**D99**), so a later reader cannot mistake a scoping cut
+  for a gap. `[P3]`'s primary axis is restated as **document quality**, because for a consumer with a
+  deterministic rule layer extraction is the only component that can fail on one input and succeed on another.
+  3 acceptance criteria added; 263 tests.
 - 0.28.0 (2026-07-27): **the reader sees what the renderer shows, not what the source says (D95)**. Every
   command in the user-facing documentation is given twice, once per shell, distinguished only by the fenced
   block's language tag — which a rendered markdown viewer does not display. On GitHub the two appear as two

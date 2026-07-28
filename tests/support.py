@@ -121,6 +121,13 @@ class Split:
     index: Path
     policy: Path
     in_repo: bool
+    #: Resolved from the manifest, like `key` and `index` — never assumed to be
+    #: `<root>/inputs`. It is not: the held-out split's inputs live in a third tier
+    #: entirely. Omitting this field once produced a probe that reported held-out as
+    #: having "0 purchase-order lines, 0 without receipts" — which reads as a clean
+    #: result and actually meant it had globbed a directory that does not exist. A
+    #: helper that resolves three of four artifacts invites exactly that vacuous pass.
+    inputs: Path = Path()
 
 
 def known_splits() -> tuple[Split, ...]:
@@ -151,6 +158,7 @@ def known_splits() -> tuple[Split, ...]:
             index=(root / str(manifest["invoice_index_path"])).resolve(),
             policy=root / "matching_policy.json",
             in_repo=in_repo,
+            inputs=(root / str(manifest["inputs_dir"])).resolve(),
         ))
     return tuple(splits)
 

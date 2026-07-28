@@ -42,6 +42,7 @@ import unittest
 from dataclasses import dataclass, field
 
 from tests import support
+from goldset_triad.dataset import load_dataset
 
 #: Field-name fragments that mark a value as a claim about other state. Anything matching
 #: these on disk must be registered. Deliberately name-based: it is the half that works
@@ -106,6 +107,16 @@ REGISTRY: tuple[Claim, ...] = (
         field_name="categories",
         asserts="the closed category enumeration an agent competes against",
         checks=("test_ground_truth.PolicyTests.test_matching_policy_publishes_every_rule",),
+    ),
+    Claim(
+        artifact="policy",
+        field_name="dataset_guarantees",
+        asserts="what the DATA promises, so an implementer need not guess at a silence (D96)",
+        checks=(
+            "test_claim_coverage.PublishedGuaranteeTests.test_every_purchase_order_line_has_at_least_one_receipt",
+            "test_claim_coverage.PublishedGuaranteeTests.test_every_invoice_line_resolves_to_one_purchase_order_line",
+            "test_claim_coverage.PublishedGuaranteeTests.test_the_policy_publishes_both_guarantees",
+        ),
     ),
 )
 
@@ -250,6 +261,96 @@ class ClaimSymmetryTests(unittest.TestCase):
                     str(key["dataset_identifier"]), str(manifest["identifier"]),
                     f"{split.name}: key and manifest disagree about the identifier",
                 )
+
+
+class PublishedGuaranteeTests(unittest.TestCase):
+    """The policy's `dataset_guarantees` are measured, not asserted in prose (D96).
+
+    `payable_quantity` published how to SUM goods receipts and never what an empty set means.
+    An implementer reading it could take zero (yielding QTY_UNDER_SHIPMENT) or "cannot
+    compute" (yielding an escalation). The key is authored on the first reading, so the second
+    — the better business answer — would score as a false negative for a convention nobody
+    published. That is D53's own concern: an agent judged against a rule it was never told.
+
+    Unreachable today, which is why the fix is to publish the *guarantee* rather than invent a
+    convention: the empty-receipt case does not occur, so nobody has to handle it. It becomes
+    live the moment `[P3]` authors a purchase-order line with no receipt — at which point the
+    guarantee fails here, loudly, and the P4 outcome class is what makes the case expressible.
+
+    Published without a check, the guarantee would itself be an unchecked claim (D67)."""
+
+    def _po_and_receipt_lines(self, split: support.Split):
+        po_lines: set[tuple[str, str]] = set()
+        for path in sorted((split.inputs / "purchase_orders").glob("*.json")):
+            po = json.loads(path.read_text(encoding="utf-8"))
+            for line in po["lines"]:
+                po_lines.add((str(po["po_number"]), str(line["line_no"])))
+        received: set[tuple[str, str]] = set()
+        for path in sorted((split.inputs / "goods_receipts").glob("*.json")):
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            for line in receipt["lines"]:
+                received.add((str(receipt["po_number"]), str(line["po_line_no"])))
+        return po_lines, received
+
+    def test_the_inputs_directory_resolves_on_every_split(self) -> None:
+        """The premise. Assuming `<root>/inputs` reports held-out as empty rather than
+        missing, which is a vacuous pass — so the resolution is asserted before it is used."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                self.assertTrue(
+                    split.inputs.is_dir(),
+                    f"{split.name}: inputs_dir does not resolve to {split.inputs}",
+                )
+                self.assertTrue(
+                    any(split.inputs.rglob("*.json")),
+                    f"{split.name}: inputs resolve but hold no documents, so any loop over "
+                    f"them would pass by checking nothing",
+                )
+
+    def test_every_purchase_order_line_has_at_least_one_receipt(self) -> None:
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                po_lines, received = self._po_and_receipt_lines(split)
+                self.assertTrue(po_lines, f"{split.name}: no purchase-order lines found")
+                uncovered = sorted(po_lines - received)
+                self.assertEqual(
+                    uncovered, [],
+                    f"{split.name}: purchase-order line(s) with no goods receipt: "
+                    f"{uncovered}. The published policy guarantees this cannot happen, so "
+                    f"either the guarantee is now false and must be withdrawn, or the data is "
+                    f"wrong. If [P3] is deliberately introducing the case, that needs the "
+                    f"'cannot adjudicate' outcome class first (D96).",
+                )
+
+    def test_every_invoice_line_resolves_to_one_purchase_order_line(self) -> None:
+        """The second guarantee. Enforced at load by D48/D50/D56; asserted here because the
+        policy now PUBLISHES it, and a published guarantee needs its own check."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                loaded = load_dataset(str(split.manifest), support.DATASETS)
+                counts: dict[tuple[str, str], int] = {}
+                for entry in loaded.answer_key.correspondence:
+                    key = (str(entry["invoice_id"]), str(entry["invoice_line_id"]))
+                    counts[key] = counts.get(key, 0) + 1
+                targets = loaded.invoice_index.inventory.line_targets
+                self.assertEqual(
+                    sorted(set(counts) ^ set(targets)), [],
+                    f"{split.name}: invoice lines and correspondence rows do not correspond "
+                    f"one-to-one",
+                )
+                self.assertEqual(
+                    [k for k, n in counts.items() if n != 1], [],
+                    f"{split.name}: an invoice line maps to more than one PO line",
+                )
+
+    def test_the_policy_publishes_both_guarantees(self) -> None:
+        """And the text is present on every split, not just `dev` (D67's enumeration)."""
+        for split in support.known_splits():
+            with self.subTest(split=split.name):
+                policy = json.loads(split.policy.read_text(encoding="utf-8"))
+                stated = str(policy.get("dataset_guarantees", ""))
+                self.assertIn("at least one goods receipt", stated)
+                self.assertIn("exactly one", stated)
 
 
 if __name__ == "__main__":

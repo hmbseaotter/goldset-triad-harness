@@ -6,6 +6,7 @@
     "QTY_INVOICE_INFLATED",
     "TAX_VARIANCE"
   ],
+  "dataset_guarantees": "Every purchase-order line in every shipped split carries at least one goods receipt, so payable quantity is always computable and the empty-receipt case does not arise. Every invoice line resolves to exactly one purchase-order line, enforced at load (D48, D50, D56). An agent scoring these datasets therefore never has to decide what an absent receipt or an unmatched invoice means; those are real AP outcomes, but they are out of scope here until a later phase adds an outcome class for 'cannot adjudicate' (D96).",
   "materiality_threshold": "max($0.05, min(2% x basis, $25)); flag on >= (D16).",
   "note": "Every rule the key generator applied, published so the agent can compete against rules it can read (D35). Not claimed as industry norm.",
   "payable_quantity": "min(qty_ordered, qty_received); received is summed across all goods receipts for a line (D15, D31).",

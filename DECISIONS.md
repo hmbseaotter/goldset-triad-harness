@@ -3753,6 +3753,131 @@ information was present and the reader was left to supply it. Enforced by
 
 ---
 
+## D96 — The published policy states what the DATA guarantees, not only the arithmetic ✅
+
+**Fork:** `payable_quantity` published *"min(qty_ordered, qty_received); received is summed across all goods
+receipts for a line"*. It says how to sum receipts. It never says what an **empty set** means.
+
+**Why that silence is a fair-test defect.** An implementer building from the published policy — which D53 exists
+to make possible — has two defensible readings:
+
+1. the sum of no receipts is zero → payable is zero → an invoiced quantity is an overbill;
+2. no receipt data → payable is not computable → escalate for human review.
+
+The answer key is authored on **(1)**. Reading **(2)** is the better business answer, and the one a competent AP
+practitioner gives. So an agent implementing the contract faithfully could be scored a **false negative for a
+convention that was never published** — precisely what D53 was written to prevent: *an agent judged against a
+threshold it was never told.*
+
+**Measured before being fixed, and the measurement changed the fix.** The case does not occur: **every
+purchase-order line in all four splits carries at least one goods receipt** (held-out: 2 of 2). Likewise D48, D50
+and D56 make an unresolvable purchase-order reference impossible at load. The hazard is **latent, not live** — so
+the right repair is to publish the **guarantee** rather than invent a convention. Nobody must handle a case the
+data promises not to contain.
+
+**Options considered**
+- **(A) Publish the zero-receipts convention.** Rejected: it commits the contract to semantics the project
+  believes wrong for real AP, purely because the current key happens to be authored that way.
+- **(B) Say nothing, relying on the case being unreachable.** Rejected: an implementer cannot see that it is
+  unreachable, so they either guess or build an escalation path and never learn it is dead code.
+- **(C) Publish both guarantees, and assert them.**
+
+**Decision ✅** — **(C).** `matching_policy.json` gains `dataset_guarantees`: every purchase-order line carries at
+least one goods receipt, and every invoice line resolves to exactly one purchase-order line. It also names what is
+out of scope and why, pointing at the `[P4]` outcome class that will make those cases expressible (D97).
+
+**A published guarantee is a claim, so it has a check.** `PublishedGuaranteeTests` measures both on every split via
+`known_splits()`. The moment `[P3]` authors a purchase-order line with no receipt the guarantee fails loudly —
+the intended tripwire, not a nuisance: that failure is the signal that D97's outcome class is needed before the
+data can be keyed.
+
+**A vacuous pass found while writing it.** The first probe reported held-out as *"0 purchase-order lines, 0 without
+receipts"* — which reads as a clean result and actually meant it had globbed `<root>/inputs`, a directory that does
+not exist for a split whose inputs live in a third tier. `support.Split` resolved key, index and policy from the
+manifest but **not** inputs, which invited the assumption. It now resolves all four, and a premise test asserts the
+inputs directory both resolves and holds documents.
+
+**Rule** — **publish what the data guarantees, not only how to compute with it**; a contract specifying an
+operation while omitting its boundary case has not been specified. Enforced by `PublishedGuaranteeTests` and by the
+`dataset_guarantees` entry in the claim registry in `test_claim_coverage.py`.
+
+---
+
+## D97 — "Cannot adjudicate" becomes an outcome class at `[P4]` ⏭️
+
+**Fork:** Four real AP situations share one outcome and have no representation today: an invoice carrying no
+purchase-order reference; an invoice whose reference does not resolve; a goods receipt that was lost; a delivery
+merely late. Each ends in **human review**, for a different reason.
+
+**What the model can say today.** A discrepancy in one of five categories, a `MATCH` assertion, or silence. There
+is no way to express *"I could not decide, and here is why."* For an agent whose actual job is routing exceptions
+to the responsible buyer that is arguably its most important output — and it is inexpressible, so an agent that
+correctly declines to adjudicate has no vocabulary to say so and is scored as having missed a finding.
+
+**Why `[P4]` and not now.** Adding an outcome class is model enrichment, not data: it touches the payload schema (a
+status beside `DISCREPANCY` and `MATCH`), the scorecard's per-category block, the coverage reporting (D60), and
+every acceptance criterion enumerating five categories. The agent needs a stable rubric; changing the outcome
+vocabulary underneath it would score successive versions against different rules.
+
+**Decision ⏭️** — deferred to `[P4]`, recorded now with the four justifications kept distinct, because they are
+distinct *reasons* and an escalation that does not say which one is barely better than silence. D96's guarantees
+keep the cases out of scored data until then.
+
+**Rule** — **an evaluation vocabulary needs a term for "declined to decide", or a correct refusal scores as a
+miss.** Judgment, not checkable until the class exists: no test can assert the absence of a category the schema
+does not define. D96's guarantee tests keep the gap honest meanwhile.
+
+---
+
+## D98 — Tolerances stay global and named, selected by a published rule ⏭️
+
+**Fork:** The originating fixture set (`reconciliation-fixtures`, from which this project was deliberately
+simplified) carries **per-purchase-order** tolerances. Should the harness adopt that shape?
+
+**Decision ⏭️** — no. At `[P4]`, tolerances become **several named global sets plus a published selection rule** —
+by supplier, or by jurisdiction (North America versus European Union) — never per-document overrides.
+
+**Why the shape matters more than the flexibility.** D53's whole point is that an agent competes against a rule it
+can *read*. One policy naming two or three tolerance sets and the rule selecting between them stays readable.
+Per-PO overrides scatter the rulebook across every purchase order, so "the published policy" stops being a document
+an implementer can hold in mind and becomes an index into fifty of them. Same information, far worse contract.
+
+**Rule** — **a published contract must stay readable at the size the dataset grows to**; prefer a few named
+policies plus a stated selection rule over per-record overrides. Judgment, not checkable until `[P4]` implements it;
+`test_policy_numbers_match_the_shipping_rule_implementation` is the check that extends to cover each named set.
+
+---
+
+## D99 — The reduction from the originating fixtures is deliberate, and its dimensions are scheduled ⏭️
+
+**Fork:** This project began from `reconciliation-fixtures` — 50 purchase orders with embedded receipts, per-PO
+tolerances, five PO statuses, catch-weight, UOM and pack-size conversion, `amount_invoiced_to_date`, freight,
+revisions, consolidated invoices spanning several orders, and five invoice PDFs ranging from clean text to a
+**rasterised scan with no text layer at all**. The harness models far less: 7 purchase-order fields, 7 line fields,
+five categories, one global policy, single-order invoices, receipts as separate documents.
+
+**Recorded because the difference reads like an oversight and is not.** The reduction was the scoping decision that
+made `[P1]` finishable. Writing it down converts an undocumented simplification into a scheduled one, and stops a
+later reader — or a later session — "restoring" a dimension believing it was lost rather than cut.
+
+**Scheduled for `[P4]`**, each on its own merits: PO status (an invoice against a CANCELLED or CLOSED order);
+`amount_invoiced_to_date` (over-invoicing across several invoices, which no per-invoice check can see);
+catch-weight variance; UOM and pack-size conversion; charges without a purchase-order line; revision mismatch; and
+**consolidated invoices**, which D47 already anticipates — its apportionment recorded but unimplemented, with a
+tripwire that fires the moment such data arrives. The fixtures show consolidated invoices are ordinary rather than
+exotic, so D47's deferral costs more than it first appeared.
+
+**Deliberately NOT a category expansion:** document quality belongs on its own axis at `[P3]`. For an agent whose
+rule layer is deterministic, **extraction is the only component that can fail on one input and succeed on
+another** — so scanned, skewed, noisy and multi-layout documents are where evaluation earns its keep, while a sixth
+discrepancy category is handled as reliably as the fifth.
+
+**Rule** — **record a deliberate reduction when it is made, with its dimensions named**; an undocumented
+simplification is indistinguishable from a gap, and the next reader will either re-derive it or undo it. Enforced
+by this entry being cited from the `[P3]` and `[P4]` phase blocks, so plan and reasoning cannot drift apart.
+
+---
+
 ## Not checked — as of 0.25.0 @ D90
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

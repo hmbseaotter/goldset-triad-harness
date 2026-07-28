@@ -367,6 +367,13 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C77", "no scorecard from a non-dev split is tracked: a held-out scorecard names "
             "expected findings verbatim and is answer-key content",
      "test_repo_shipping.RepositoryShippingTests.test_no_scorecard_from_a_non_dev_split_is_tracked"),
+    # Published contract completeness (D96).
+    ("C78", "every PO line on every split carries at least one goods receipt, and the policy says so",
+     "test_claim_coverage.PublishedGuaranteeTests.test_every_purchase_order_line_has_at_least_one_receipt"),
+    ("C79", "every invoice line corresponds one-to-one with a correspondence row, and the policy says so",
+     "test_claim_coverage.PublishedGuaranteeTests.test_every_invoice_line_resolves_to_one_purchase_order_line"),
+    ("C80", "each split's inputs directory resolves from its manifest and holds documents",
+     "test_claim_coverage.PublishedGuaranteeTests.test_the_inputs_directory_resolves_on_every_split"),
 ]
 
 
@@ -574,6 +581,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_traceability.CriteriaNumberingTests.test_the_happy_path_and_edge_ids_are_also_unique",
     # Converses and premises for the D67/D68 locks; each names the criterion it supports.
     "test_claim_coverage.ClaimDiscoveryTests.test_registry_has_no_stale_entries",
+    "test_claim_coverage.PublishedGuaranteeTests.test_the_policy_publishes_both_guarantees",
     "test_claim_coverage.ClaimDiscoveryTests.test_every_registered_check_resolves",
     "test_claim_coverage.ClaimDiscoveryTests.test_partial_coverage_states_a_reason",
     "test_claim_coverage.ClaimSymmetryTests.test_every_claim_is_checked_on_every_known_split",
@@ -602,7 +610,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 126
+EXPECTED_SPEC_P1_CRITERIA = 129
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

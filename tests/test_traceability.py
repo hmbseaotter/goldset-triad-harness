@@ -432,6 +432,14 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C95", "every shipped key agrees with an independent re-derivation, on every split "
             "this machine can see — not dev alone (D121)",
      "test_key_audit.KeyAuditTests.test_every_shipped_key_is_consistent_with_an_independent_derivation"),
+    ("C96", "every root a session can be opened at carries deny rules — roots discovered, "
+            "not enumerated, and an empty deny list rejected as loudly as a missing "
+            "file (D123)",
+     "test_isolation.EveryRootIsGuardedTests.test_every_root_present_carries_deny_rules"),
+    ("C97", "a session rooted at the held-out inputs tier cannot reach the answer key next "
+            "door and cannot write into the published harness, while that tier's own "
+            "inputs stay readable (D123)",
+     "test_isolation.EveryRootIsGuardedTests.test_no_private_root_can_write_into_the_published_harness"),
 ]
 
 
@@ -731,6 +739,15 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_isolation.SecretTierMirrorGuardTests.test_the_held_out_key_is_out_of_reach_from_a_secret_rooted_session",
     "test_isolation.SecretTierMirrorGuardTests.test_the_generator_itself_is_not_denied",
     "test_isolation.SecretTierMirrorGuardTests.test_bash_rules_deny_the_secret_files_and_allow_ordinary_work",
+    # D123's other three, split on the same principle as D120's above. C96 carries the
+    # universe (every root has a guard) and C97 the held-out root's two directions; these
+    # are the verb check generalised from the one root that happened to warn (C94 carries
+    # the form clause itself), the read side asked of every private root, and the positive
+    # control — the inputs an agent under test must read must stay readable, or the guard
+    # breaks the tier it protects (D65).
+    "test_isolation.EveryRootIsGuardedTests.test_no_root_uses_the_verb_the_permission_system_ignores",
+    "test_isolation.EveryRootIsGuardedTests.test_no_private_root_can_reach_the_answer_key",
+    "test_isolation.EveryRootIsGuardedTests.test_the_held_out_inputs_stay_readable_from_their_own_root",
     # D119. H13 carries the criterion — that each published entry describes what the code
     # does — and this is the other half: that an entry EXISTS for every rule the harness
     # applies. Split deliberately: "the policy is complete" and "the policy is true" fail
@@ -775,7 +792,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 139
+EXPECTED_SPEC_P1_CRITERIA = 141
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

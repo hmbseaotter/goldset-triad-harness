@@ -5003,13 +5003,82 @@ rather than pretended away.
 
 ---
 
-## Not checked — as of 0.40.0 @ D122
+## D123 — The third root, argued away by a claim about reads ✅
+
+**Fork:** D122's fix needed confirming, so the startup probe was run at all three roots. No warning anywhere.
+For the harness (29 deny rules) and the secret tier (13) that is a clean result. For **`goldset-triad-holdout`
+it is vacuous** — that root has no `.claude/` directory, so the tool validated an empty list. **A silent pass
+over an empty set reads exactly like a silent pass over a correct one**, which is why the population assertions
+in `test_audit_not_imported_by_any_scoring_module` and `_discover_dev_datasets` exist (D82). Recording the rule
+count alongside the result is what makes the result mean anything, and that is now part of the probe.
+
+**The real finding is what the empty root implies.** D120's negative-space list already named it:
+
+> **Other roots.** *Method: none.* `goldset-triad-holdout` also has no settings file. Its contents are
+> agent-readable by design (D14), so there is less to protect…
+
+Writing the judgement down was right. **The judgement is a claim about *reads*, applied to a *root*.** Two
+things it misses, and they are the same two D120 itself identified for the secret tier:
+
+- **The tier next door.** A session rooted there loads no rules at all, so the **held-out answer key** in
+  `goldset-triad-secret` is reachable from it. What *this* tier holds says nothing about what that root can
+  reach. The guard is not about the directory it sits in; it is about everything a session there can touch.
+- **Agent-readable is not publishable.** These inputs are private *precisely because* publishing them burns the
+  split — D14's whole architecture is that the held-out split lives outside the public tree so publishing never
+  exposes it. A write from that root into the public harness is the identical leak route D120 built its guard
+  to close, one tier over.
+
+**The shape, for the third time in four decisions.** D120 found the guard model was one-directional, named the
+defect exactly — *"correct rule, wrong universe, the universe here being **which roots have guards**"* — and
+then enumerated **two of the three**. D122 rejected the inert `Write(` verb in one guard file. Each fix was
+scoped to the instance in front of it. **The universe is roots**, because a guard binds exactly the root it
+sits in (D91), and no check had ever said so.
+
+**Decision.** A mirror guard at the held-out inputs tier: the secret tier denied at directory level plus the
+distinctive filenames, `Edit` into the harness tree denied, and — the positive control — **`inputs/` untouched**,
+because an agent under test must read it to produce findings and a guard that broke that would break the tier it
+protects (D65). And the checks now iterate `support.known_tier_roots()`, discovered rather than typed (D115), so
+a fourth root is covered by construction: every root present carries a non-empty deny list, no root uses the
+verb the permission system ignores (D122 generalised), no private root can write into the harness or reach the
+key. Three mutations proven — hiding the guard file, stripping its `Edit(` rules, and adding a rule that would
+deny the inputs each fail their own check with the message that names the cause (D112).
+
+**Rule** — **when a guard binds one root, the set of roots is the universe, and it is discovered rather than
+remembered.** Enforced by `test_isolation.EveryRootIsGuardedTests`. **What this does not establish** is that any
+of it binds — same limitation as D122, same missing write probe, now owed at two roots rather than one.
+
+---
+
+## Not checked — as of 0.41.0 @ D123
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The third-root pass (0.41.0, D123)
+
+- **Whether the held-out tier's new guard binds.** *Method: the owed write probe, now owed
+  at two roots.* Same limitation as D122 and for the same reason: a refused write leaves
+  nothing on disk to find. **The probes:** from a session rooted at the secret tier, and
+  again from one rooted at the held-out inputs tier, attempt an edit to any file under the
+  harness tree, and from the held-out root additionally attempt to read
+  `holdout_answer_key.json`. Record each refusal verbatim in `ISOLATION_ATTESTATION.md`.
+- **Whether the new guard over-blocks in practice.** *Method: partly checked.* A positive
+  control asserts no rule mentions `inputs/` or the document directories, and the tier's
+  `inputs/` is asserted to exist so the control is not describing nothing. But no agent has
+  actually been run from that root since the guard landed, and D65's failure mode shows up
+  in use, not in a rule list.
+- **The parent directory.** *Method: none.* `check_isolation` has warned since D91 that
+  `D:\Claude_Stuff\Claude_Desktop_Code_Projects\.claude\settings.local.json` carries 0 deny
+  rules, so a session rooted **there** loads none of this. That is a fourth root, it is
+  outside `known_tier_roots()` by construction — it is an ancestor, not a tier — and D123
+  did not touch it. The advisory is the only thing that knows.
+- **Whether a fourth *tier* would be discovered.** *Method: by construction, unproven.*
+  `known_tier_roots()` resolves three known locations; it does not scan for tiers. A new
+  private sibling would need adding there, which is the same hand-enumeration this decision
+  is about — moved one level up, not eliminated.
 
 ### The inert-rule pass (0.40.0, D122)
 
@@ -5021,10 +5090,32 @@ things by walking it.
   edit to any file under the harness tree and record the refusal verbatim in
   `ISOLATION_ATTESTATION.md`.
 - **Whether other permission verbs used anywhere here are the binding form.** *Method:
-  partly checked.* `Write(` is now rejected outright and both guard files are otherwise
-  `Read(`, `Edit(` and `Bash(` only — but nothing knows which verbs Claude Code matches;
-  that list lives in the tool, not here, and the only reason this one surfaced is that the
-  tool warned. A verb it silently ignores would look exactly like a working rule.
+  **the startup probe**, below.* `Write(` is now rejected outright and both guard files are
+  otherwise `Read(`, `Edit(` and `Bash(` only. Nothing in this repository knows which verbs
+  Claude Code matches — that list lives in the tool — but **the tool will say**, and that
+  is worth writing down because it surfaced here by accident rather than by method.
+
+  > **The startup probe.** Start a session at a root and read what prints before the
+  > prompt. Claude Code validates that root's deny rules and names each one it will not
+  > match. A **warning-free startup is the tool's verdict on the whole list**, not just on
+  > the rule last edited, and it is the only signal available anywhere in this project that
+  > distinguishes a rule's *form* from its mere *presence* — every check on the harness
+  > side tests presence. Run it at **every** root, since each loads only its own settings
+  > (D91).
+  >
+  > **Run 2026-07-28, all three roots: no warning at any of them.** That is a clean result
+  > for `goldset-triad-harness` (29 deny rules) and `goldset-triad-secret` (13, after the
+  > two `Write(` rules were removed). For **`goldset-triad-holdout` it is vacuous** — that
+  > root has no `.claude/` directory, so the tool validated an empty list and had nothing
+  > to warn about. A silent pass over an empty set reads exactly like a silent pass over a
+  > correct one, which is the hazard `test_audit_not_imported_by_any_scoring_module` guards
+  > against with an explicit population assertion (D82). **Record the rule count with the
+  > result, or the result does not mean anything.**
+  >
+  > **What it does not establish.** That any rule *binds*. It reports forms the tool knows
+  > to be inert; a verb it silently ignores looks exactly like a working rule, and a
+  > well-formed rule is not a refused edit. This probe and the owed write probe above are
+  > answering different questions, and neither substitutes for the other.
 - **Whether the harness-side guard has the same class of defect.** *Method: read this
   pass.* It denies reads and Bash patterns only, and emits no startup warning, so the
   specific `Write(`/`Edit(` fault cannot be present. That is a narrower statement than
@@ -5076,6 +5167,12 @@ answer was that no root but the harness had ever been guarded. It did **not** ex
   contents are agent-readable by design (D14), so there is less to protect — but "less" is
   a judgement nobody has written down, and the reasoning that produced D120 applies to it
   unexamined.
+  > **This entry was wrong, and it is why D123 exists.** Writing the judgement down was
+  > the right instinct; the judgement itself is a claim about **reads** applied to a
+  > *root*. A session there loaded no rules at all, so the answer key in the **secret**
+  > tier was reachable — what this tier holds says nothing about the tier next door — and
+  > agent-readable is not publishable, so a write from that root into the public harness
+  > was the very leak route D120's guard exists to close. Both closed at D123.
 
 ### The generator-rules sweep (0.37.0, D119)
 

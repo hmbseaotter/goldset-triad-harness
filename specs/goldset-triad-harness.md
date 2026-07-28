@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.40.0
+- Spec version: 0.41.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,7 +17,18 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.40.0 @ D122** — **half the mirror guard was a rule that denies nothing.** Claude
+- **Last swept: 2026-07-28 @ 0.41.0 @ D123** — **the third root, argued away by a claim about reads.** Running
+  D122's startup probe at all three roots returned no warning anywhere — clean for the harness (29 deny rules)
+  and the secret tier (13), and **vacuous for `goldset-triad-holdout`**, which has no `.claude/` at all, so the
+  tool validated an empty list. A silent pass over an empty set reads exactly like a silent pass over a correct
+  one (D82). What the empty root implies is the finding: a session there loaded **no rules**, so the answer key
+  in the tier *next door* was reachable, and agent-readable is not publishable — writing from there into the
+  public harness is the identical leak route D120's guard exists to close. D120's own negative-space note had
+  argued this root away with *"its contents are agent-readable by design, so there is less to protect"*, which
+  is a claim about **reads** applied to a **root**. D120 named the defect — *correct rule, wrong universe, the
+  universe being which roots have guards* — and then enumerated two of three. Guard added; the checks now
+  iterate the roots **discovered** on the machine, so a fourth is covered by construction (D123).
+  Before it, **0.40.0 @ D122** — **half the mirror guard was a rule that denies nothing.** Claude
   Code began warning at startup that a `Write(path)` deny rule is not matched by file permission checks; only
   `Edit(path)` is, and it covers every file-editing tool. D120 had written each pattern **both** ways, so the
   binding form was present and the write route — the one D120 calls the only genuine leak route — was closed
@@ -860,6 +871,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   harness tree — while the generator itself stays readable, since reviewing it is what that root is for (D120).
   The write denial is expressed in the form the permission system **matches**, and a rule in the form it
   ignores is a failure rather than a redundancy (D122).
+- [ ] [P1] **Every** root a session can be opened at carries deny rules — the roots discovered on the machine
+  rather than enumerated by hand, and an empty deny list rejected as loudly as a missing file, since a guard
+  binds exactly the root it sits in (D91, D123).
+- [ ] [P1] A session rooted at the held-out **inputs** tier cannot read the answer key in the tier next door and
+  cannot write into the published harness — while that tier's own `inputs/` stay readable, since an agent under
+  test must read them to produce findings (D14, D65, D123).
 - [ ] [P1] Every rule the **shipped implementation** applies has an entry in the published matching policy, and
   each entry describes what that implementation does — exercised against `audit_key`, the independent derivation
   an agent could run, on every split. The generator's own rule set cannot be compared from inside this
@@ -1342,6 +1359,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.41.0 (2026-07-28): **the third root, argued away by a claim about reads (D123)**. D122's startup probe, run
+  at all three roots to confirm the fix, returned no warning anywhere — a clean result for the harness and the
+  secret tier, and a **vacuous** one for `goldset-triad-holdout`, which carries no `.claude/` directory, so the
+  tool validated an empty list and had nothing to warn about. The probe now records the rule count with the
+  result, because a silent pass over an empty set is indistinguishable from a silent pass over a correct one
+  (D82). The finding is what the empty root implies: a session rooted there loads **no rules at all**, so the
+  **held-out answer key in the secret tier is reachable from it** — what a tier holds says nothing about what a
+  session there can touch — and *agent-readable is not publishable*, since these inputs are private precisely
+  because publishing them burns the split (D14). D120's negative-space note had named this root and dismissed it
+  with *"its contents are agent-readable by design, so there is less to protect"*: a claim about **reads**,
+  applied to a **root**. D120 identified the defect exactly — *correct rule, wrong universe, the universe being
+  which roots have guards* — and enumerated two of the three; D122 then fixed the inert verb in one guard file.
+  Each fix was scoped to the instance in front of it. A mirror guard now covers the third root, leaving its
+  `inputs/` untouched because an agent under test must read them (D65), and the checks iterate the roots
+  **discovered** on the machine rather than a list someone typed (D115) — every root present carries a non-empty
+  deny list, no root uses the verb the permission system ignores, no private root can write into the harness or
+  reach the key. Three mutations proven (D112). 324 → 329 tests; 2 acceptance criteria added. **Still owed at
+  two roots now, not one: the write probe**, since nothing here can observe a refused edit.
 - 0.40.0 (2026-07-28): **half the mirror guard was a rule that denies nothing (D122)**. Claude Code began
   warning at every startup at the secret root that `Write(path)` deny rules are not matched by file permission
   checks — only `Edit(path)` is, and it covers every file-editing tool. D120 wrote each pattern in both verbs,

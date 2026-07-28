@@ -345,6 +345,136 @@ class SecretTierMirrorGuardTests(unittest.TestCase):
                 self.assertFalse(denied(command), f"should not be denied: {command}")
 
 
+class EveryRootIsGuardedTests(unittest.TestCase):
+    """The universe is *roots*, and it was enumerated by hand twice (D123).
+
+    A guard binds exactly the root it sits in (D91), so **the set of roots a session can
+    be opened at is the universe every guard check must cover.** D120 discovered that,
+    named it — *"correct rule, wrong universe, the universe here being which roots have
+    guards"* — and then enumerated two of the three. Its negative-space note recorded the
+    third and argued it away: *"its contents are agent-readable by design, so there is
+    less to protect."* That is a claim about **reads**, generalised to a root, and it
+    misses both directions that matter. A session there loaded **no rules at all**, so the
+    held-out answer key in the *secret* tier was reachable — what this tier holds says
+    nothing about the tier next door. And agent-readable is not publishable: these inputs
+    are private precisely because publishing them burns the split, so a write from that
+    root into the public harness is the very leak route D120's guard exists to close.
+
+    The two class-level checks below iterate `support.known_tier_roots()` instead, so a
+    fourth root added later is covered by construction rather than by memory (D115)."""
+
+    def setUp(self) -> None:
+        self.roots = support.known_tier_roots()
+        self.assertGreaterEqual(
+            len(self.roots), 1,
+            "no tier roots were discovered at all, so these checks would pass over an "
+            "empty set — the vacuity D82 requires every lock to rule out",
+        )
+
+    def _deny(self, root: support.TierRoot) -> list[str]:
+        return json.loads(
+            root.settings.read_text(encoding="utf-8")
+        )["permissions"]["deny"]
+
+    def test_every_root_present_carries_deny_rules(self) -> None:
+        for root in self.roots:
+            with self.subTest(root=root.name):
+                self.assertTrue(
+                    root.settings.is_file(),
+                    f"the {root.name} tier at {root.path} has no guard file, so a session "
+                    f"rooted there loads no deny rules at all (D91, D123)",
+                )
+                self.assertTrue(
+                    self._deny(root),
+                    f"the {root.name} tier's guard file declares an EMPTY deny list. A "
+                    f"guard that denies nothing passes every check that asks whether a "
+                    f"file exists (D123)",
+                )
+
+    def test_no_root_uses_the_verb_the_permission_system_ignores(self) -> None:
+        """D122 at every root, not at the one that happened to warn.
+
+        `Write(path)` deny rules are not matched by file permission checks; `Edit(path)`
+        is, and it covers every file-editing tool. D122 rejected the inert form in the
+        secret tier's guard alone — the same narrowness, one level down, in the fix for
+        narrowness. Claude Code warns at startup for each one, so an inert rule also
+        buys a nag on every session start, and a guard that nags is switched off (D65)."""
+        for root in self.roots:
+            with self.subTest(root=root.name):
+                inert = [r for r in self._deny(root) if r.startswith("Write(")]
+                self.assertEqual(
+                    inert, [],
+                    f"the {root.name} tier's guard has {inert}, which deny nothing — only "
+                    f"Edit( rules are matched by file permission checks, and they cover "
+                    f"Write as well (D122)",
+                )
+
+    def test_no_private_root_can_write_into_the_published_harness(self) -> None:
+        """The leak route, asked of every private root rather than of one.
+
+        Reading the harness from a private root is fine and useful — the published policy
+        and this suite live there. Writing to it is how held-out content reaches an
+        artifact that ships. The harness itself is excluded because denying writes into
+        the published repository from a session rooted *at* it would deny all ordinary
+        work — the over-blocking class (D65), which is why this iterates `is_private`
+        rather than every root indiscriminately."""
+        private = [r for r in self.roots if r.is_private]
+        if not private:
+            self.skipTest("no private tier on this machine; D14 requires a clone to pass")
+        for root in private:
+            with self.subTest(root=root.name):
+                binding = [r for r in self._deny(root)
+                           if r.startswith("Edit(") and "goldset-triad-harness" in r]
+                self.assertTrue(
+                    binding,
+                    f"the {root.name} tier has no Edit( rule covering the harness tree, so "
+                    f"a session rooted there can carry private content into the published "
+                    f"repository (D120, D123)",
+                )
+
+    def test_no_private_root_can_reach_the_answer_key(self) -> None:
+        """What each private root must not reach is *the other tier*, not only its own.
+
+        The held-out-inputs root was left unguarded on the reasoning that its own contents
+        are readable by design — true, and irrelevant to the answer key sitting in the
+        secret tier, which that root could read because it loaded nothing at all."""
+        for root in (r for r in self.roots if r.is_private):
+            with self.subTest(root=root.name):
+                self.assertTrue(
+                    any(r.startswith("Read(") and "holdout_answer_key.json" in r
+                        for r in self._deny(root)),
+                    f"the {root.name} tier does not deny reading the held-out answer key "
+                    f"by name; a stray copy, or the tier next door, is reachable from a "
+                    f"session rooted there (D123)",
+                )
+
+    def test_the_held_out_inputs_stay_readable_from_their_own_root(self) -> None:
+        """The positive control. An agent under test reads these inputs to produce
+        findings (D14); a guard that denied them would break the thing the tier exists
+        for. Over-blocking is a real failure, not a safe direction to err in (D65)."""
+        holdout = support.find_holdout_dir()
+        if holdout is None:
+            self.skipTest("no held-out inputs tier on this machine")
+        deny = json.loads(
+            (holdout / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )["permissions"]["deny"]
+        inputs = holdout / "inputs"
+        self.assertTrue(
+            inputs.is_dir(),
+            f"{inputs} is missing, so this positive control would pass by describing "
+            f"nothing (D82)",
+        )
+        for rule in deny:
+            with self.subTest(rule=rule):
+                for needle in ("inputs", "goldset-triad-holdout", "purchase_order",
+                               "goods_receipt", "invoices"):
+                    self.assertNotIn(
+                        needle, rule,
+                        f"the guard mentions {needle!r}, which risks denying the inputs an "
+                        f"agent under test must read from this root (D14, D65)",
+                    )
+
+
 class RepoRootResolutionTests(unittest.TestCase):
     """Which tree gets inspected, once this became an installed command (D59).
 

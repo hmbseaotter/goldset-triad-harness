@@ -106,6 +106,69 @@ def find_secret_dir() -> Path | None:
     return None
 
 
+#: The held-out INPUTS tier, resolved the same way as the secret tier above. This is the
+#: third root, and it had no guard until D123 because D120 enumerated two and stopped.
+HOLDOUT_ENV_VAR = "GOLDSET_TRIAD_HOLDOUT_DIR"
+CONVENTIONAL_HOLDOUT_DIR = REPO_ROOT.parents[1] / "goldset-triad-holdout"
+
+
+def find_holdout_dir() -> Path | None:
+    """The held-out inputs tier's root, or None when this machine has none."""
+    override = os.environ.get(HOLDOUT_ENV_VAR)
+    if override:
+        candidate = Path(override)
+        if not candidate.is_dir():
+            raise AssertionError(
+                f"{HOLDOUT_ENV_VAR}={override!r} is not a directory; unset it to skip the "
+                f"held-out-tier checks, or point it at the held-out inputs tier"
+            )
+        return candidate
+    if CONVENTIONAL_HOLDOUT_DIR.is_dir():
+        return CONVENTIONAL_HOLDOUT_DIR
+    return None
+
+
+@dataclass(frozen=True)
+class TierRoot:
+    """One directory a Claude Code session can be rooted at, and its guard file.
+
+    **Every root, not the roots someone remembered (D123).** Claude Code loads permission
+    settings from the session's own root (D91), so a guard binds exactly one root and the
+    set of roots IS the universe every guard check must cover. D120 built the secret
+    tier's guard after finding the harness's own guards bound nothing there — and
+    enumerated two roots, leaving the held-out inputs tier unguarded on the reasoning that
+    *its* contents are readable by design. That reasoning is about reads: a session there
+    loaded no rules at all, so the answer key next door was reachable, and these inputs are
+    private precisely because publishing them burns the split. D82's rule, applied to the
+    thing D82's rule is about."""
+
+    name: str
+    path: Path
+    #: False for the harness itself, which is the published repository — denying writes
+    #: into it from a session rooted *at* it would deny all ordinary work.
+    is_private: bool
+
+    @property
+    def settings(self) -> Path:
+        return self.path / ".claude" / "settings.json"
+
+
+def known_tier_roots() -> tuple[TierRoot, ...]:
+    """Every tier root present on this machine. Absence is a skip, never a failure (D14).
+
+    Discovered rather than typed, for D115's reason: a literal list is a second place to
+    remember, and the one that gets forgotten. The harness is always present — it is the
+    directory this file lives in."""
+    roots = [TierRoot("harness", REPO_ROOT, is_private=False)]
+    secret = find_secret_dir()
+    if secret is not None:
+        roots.append(TierRoot("secret", secret, is_private=True))
+    holdout = find_holdout_dir()
+    if holdout is not None:
+        roots.append(TierRoot("held-out inputs", holdout, is_private=True))
+    return tuple(roots)
+
+
 @dataclass(frozen=True)
 class Split:
     """One dataset split and where each of its artifacts lives.

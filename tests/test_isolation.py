@@ -209,6 +209,126 @@ class GuardTemplateDriftTests(unittest.TestCase):
         self.assertEqual(self.template_rules, self.stamped_rules)
 
 
+class SecretTierMirrorGuardTests(unittest.TestCase):
+    """The guard model was one-directional, and this is the other direction (D120).
+
+    Claude Code loads permission settings from the session's own root (D91). The harness's
+    deny rules therefore bind a session rooted at the harness and constrain **nothing** for
+    a session rooted at `goldset-triad-secret` — which had no settings file at all, so such
+    a session could read the held-out answer key and, worse, write into the published
+    repository. That second path is the only genuine leak route when reviewing the
+    generator: rule content carried across into an artifact that ships.
+
+    The mirror guard makes a generator review possible *without* the key. It is checked
+    from here for D64b's reason: a guard file that declares itself authoritative and has
+    nothing comparing it to reality is enforced by whoever remembers it.
+
+    **Why this is a test and not a `check_isolation` advisory.** It is a condition only the
+    author can have — a clone has no secret tier — and `check_isolation` already prints two
+    advisories. A third, unactionable for every other reader, is the kind of noise D65 says
+    gets guards switched off. It skips cleanly without the tier, as D14 requires."""
+
+    def setUp(self) -> None:
+        secret = support.find_secret_dir()
+        if secret is None:
+            self.skipTest("no secret tier on this machine; the mirror guard is out of reach")
+        self.settings = secret / ".claude" / "settings.json"
+        if not self.settings.is_file():
+            self.fail(
+                f"the secret tier exists but carries no mirror guard at {self.settings}. A "
+                f"session rooted there loads no deny rules at all, so it can read the "
+                f"held-out answer key and write into the published harness (D120)."
+            )
+        self.deny = json.loads(
+            self.settings.read_text(encoding="utf-8")
+        )["permissions"]["deny"]
+
+    def test_the_held_out_key_is_out_of_reach_from_a_secret_rooted_session(self) -> None:
+        """A generator review needs `_generators/` and the published policy. Not the key."""
+        for needle, why in (
+            ("held-out", "the held-out split, which holds the answer key and its index"),
+            ("worked-example", "a held-out scorecard names expectations verbatim (D93)"),
+            ("holdout_answer_key.json", "the key itself, by name, for a stray copy"),
+            ("discrepancy-plan.md", "the design artifact says what was planted where"),
+        ):
+            with self.subTest(covers=needle):
+                self.assertTrue(
+                    any(needle in rule for rule in self.deny),
+                    f"the mirror guard does not cover {needle!r}: {why} (D120)",
+                )
+
+    def test_nothing_can_be_written_into_the_published_repository(self) -> None:
+        """The leak route that matters. Reading the harness from a secret-rooted session is
+        fine and useful — the published policy lives there. Writing to it is how generator
+        content reaches an artifact that ships."""
+        writes = [r for r in self.deny if r.startswith(("Edit(", "Write("))]
+        self.assertTrue(
+            writes, "the mirror guard denies no writes at all (D120)"
+        )
+        for verb in ("Edit", "Write"):
+            with self.subTest(verb=verb):
+                self.assertTrue(
+                    any(r.startswith(f"{verb}(") and "goldset-triad-harness" in r
+                        for r in self.deny),
+                    f"{verb} into the harness tree is not denied, so a secret-rooted "
+                    f"session can carry rule content into the published repository (D120)",
+                )
+
+    def test_the_generator_itself_is_not_denied(self) -> None:
+        """The positive control, and the point of the whole file. A mirror guard that also
+        denied `_generators/` would make the review it exists to enable impossible — the
+        over-blocking failure class D65 named, which is as real as under-coverage."""
+        for rule in self.deny:
+            with self.subTest(rule=rule):
+                for generator in ("gen_rules", "generate.", "pdf_invoice", "_generators"):
+                    self.assertNotIn(
+                        generator, rule,
+                        f"the mirror guard denies the generator ({generator!r}), which is "
+                        f"the one thing a session rooted there is meant to review (D120)",
+                    )
+
+    def test_bash_rules_deny_the_secret_files_and_allow_ordinary_work(self) -> None:
+        """D65's over-blocking class, checked by matching real commands (C55's pattern).
+
+        The first version of this asked whether the substring `held-out` appeared in any
+        Bash rule — and failed on `Bash(*scorecard-held-out-*)`, which is a distinctive
+        *filename prefix* that merely contains the word. A substring scan cannot tell
+        `scorecard-held-out-…` from a bare stem, so it condemned a correct rule; loosening
+        the rule to satisfy it would have been writing the guard around the checker.
+
+        What actually matters is behavioural and is asked here directly: do these patterns
+        deny the secret artifacts, and do they leave ordinary commands alone? `held-out`
+        and `design` appear throughout this project's paths and prose, which is exactly why
+        directory-level cover belongs to the `Read` rules, where it cannot obstruct."""
+        import fnmatch
+
+        patterns = [r[len("Bash("):-1] for r in self.deny if r.startswith("Bash(")]
+        self.assertTrue(patterns, "the mirror guard declares no Bash rules at all")
+
+        def denied(command: str) -> bool:
+            return any(fnmatch.fnmatch(command, p) for p in patterns)
+
+        for command in (
+            "cat held-out/holdout_answer_key.json",
+            "python -c open('holdout_invoice_index.json')",
+            "head design/discrepancy-plan.md",
+            "cat worked-example/scorecard-held-out-20260727T100237Z.txt",
+        ):
+            with self.subTest(must_deny=command):
+                self.assertTrue(denied(command), f"should be denied: {command}")
+
+        for command in (
+            "git status",
+            "python generate.py",
+            "ls _generators/",
+            "git log --grep=held-out",
+            "echo 'the held-out split is out of tree by design'",
+            "python -m pytest tests/test_design_notes.py",
+        ):
+            with self.subTest(must_allow=command):
+                self.assertFalse(denied(command), f"should not be denied: {command}")
+
+
 class RepoRootResolutionTests(unittest.TestCase):
     """Which tree gets inspected, once this became an installed command (D59).
 

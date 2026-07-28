@@ -413,6 +413,10 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_verify_mode.VerifyModeTests.test_a_tampered_human_summary_is_caught"),
     ("C93", "the per-category table's columns align on every row, at any dataset size",
      "test_scorecard_legend.SummaryAlignmentTests.test_columns_survive_multi_digit_counts"),
+    # The other direction of the guard model (D120).
+    ("C94", "a session rooted at the secret tier cannot reach the held-out answer key, and "
+            "cannot write into the published harness (D120)",
+     "test_isolation.SecretTierMirrorGuardTests.test_nothing_can_be_written_into_the_published_repository"),
 ]
 
 
@@ -705,6 +709,14 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code",
     # D116: the project's other stamped marker, which D108's mechanism did not reach.
     "test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current",
+    # D120's other three. C94 carries the write-path criterion, which is the only genuine
+    # leak route in a generator review; these are the read side (the key stays out of
+    # reach), the positive control (the guard must NOT deny the generator, or the review it
+    # exists to enable is impossible — D65's over-blocking class), and the behavioural
+    # anchoring check that replaced a substring scan which condemned a correct rule.
+    "test_isolation.SecretTierMirrorGuardTests.test_the_held_out_key_is_out_of_reach_from_a_secret_rooted_session",
+    "test_isolation.SecretTierMirrorGuardTests.test_the_generator_itself_is_not_denied",
+    "test_isolation.SecretTierMirrorGuardTests.test_bash_rules_deny_the_secret_files_and_allow_ordinary_work",
     # D119. H13 carries the criterion — that each published entry describes what the code
     # does — and this is the other half: that an entry EXISTS for every rule the harness
     # applies. Split deliberately: "the policy is complete" and "the policy is true" fail
@@ -749,7 +761,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 137
+EXPECTED_SPEC_P1_CRITERIA = 138
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.37.0
+- Spec version: 0.38.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -833,6 +833,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] The key-audit command run against a deliberately corrupted answer key reports the divergence and
   names the affected finding; run against the shipped key it reports none.
 - [ ] [P1] The key-audit command is not invoked by any scoring code path.
+- [ ] [P1] The secret tier carries its own permission settings: a session rooted there cannot read the held-out
+  answer key, its index, the discrepancy design or a held-out scorecard, and cannot write into the published
+  harness tree — while the generator itself stays readable, since reviewing it is what that root is for (D120).
 - [ ] [P1] Every rule the **shipped implementation** applies has an entry in the published matching policy, and
   each entry describes what that implementation does — exercised against `audit_key`, the independent derivation
   an agent could run, on every split. The generator's own rule set cannot be compared from inside this
@@ -1311,6 +1314,25 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.38.0 (2026-07-28): **the guard model was one-directional (D120)**. Asking how to sweep the generator
+  *safely* — a session rooted at `goldset-triad-secret`, where the harness's rules do not apply and no guard is
+  therefore bypassed — turned up the reason it was not safe: **that tier had no `.claude/` directory at all.**
+  Every guard in this project constrains a session rooted at the harness; nothing constrained one rooted at the
+  secret tier, which could read the held-out answer key, its index, the discrepancy design and the held-out
+  scorecard, and **write into the published repository**. That last path is the only genuine leak route in a
+  generator review: not reading the rules, which is the point, but carrying them across into an artifact that
+  ships. The rule was *"the key and generator stay out of reach"* and the enforcement covered one of the two
+  roots someone might open — correct rule, wrong universe, with the universe being **which roots have guards**.
+  A mirror guard now denies those reads at directory level and denies writes into the harness tree, while
+  leaving `_generators/` readable, since reviewing it is what that root exists for — a guard that also blocked
+  the generator would make the review impossible, which is D65's over-blocking class. Checked from the harness
+  for D64b's reason, and skipping cleanly without the tier. Also recorded: a closed session's *context* is gone
+  but its **transcript is not** — `~/.claude/projects/<root>/<uuid>.jsonl` holds every `Read` result verbatim,
+  outside both repositories where no placement check looks. Harmless for the threat model that matters, named
+  rather than assumed away. 320 → 324 tests; pyright 0 errors; 1 acceptance criterion added. **Still owed
+  before the generator review is relied on: an attestation entry from a secret-rooted session**, since the
+  mirror guard's rules are checked as configuration and have never been observed to bind (D30's standing
+  distinction).
 - 0.37.0 (2026-07-28): **the generator-rules sweep: D119** — the last item every prior sweep had carried, and
   the reason it was carried turns out to be structural: **the generator cannot be read** from a session that
   reviews this repository. `gen_rules.py`, `generate.py` and `pdf_invoice.py` are covered by a directory deny

@@ -4806,13 +4806,96 @@ check wearing the stronger criterion's name.** Enforced by
 
 ---
 
-## Not checked — as of 0.37.0 @ D119
+## D120 — The guard model was one-directional ✅
+
+**Fork:** D119 established that the generator cannot be read from a session that reviews this repository, and
+left the sweep undone. The obvious way to finish it is a session rooted at **`goldset-triad-secret`**, where the
+harness's rules do not apply — which is not a bypass: Claude Code loads settings from the session's own root
+(D91), and no guard covers that root. Asking whether that is *safe* turned up the real defect.
+
+**`goldset-triad-secret` had no `.claude/` directory at all.** Every guard in this project constrains a session
+rooted at the harness. Nothing constrained one rooted at the secret tier — which could read the held-out answer
+key, its index, the discrepancy design and the held-out scorecard in `worked-example/`, and, worse, **write into
+the published harness repository.** That last path is the only genuine leak route in a generator review: not
+reading the rules, which is the point, but carrying them across into an artifact that ships.
+
+The shape is familiar. The rule is *"the key and the generator stay out of reach"*; the enforcement covered one
+of the two roots someone might open. Correct rule, wrong universe — the universe here being **which roots have
+guards** rather than which files they name.
+
+**What the session-transcript question turned up, since it was the user's actual concern.** A closed session's
+*context* is gone; its *transcript* is not. Claude Code writes every session to `~/.claude/projects/<encoded
+root>/<uuid>.jsonl`, and every `Read` result is in it verbatim — megabytes of them on this machine already. A
+secret-rooted review would leave the generator's source in plain text outside both repositories, where
+`check_placement` never looks and no `.gitignore` applies. For the threat model that matters — publication, and
+contaminating the agent under evaluation — that is harmless, the file sitting on the same disk as the generator
+itself. It is still a copy in a place this project's model did not account for, so it is named here rather than
+assumed away, and it is deletable after a review.
+
+**Decision ✅** — a mirror guard at `goldset-triad-secret/.claude/settings.json`:
+
+- **Reads** denied at *directory* level for `held-out/`, `worked-example/` and `design/`, plus the distinctive
+  filenames for a stray copy. Wholesale rather than picked apart, because a generator review needs the generator
+  and the *published* policy — and the published policy is readable in the harness repo, where reading is fine
+  and only writing is denied.
+- **Writes** denied into the harness tree, both by relative and absolute pattern. This is the rule that matters.
+- **The generator stays readable**, asserted by a positive control. A mirror guard that also denied
+  `_generators/` would make the review it exists to enable impossible — D65's over-blocking class, which is as
+  real a failure as under-coverage.
+- **Bash rules cover distinctive filenames only.** `held-out` and `design` appear throughout this project's
+  paths and prose; a Bash pattern on either would deny ordinary work. Directory cover belongs to the `Read`
+  rules, where it cannot obstruct.
+
+**A determined subprocess is still outside deny coverage**, exactly as D30 states for the harness side. Placement
+and this file are layers, not proofs.
+
+**The anchoring check condemned a correct rule, and the check was what changed.** Its first form asked whether
+the substring `held-out` appeared in any Bash rule, and failed on `Bash(*scorecard-held-out-*)` — a distinctive
+filename prefix that merely contains the word. Loosening the rule to satisfy it would have been writing the
+guard around the checker. It now matches **real commands** with `fnmatch`, the pattern C55 already established:
+the secret files must be denied, and `git log --grep=held-out` and `echo 'the held-out split is out of tree'`
+must not be.
+
+**Checked from the harness, for D64b's reason.** A guard file that declares itself authoritative with nothing
+comparing it to reality is enforced by whoever remembers it. It is a *test* rather than a `check_isolation`
+advisory: the condition exists only for whoever holds the secret tier, a clone has none, and a third
+unactionable advisory in front of every reader is how guards get switched off (D65). It skips cleanly without
+the tier, as D14 requires.
+
+**Rule** — **a permission model is defined by the roots it covers, not the paths it names.** Every rule here was
+written from inside the harness looking out, and the direction nobody had looked from was the one with the
+answer key in it. Enforced by `test_isolation.SecretTierMirrorGuardTests`.
+
+---
+
+## Not checked — as of 0.38.0 @ D120
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The mirror-guard pass (0.38.0, D120)
+
+Not a sweep — one question, asked because the generator review needed a safe root, and the
+answer was that no root but the harness had ever been guarded. It did **not** examine:
+
+- **Whether the mirror guard actually binds.** *Method: asserted the file's content from
+  the harness side.* Its rules have never been exercised by a real session rooted at the
+  secret tier — the same gap D30 names for the harness guards, where configuration is
+  checked by code and enforcement is attested by a human. **A secret-rooted attestation
+  entry is owed before the generator review is relied on**, and the canary equivalent
+  would be attempting to read `held-out/holdout_answer_key.json` from that root.
+- **Session transcripts as an artifact class.** *Method: listed
+  `~/.claude/projects/` and confirmed transcripts persist per root, sized in megabytes.*
+  Every session on this machine has been writing what it reads to disk outside both
+  repositories for the whole project. Named in D120 and otherwise unexamined: nothing
+  states a retention policy, and no check could reach them.
+- **Other roots.** *Method: none.* `goldset-triad-holdout` also has no settings file. Its
+  contents are agent-readable by design (D14), so there is less to protect — but "less" is
+  a judgement nobody has written down, and the reasoning that produced D120 applies to it
+  unexamined.
 
 ### The generator-rules sweep (0.37.0, D119)
 

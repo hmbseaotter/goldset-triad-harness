@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.31.0
+- Spec version: 0.32.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -410,6 +410,24 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] The staleness stamp SHALL live in the manifest, which sits outside the inputs directory, so re-stamping
   SHALL NOT alter the aggregate inputs digest and SHALL NOT invalidate any scorecard already emitted (D58, D27).
 
+*Port tolerance, and dataset expansion (D109, D99)*
+- [P1] The findings payload SHALL accept and ignore fields it does not recognise — on a finding, inside its
+  target, and at the top level of the artifact — so a consumer can carry data the harness does not yet read
+  without being refused, and the parsed findings SHALL be identical with and without them (D109).
+- [P1] Tolerance SHALL be additive only: an absent required field SHALL still halt, since it is not decoration
+  (D109).
+- [P3] The expanded dataset SHALL vary **document quality** — clean text, degraded layouts, and a rasterised
+  scan with no text layer — and each variance SHALL appear alone before it appears combined, because for a
+  consumer whose rule layer is deterministic extraction is the only component that can fail on one input and
+  succeed on another (D99).
+- [P3] The expanded dataset SHALL carry every discrepancy flavour once in isolation, and SHALL combine
+  flavours only where two of them share a computed value, because discrepancies on different lines do not
+  interact and testing them together adds nothing over testing each alone (D99).
+- [P3] Invoice lines SHALL carry an item description in both the rendered document and the structured index,
+  and the description SHALL vary from the purchase order's wording, because the correspondence the agent must
+  infer is currently derivable by ordinal position alone — the strategy D22 rejected as fragile by
+  construction, made the only workable one by data that does not yet contain the intended difficulty (D22, D99).
+
 *Scorecard legibility (D100)*
 - [P1] Every field the scorecard emits SHALL be defined in a field legend, and every abbreviation the human
   summary prints SHALL be defined there too, because a verdict a reader cannot interpret is not a verdict (D100).
@@ -694,6 +712,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [P1] IF a dataset is malformed in a way the loader does not model, the key-audit command SHALL report that the
   dataset is malformed and name the fault, and SHALL NOT surface a bare exception nor report the condition as a key
   divergence (D62, D50).
+- [P1] IF a value in a closed enumeration is unrecognised, the harness SHALL halt rather than ignore it, because
+  an unrecognised field is decoration the harness did not read while an unrecognised outcome is the consumer
+  asserting something about a finding that would otherwise be scored — ignoring the second would score an artifact
+  while discarding part of its verdict (D109, E8).
 - [P3] IF a run exceeds the performance target, the harness SHALL emit a prominent warning and SHALL exit
   zero, because elapsed time does not affect scoring correctness.
 
@@ -709,6 +731,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   key, SHALL retain status, category, scope and document identifier, and SHALL record in the scorecard that
   lenient matching was used — so a document-scoped finding never becomes indistinguishable from a line-scoped
   one (D20).
+- [P3] WHERE a later dataset cohort reuses the filenames of an earlier one, every document SHALL carry a
+  cohort token and the loader SHALL assert it against the manifest, because two cohorts with identical
+  filenames are indistinguishable after a single mistaken file copy and a token that is merely present rather
+  than compared is an unchecked claim (D67).
 
 ### non-functional
 - Security: [P1] The answer key SHALL NOT be readable from the agent-under-test's execution context,
@@ -1048,6 +1074,10 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   legend, and the four misreadings the subtle fields invite are stated rather than merely listed (D100).
 - [ ] [P1] The legend is referenced from both entry documents, and its fixture exercises a false flag as well as a
   miss, so the false-flag `reason` field cannot be checked by never having been produced (D100, D92).
+- [ ] [P1] Unknown fields on a finding, inside its target, and at the artifact's top level are all accepted, and
+  the parsed findings are identical with and without them (D109).
+- [ ] [P1] An unrecognised status, category or scope halts rather than being ignored, an unsupported
+  `schema_version` halts, and an absent required field still halts (D109).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -1066,6 +1096,18 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P3] Under lenient matching, a finding with the right category but the wrong line identifier scores as a
   true positive, a document-scoped finding still does not match a line-scoped one, and the scorecard records
   that lenient matching was used.
+- [ ] [P3] The expanded dataset contains at least one invoice per document-quality tier, including a rasterised
+  scan with no text layer, and each quality variance appears in isolation before appearing combined (D99).
+- [ ] [P3] For the tier with no reliable text layer, the generator records the round-trip parse-back as
+  inapplicable and agreement rests on single-source construction alone — the case D36 specified and nothing has
+  exercised, because until now every invoice had an extractable text layer (D36, D99).
+- [ ] [P3] Every discrepancy flavour appears once in isolation, and every combined case is one where the
+  combined flavours share a computed value — no combination exists purely to raise the count (D99).
+- [ ] [P3] Every invoice line carries an item description in both the rendered document and the structured
+  index, at least one description differs in wording from its purchase-order line, and correspondence is
+  therefore derivable by content rather than by ordinal position alone (D22, D99).
+- [ ] [P3] Two cohorts sharing filenames load independently, each document's cohort token matches its manifest,
+  and a document from one cohort placed in the other is rejected naming the mismatch (D67).
 
 ---
 
@@ -1132,6 +1174,17 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   scored as having missed a finding. Touches the payload schema, the per-category block and coverage reporting.
 - **Named global tolerance sets with a published selection rule (D98)** — by supplier or by jurisdiction, never
   per-purchase-order overrides, which would scatter the readable contract D53 depends on across every document.
+- **The published threshold for concluding an inferred purchase-order match (D101)** — when an invoice carries no
+  resolvable reference, matching on description, quantity or amount may succeed *ambiguously*, and a wrong
+  inferred match is worse than an escalation because every downstream number is then precise and meaningless. The
+  threshold belongs in the policy, not the agent's discretion, or the harness cannot tell a correct escalation
+  from giving up too easily. Lands with the outcome class above, since an escalation that cannot be expressed
+  cannot be scored.
+- **Reporting ignored input (D109)** — the port tolerates unknown fields so a consumer can carry data the harness
+  does not yet read, but tolerating is not the same as passing over in silence. An `ignored_input` block names
+  what was ignored, sorted and deduplicated so it stays byte-stable. Scoped to input that did **not** affect the
+  verdict: anything that changes the verdict stays in the metrics where a reader already looks. It lands here
+  rather than earlier so one `schema_version` bump serves it and the outcome class together.
 - **The dimensions cut from the originating fixtures (D99)** — purchase-order status, `amount_invoiced_to_date`
   for cross-invoice over-billing, catch-weight, UOM and pack-size conversion, charges without a purchase-order
   line, revision mismatch, and consolidated invoices (which D47 anticipates but leaves unimplemented).
@@ -1140,6 +1193,19 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - Goal: make the harness usable by a developer who is not its author.
 - Includes: packaging and external documentation; portable isolation guidance that does not assume a
   specific agent harness; the optional runner adapter; confidence-calibration scoring.
+
+> **`[P4]` and `[P5]` carry no SHALL requirements yet, and that is deliberate (D110).** Every other phase has
+> them: `[P1]` 130, `[P2]` 5, `[P3]` 8. The asymmetry looks like an omission and is a deferral — writing
+> requirements for the escalation outcome class, the tolerance-selection rule or catch-weight semantics now would
+> mean designing them **before a single real scorecard exists**, which inverts D99's own reasoning that those
+> dimensions be scheduled on evidence rather than guessed. `[P4]`'s design also touches the payload schema, which
+> is the port a consumer is currently being built against; settling it early risks changing it underneath that
+> consumer, which is the moving-rubric problem the deferral exists to avoid.
+>
+> **The trigger for writing them is the first held-out scorecard from a real consumer.** That is the evidence
+> that tells us which of `[P4]`'s dimensions matter and in what order. Until then the phase blocks above are a
+> *plan*, and the decisions they cite (D97, D98, D99, D101) are the design commitments — held by prose, which is
+> why each says so in its own rule rather than claiming an enforcement it does not have.
 
 ---
 
@@ -1202,6 +1268,28 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.32.0 (2026-07-28): **the plan and the specification had diverged, and one negative-space entry was wrong
+  (D109–D111)** — a pre-agent sweep over the published-surface sweep. **D111:** that sweep flagged
+  `dataset_guarantees` as verified for presence only, its truth "never verified against the data". It was
+  verified — `test_every_purchase_order_line_has_at_least_one_receipt` measures it on every split and is bound to
+  C78 — and acting on the flag would have built a duplicate check. A wrong negative-space entry is worse than
+  none, because D108 made the list a mechanism precisely so the next reader would believe it; so an entry
+  asserting an absence must now name how the absence was established. **D110:** measuring per phase, rather than
+  in the aggregate the linter compares, found `[P3]`'s block had accumulated four design commitments — document
+  quality as the primary axis, coverage by interaction, completeness cases, alternate cohorts — with **not one of
+  them in any requirement**, and `[P3]` is the next phase. D101 was orphaned outright: its only spec mentions were
+  in the changelog, absent even from the `[P4]` block owning the decision it lands with. Both fixed; `[P4]` and
+  `[P5]`'s emptiness is now stated as a deferral with its trigger — the first held-out scorecard from a real
+  consumer — rather than reading as an omission. Writing `[P4]` requirements now was declined: it would design the
+  escalation class before any scorecard exists, inverting D99, and would move the payload schema underneath the
+  consumer being built against it. **D109:** the port's tolerance of unknown fields, which the agent's output
+  design depends on, was **incidental** — accepted, untested, unrecorded, and one reasonable hardening away from
+  breaking the agent across a repository boundary. Now a guarantee with a check, and the boundary is stated: an
+  unknown *field* is ignored, an unknown *value in a closed enumeration* halts, the test being whether ignoring it
+  changes what the verdict means. Silent ignoring is itself a defect, so an `ignored_input` block is designed and
+  scheduled to land with D97 so one schema bump serves both. Also caught: `[P3]`'s parse-back-inapplicable
+  requirement (D36) had never had a criterion, and a rasterised scan makes that case live for the first time.
+  9 acceptance criteria added; 295 tests.
 - 0.31.0 (2026-07-27): **the published-surface sweep: eight findings, D102–D108**, run by a session that did
   not write the surface it reviewed, against 269 green tests and green CI. Every finding is in what the project
   *shows* rather than in what it computes — which is the shape of a project that has spent five phases hardening

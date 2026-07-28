@@ -26,6 +26,7 @@ import unittest
 
 from tests import support
 from goldset_triad.audit_key import _CAP, _FLOOR, _RATE
+from goldset_triad.schema import SchemaError, parse_findings_artifact
 
 README = support.REPO_ROOT / "README.md"
 
@@ -252,6 +253,60 @@ class AutomationClaimTests(unittest.TestCase):
             "a pre-commit hook now runs the isolation check, so the published wording may "
             "be strengthened — update this test and the attestation together",
         )
+
+
+class PublishedPortGuaranteeTests(unittest.TestCase):
+    """The port's tolerance is published where the consumer reads it, and bound here.
+
+    D109 made additive tolerance a guarantee **because an agent in another repository will
+    be designed around it** — that is the whole reason it stopped being incidental. It was
+    then recorded in `DECISIONS.md` and pinned by `tests/test_port_tolerance.py`, neither of
+    which a consumer's author reads. A guarantee its audience cannot find is not yet a
+    guarantee to them.
+
+    This is the same move D53 made for the matching thresholds and D96 for the dataset
+    guarantees, both for the identical reason: an agent competes against rules it can read,
+    so the rules go where it can read them — and then get bound, or the published text and
+    the shipped behaviour drift apart."""
+
+    def setUp(self) -> None:
+        self.text = _flattened(README.read_text(encoding="utf-8"))
+
+    def test_the_readme_publishes_the_additive_tolerance_guarantee(self) -> None:
+        for phrase, why in (
+            ("Unknown fields are accepted and ignored",
+             "the guarantee itself, which the consumer's output design depends on (D109)"),
+            ("Unknown *values* in a closed set are rejected",
+             "where tolerance stops — without it the guarantee reads as unlimited"),
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.text, f"the README must state this: {why}")
+
+    def test_the_published_guarantee_matches_the_shipped_parser(self) -> None:
+        """D53's binding: the published text and the behaviour are asserted together, so
+        neither can move alone. A README promising tolerance the parser had since dropped
+        would send a consumer's author to build against a rule that no longer holds."""
+        valid = {"status": "DISCREPANCY", "category": "PRICE_VARIANCE", "scope": "LINE",
+                 "target": {"document_id": "INV-2001", "line_id": "2"}}
+        plain = parse_findings_artifact({"schema_version": "1", "findings": [dict(valid)]})
+        decorated = parse_findings_artifact({
+            "schema_version": "1",
+            "findings": [{**valid, "note": "x",
+                          "target": {**valid["target"], "extra": 1}}],
+            "escalations": [{"invoice_id": "INV-9999", "reason": "no resolvable PO"}],
+        })
+        self.assertEqual(
+            plain, decorated,
+            "the README publishes that unknown fields are ignored and that what is parsed "
+            "is identical with and without them; the parser disagrees",
+        )
+        with self.assertRaises(
+            SchemaError,
+            msg="the README publishes that unknown values in a closed set are rejected",
+        ):
+            parse_findings_artifact(
+                {"schema_version": "1", "findings": [{**valid, "status": "ESCALATE"}]}
+            )
 
 
 class WrappedPhraseScanTests(unittest.TestCase):

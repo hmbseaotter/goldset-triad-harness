@@ -185,6 +185,8 @@ answer key.
 | For `DOCUMENT` scope, `line_id` must be the sentinel `"__DOCUMENT__"` | Never empty, never absent — an absent line id is malformed, not inferred. |
 | `confidence` is a JSON number | Carried through to the scorecard, never scored. A string is rejected. |
 | `status: "MATCH"` asserts *no* discrepancy | It can neither be a false positive nor satisfy an expectation, so one wrong assertion is counted once. |
+| **Unknown fields are accepted and ignored** — on a finding, inside `target`, and at the artifact's top level | A guarantee you may build against, not an accident (D109). Your agent can carry its own data — an `escalations` array beside `findings`, a `reasoning_trace`, whatever it needs in production — and the harness will score the findings and leave the rest alone. What it parses is **identical** with and without those extras. |
+| **Unknown *values* in a closed set are rejected** — `status`, `category`, `scope`, `schema_version` | The line is not "is this unexpected?" but "does ignoring it change what the verdict means?" A `status: "ESCALATE"` the harness silently dropped would let you believe ten invoices were escalated while the scorecard reported them as findings you never made. That is a confidently wrong score, so it halts instead (D109). |
 
 ### What you get back — the human summary
 

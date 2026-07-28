@@ -4251,6 +4251,146 @@ leaving the arithmetic to a human is the easy part done wrong.** Enforced by
 
 ---
 
+## D109 — Additive tolerance is a guarantee; silence about it is not ✅
+
+**Fork:** The consumer agent's `findings.json` is also its **production** output. In production it will meet
+invoices it cannot adjudicate, and the outcome class for that is deferred (D97). So the agent's output design
+turns on one question: can it carry data the harness does not yet read, without being refused?
+
+**Measured before deciding.** It can. Unknown fields on a finding, unknown fields inside `target`, and unknown
+top-level keys — including a sibling `escalations` array — are all accepted and ignored. Unknown *values* in a
+closed enumeration are rejected, as is an unsupported `schema_version`.
+
+**Why that needed recording rather than just noting.** The tolerance was **incidental**. Nothing recorded it and
+nothing tested it, so a later hardening that rejected unknown fields — an entirely reasonable change, and one that
+catches typos — would have broken the agent across a repository boundary, discovered late and far from its cause.
+An agent designed to rely on tolerance was relying on an accident.
+
+**Where tolerance stops, and why the line falls there.** Not "is this unexpected?" but **does ignoring it change
+what the verdict means?**
+
+- An unrecognised **field** is decoration the harness did not read. Ignoring it changes nothing about the findings
+  that were scored.
+- An unrecognised **status** such as `ESCALATE` is the consumer asserting something about a finding that would
+  otherwise be scored. Ignoring it would score the artifact while discarding part of its verdict — the author
+  would believe ten invoices were escalated while the scorecard reports them as absent findings. That is the
+  confidently-wrong-score failure, so it halts.
+
+**Decision ✅** — additive tolerance becomes a guarantee with a check (`tests/test_port_tolerance.py`), and the
+closed enumerations keep halting. One test asserts the parsed findings are **identical** with and without extras,
+because "ignored" is the claim being made and a tolerant parser that quietly altered what it parsed would satisfy
+a looser check.
+
+**Tolerated is not the same as unremarked, and that half is deferred.** Ignoring input silently is its own defect:
+a misspelled `reasonning` is a real consumer bug, and the scorecard is where its author looks. So the scorecard
+will report an `ignored_input` block — **sorted and deduplicated**, because it derives from the artifact and
+therefore belongs in the scored body, where 75 invoices carrying one misspelled field must not produce 75 entries
+or two runs order them differently and break byte-identity (D18). It is **scoped to input that did not affect the
+verdict**: malformed findings still halt and nonexistent targets are still scored as labelled false positives,
+because a second channel for defects means a reader has two places to look and no rule for which. Named for what
+it holds rather than how it feels, so it does not drift into "anything odd".
+
+Deferred to land with D97, so one `schema_version` bump serves the outcome class and this together rather than
+moving every byte-comparison baseline twice.
+
+**And published, not only recorded.** A guarantee exists for its audience, and this one's audience is an author in
+another repository — which is the entire reason it stopped being incidental. Recording it here and pinning it in a
+test leaves it somewhere that author never looks. It therefore joins the README's port-rules table, in both
+directions (what is tolerated *and* where tolerance stops, since the first without the second reads as unlimited),
+and the published text is bound to the parser. That is the D53 move exactly: the matching thresholds are published
+because an agent competes against rules it can read, and D96 published the dataset guarantees for the same reason.
+
+**Rule** — **tolerance that nothing records is an accident another repository is about to depend on**; and where a
+tool ignores input, it says so. Enforced by `tests/test_port_tolerance.py` for the guarantee and the boundary, and
+by `test_published_claims.PublishedPortGuaranteeTests` for its publication — a separate claim from the behaviour,
+which is why it gets a separate check. The reporting half is scheduled with D97 in the `[P4]` block.
+
+---
+
+## D110 — The phase plan and the requirements had diverged ✅
+
+**Fork:** A sweep asked whether the deferred decisions had criteria. Measuring it found something wider: the
+`[P3]` phase block had accumulated four substantial design commitments — document quality as the primary axis,
+coverage by interaction rather than by count, the document-set completeness cases, alternate cohorts — and **not
+one of them appeared in any requirement.** `[P3]` had four requirements, all predating that work.
+
+**Why that matters more than it reads.** This project's machinery is requirements → criteria → tests. A commitment
+living only in a phase bullet is outside that machinery entirely — it is the *"rule recorded as prose"* failure
+D67 was written about, reappearing in the one document nobody thought of as prose. And `[P3]` is the **next**
+phase, so it would have been built from a plan rather than from requirements.
+
+**Measured, per phase:** `[P1]` 130 requirements / 132 criteria; `[P2]` 5 / 9; `[P3]` 4 / 2; `[P4]` 0 / 0;
+`[P5]` 0 / 0. The linter compares those totals in aggregate and reports healthily, because 132 criteria against
+139 requirements looks fine — a whole phase with requirements and no criteria is invisible to a total.
+
+**Also found: D101 was orphaned.** Its only two mentions in the spec were both in the *changelog*. No requirement,
+no criterion, and — despite its own text saying "deferred with D97" — no mention in the `[P4]` block that owns
+D97. Since `[P2]` was planned from the phase blocks, a decision absent from them would simply not have been built.
+
+**Decision ✅** — `[P3]`'s four commitments become requirements, including the invoice item-description work that
+D22's own reasoning requires; D101 is named in the `[P4]` block alongside the outcome class it lands with; and
+`[P4]`/`[P5]`'s absence of requirements is stated as a deferral with its **trigger** — the first held-out scorecard
+from a real consumer — rather than left to read as an omission.
+
+**What is deliberately NOT done: writing `[P4]` and `[P5]` requirements.** Designing the escalation outcome class
+or catch-weight semantics now means designing them before any real scorecard exists, which inverts D99's own
+reasoning. Worse, `[P4]` touches the payload schema, which is the port a consumer is being built against right
+now — settling it early risks changing it underneath that consumer, the moving-rubric problem the deferral exists
+to avoid.
+
+**One thing this left open, closed immediately after.** Taking `[P3]` from two criteria to seven made it the
+phase carrying the most criteria that nothing counted: `EXPECTED_SPEC_P1_CRITERIA` and
+`EXPECTED_SPEC_P2_CRITERIA` existed and there was no `[P3]` equivalent — D74's shape one phase further on. It
+matters more for an unbuilt phase than a built one: these criteria bind to no tests, so a deleted one breaks
+nothing and appears nowhere. `EXPECTED_SPEC_P3_CRITERIA` now guards them. `[P4]` and `[P5]` deliberately get
+none, because a checksum of zero would assert their deferral is permanent.
+
+**Rule** — **a phase block is a plan, not a specification; anything it commits to belongs in a requirement, and a
+deferred phase's emptiness is stated with its trigger.** Enforced by the requirement and criteria entries added
+here and by `test_traceability.TraceabilityTests.test_spec_p3_criterion_count_is_unchanged`; the per-phase
+*balance* remains judgment, since a check demanding criteria for every phase would fail on phases deliberately
+unwritten.
+
+---
+
+## D111 — A negative-space entry is a claim, and gets the same discipline ✅
+
+**Fork:** The sweep that produced D102–D108 flagged two items as most likely to matter. One of them was **false**:
+it said `dataset_guarantees` was "checked for presence" only, and that whether its claim was true "was never
+verified against the data."
+
+**It was verified.** `test_every_purchase_order_line_has_at_least_one_receipt` iterates `known_splits()`, reads the
+purchase orders and goods receipts, computes the set difference, passes, and is bound to criterion **C78**.
+Presence is a *different* test (`test_the_policy_publishes_both_guarantees`). The entry conflated the two.
+
+**Why a wrong entry is worse than no entry.** D108 made the negative-space list a mechanism precisely so the next
+reader starts from the gaps. A reader trusting this one would have built a duplicate of an existing check and, more
+costly, would have taken the *rest* of the list as reliable on the same evidence. The list was introduced to be
+believed, which is exactly what makes an error in it expensive.
+
+**The gap in the mechanism.** `lint_spec.py` requires the section to exist, to be non-empty, and to be **stamped
+current**. Nothing checks whether its *contents are true* — and they cannot be checked mechanically, because the
+entries are prose about absences. So the discipline has to be procedural: **an entry claiming something is
+unchecked names where it looked.** "No test asserts X" is verifiable by the next reader in seconds; "X was never
+verified" is not.
+
+**Decision ✅** — every negative-space entry states the search that produced it, so a later reader can re-run the
+search rather than re-derive the conclusion. The sweep checklist in `/specify` gains that instruction.
+
+**And the false entry is struck where it stands.** Diagnosing it here and leaving it in the list would have been
+the gap this project usually closes in the same commit: a reader arriving at the list reads the list, not the
+decision about the list. It is struck through, corrected, pointed at `C78` and the test that carries it, and — per
+the rule this entry establishes — it now names **how the error was made**: the sweep read two of the three changed
+test files and never opened `test_claim_coverage.py`, despite its `+101` in the same diffstat. A universe narrower
+than the claim, written into the document that exists to record where a sweep did not look.
+
+**Rule** — **an entry asserting an absence names how the absence was established.** Otherwise the negative-space
+list becomes the one document in the project exempt from the rule that a claim gets a check. Judgment, not
+checkable: prose about what does not exist cannot be mechanically confirmed, which is precisely why the entry must
+carry its own method.
+
+---
+
 ## Not checked — as of 0.31.0 @ D108
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
@@ -4276,10 +4416,18 @@ examine:
   README and the scorecard pair it carries were **not** read, because reading a held-out
   scorecard is the contamination this architecture exists to prevent — the same restraint
   D93 exercised when it established the risk by reading the emitter instead.
-- **The `dataset_guarantees` text itself (D96).** It is now published in four
-  `matching_policy.json` files and checked for presence; whether its claim is *true* — that
-  every purchase-order line in every split carries at least one goods receipt — was not
-  verified against the data. It is a claim about the datasets that nothing compares to them.
+- ~~**The `dataset_guarantees` text itself (D96).**~~ **This entry was false — see D111.** It
+  claimed the guarantee was "checked for presence" only and that its truth "was not verified
+  against the data". Both halves are wrong: `test_claim_coverage.PublishedGuaranteeTests.test_every_purchase_order_line_has_at_least_one_receipt`
+  iterates `known_splits()`, reads the purchase orders and goods receipts, computes the set
+  difference and asserts it empty — bound to criterion **C78**, and present in the very
+  commit this entry shipped in. Presence is a *separate* test
+  (`test_the_policy_publishes_both_guarantees`); the entry conflated the two.
+  **How the error was made**, since D111's rule is that an entry names its method: the
+  sweep read `test_published_claims.py` and `test_scorecard_legend.py` in full and never
+  opened `test_claim_coverage.py`, despite its `+101` in the same diffstat. The universe
+  read was narrower than the claim written — this project's signature defect, committed in
+  the document that exists to record where a sweep did not look.
 - **`scoring.py` and `scorecard.py` arithmetic.** The renderer's *output* is now bound by
   D102, which is a different thing from its arithmetic being right. Carried forward
   unexamined for the third sweep running.

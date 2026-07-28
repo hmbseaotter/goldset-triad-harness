@@ -384,6 +384,11 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_scorecard_legend.ScorecardLegendTests.test_the_subtle_distinctions_are_stated_not_merely_listed"),
     ("C84", "the legend is referenced from both entry documents",
      "test_scorecard_legend.ScorecardLegendTests.test_the_legend_is_referenced_from_the_entry_documents"),
+    # Port tolerance and its boundary (D109).
+    ("C86", "unknown fields at every level are accepted, and change nothing about what parsed",
+     "test_port_tolerance.AdditiveToleranceTests.test_tolerance_does_not_alter_what_was_parsed"),
+    ("C87", "an unrecognised enumeration value halts rather than being ignored",
+     "test_port_tolerance.ToleranceStopsAtMeaningTests.test_an_unknown_status_halts"),
     # The published surface, bound by execution rather than by reading (D102-D108).
     ("C85", "[P2] every documented block of harness output is reproduced by running the "
             "harness and compared (D102)",
@@ -599,6 +604,14 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     # Premise and converse for the legend checks.
     "test_scorecard_legend.ScorecardLegendTests.test_the_fixture_exercises_both_element_shapes",
     "test_scorecard_legend.ScorecardLegendTests.test_the_legend_documents_no_field_that_is_not_emitted",
+    # The remaining tolerance cases; C86/C87 name one of each direction.
+    "test_port_tolerance.AdditiveToleranceTests.test_an_unknown_field_on_a_finding_is_accepted",
+    "test_port_tolerance.AdditiveToleranceTests.test_an_unknown_field_inside_target_is_accepted",
+    "test_port_tolerance.AdditiveToleranceTests.test_an_unknown_top_level_key_is_accepted",
+    "test_port_tolerance.ToleranceStopsAtMeaningTests.test_an_unknown_category_halts",
+    "test_port_tolerance.ToleranceStopsAtMeaningTests.test_an_unknown_scope_halts",
+    "test_port_tolerance.ToleranceStopsAtMeaningTests.test_an_unsupported_schema_version_halts",
+    "test_port_tolerance.ToleranceStopsAtMeaningTests.test_a_missing_required_field_still_halts",
     "test_claim_coverage.ClaimDiscoveryTests.test_every_registered_check_resolves",
     "test_claim_coverage.ClaimDiscoveryTests.test_partial_coverage_states_a_reason",
     "test_claim_coverage.ClaimSymmetryTests.test_every_claim_is_checked_on_every_known_split",
@@ -649,6 +662,13 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_generator_staleness.GeneratorFreshnessTests.test_a_byte_order_mark_does_move_a_dataset_artifact_fingerprint",
     # D108: the sweep marker's own trigger, which was prose for eighteen decisions.
     "test_traceability.TraceabilityTests.test_the_sweep_marker_has_not_fallen_behind_its_own_trigger",
+    # D109's guarantee, published where its audience reads it. C86 and C87 carry the
+    # behaviour; these carry the *publication* of it — the D53 move, which is a different
+    # claim from the behaviour being correct and failed separately for the thresholds once.
+    "test_published_claims.PublishedPortGuaranteeTests.test_the_readme_publishes_the_additive_tolerance_guarantee",
+    "test_published_claims.PublishedPortGuaranteeTests.test_the_published_guarantee_matches_the_shipped_parser",
+    # The `[P3]` criterion checksum, which had no counterpart while `[P1]` and `[P2]` did.
+    "test_traceability.TraceabilityTests.test_spec_p3_criterion_count_is_unchanged",
     "test_defect_classes.PatternAnchoringTests.test_at_least_one_rule_list_was_examined",
     "test_defect_classes.PatternAnchoringTests.test_the_shipped_check_rejects_the_historical_bad_pattern",
     "test_defect_classes.SecretTierDurabilityTests.test_a_clean_tier_reports_nothing",
@@ -663,7 +683,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 132
+EXPECTED_SPEC_P1_CRITERIA = 134
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule
@@ -678,6 +698,24 @@ EXPECTED_SPEC_P1_CRITERIA = 132
 # described a debt that was paid two commits later and then went on describing it, which
 # is the same stale-restatement class the 0.22.0 sweep removed three instances of.
 EXPECTED_SPEC_P2_CRITERIA = 9
+
+# The same checksum for `[P3]`, which had none while its criteria went from two to seven.
+#
+# D74's reasoning for adding the `[P2]` checksum applies here word for word: *the rule was
+# right and its enforcement reached only the phase the mechanism was written during.* That
+# was the fourth instance of the shape when D74 wrote it; this is the same mechanism, one
+# phase further on, and D110 had just made `[P3]` the phase carrying the most criteria
+# nothing guarded — five of its seven arrived in a single change.
+#
+# `[P3]` is UNBUILT, so these criteria bind to no tests and nothing else would notice one
+# being dropped. That is precisely why the count matters: a criterion deleted from an
+# unbuilt phase leaves no failing test behind, so the checksum is the only thing standing
+# between a design commitment and its quiet disappearance before anyone builds it.
+#
+# `[P4]` and `[P5]` deliberately have no checksum: they carry no criteria and no
+# requirements, and D110 records that emptiness as a deferral with a trigger. A checksum of
+# zero would assert the deferral is permanent.
+EXPECTED_SPEC_P3_CRITERIA = 7
 
 
 def _spec_criteria(tag: str) -> list[str]:
@@ -944,6 +982,23 @@ class TraceabilityTests(unittest.TestCase):
             wrong, [],
             f"the build prompt miscounts its own gate: {wrong}. Say 'every item' rather "
             f"than a number, or keep the number derived (D106).",
+        )
+
+    def test_spec_p3_criterion_count_is_unchanged(self) -> None:
+        """The same guard for `[P3]`, which did not have one (D74's shape, one phase on).
+
+        `[P3]` is the next phase and is unbuilt, so its criteria bind to no tests: dropping
+        one breaks nothing and shows up nowhere. D110 found its phase block had accumulated
+        four design commitments that appeared in no requirement, and fixing that took its
+        criteria from two to seven — the largest body of criteria in the spec with nothing
+        counting them."""
+        actual = len(_spec_criteria("P3"))
+        self.assertEqual(
+            actual, EXPECTED_SPEC_P3_CRITERIA,
+            f"the spec now has {actual} [P3] acceptance criteria but this map expects "
+            f"{EXPECTED_SPEC_P3_CRITERIA}. Raise EXPECTED_SPEC_P3_CRITERIA deliberately "
+            f"when adding one, so a criterion for an unbuilt phase cannot vanish without "
+            f"a failing test — there is no covering test to miss it.",
         )
 
     def test_no_exemption_outlives_its_test(self) -> None:

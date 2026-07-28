@@ -9,8 +9,10 @@ import tempfile
 import unittest
 from decimal import ROUND_HALF_UP, Decimal as Dc
 from pathlib import Path
+from typing import Callable
 
 from tests import support
+from goldset_triad import audit_key
 from goldset_triad.audit_key import _CAP, _FLOOR, _RATE, _Line, _derive_line
 from goldset_triad.dataset import load_dataset, load_invoice_index, resolve_manifest
 from goldset_triad.scoring import score
@@ -105,6 +107,82 @@ class PayableBasisTests(unittest.TestCase):
         self.assertLess(payable_variance, ordered_threshold)
 
 
+#: Every rule the shipped implementation applies, and therefore every entry the published
+#: policy must carry (D119). Named rather than discovered: a policy key is a promise to an
+#: agent, so adding one is a deliberate act — and D82's other half, that the universe is
+#: asserted covered, is met by the bindings below exercising each one.
+PUBLISHED_RULE_KEYS: tuple[str, ...] = (
+    "categories",
+    "materiality_threshold",
+    "payable_quantity",
+    "price_variance",
+    "quantity_overbill",
+    "tax_variance",
+    "precision",
+    "dataset_guarantees",
+)
+
+
+def _rule_bindings() -> tuple[tuple[str, str, Callable[[], bool], str], ...]:
+    """`(policy key, phrase the entry must contain, behaviour probe, what it asserts)`.
+
+    Each probe runs the *shipped* rule implementation — `audit_key`, the independent
+    derivation an agent could run and the one `audit()` compares against the generator's
+    output on every split. Binding the published text to it means the prose and the code
+    cannot drift apart silently, which is the whole of D53 applied one level up from the
+    constants it covered."""
+    from decimal import Decimal as D
+
+    def line(ordered, received, invoiced, po_price, inv_price):
+        return audit_key._Line(D(ordered), D(received), D(invoiced), D(po_price), D(inv_price))
+
+    return (
+        (
+            "payable_quantity", "min(qty_ordered, qty_received)",
+            lambda: audit_key._payable(D(10), D(4)) == 4 and audit_key._payable(D(4), D(10)) == 4,
+            "payable is the lesser of ordered and received, whichever binds",
+        ),
+        (
+            "materiality_threshold", "max($0.05, min(2% x basis, $25))",
+            lambda: (audit_key._threshold(D("1")), audit_key._threshold(D("500")),
+                     audit_key._threshold(D("100000")))
+            == (D("0.05"), D("10.00"), D("25")),
+            "the floor binds on tiny bases, the rate in between, the cap on large ones",
+        ),
+        (
+            "materiality_threshold", "flag on >=",
+            lambda: audit_key._material(D("10"), D("500"))
+            and not audit_key._material(D("9.99"), D("500")),
+            "the threshold boundary is inclusive",
+        ),
+        (
+            "price_variance", "basis = payable_qty x po_unit_price",
+            lambda: audit_key._derive_line(line(10, 10, 10, "100", "102")) == {"PRICE_VARIANCE"},
+            "the variance is judged against the payable extended amount, not the ordered one",
+        ),
+        (
+            "quantity_overbill", "category by which constraint bound the payable quantity",
+            lambda: audit_key._derive_line(line(10, 6, 10, "100", "100")) == {"QTY_UNDER_SHIPMENT"}
+            and audit_key._derive_line(line(10, 14, 12, "100", "100")) == {"QTY_OVER_SHIPMENT"}
+            and audit_key._derive_line(line(10, 10, 12, "100", "100")) == {"QTY_INVOICE_INFLATED"},
+            "under-shipment, over-shipment and a straight inflated invoice are told apart "
+            "by what limited the payable quantity",
+        ),
+        (
+            "tax_variance", "invoice's own taxable subtotal",
+            lambda: not audit_key._derive_tax(D("80"), D("1000"), D("40"), D("500")),
+            "the PO's rate is applied to the invoice's subtotal, so a half-sized invoice "
+            "taxed at the same rate is clean",
+        ),
+        (
+            "tax_variance", "zero taxable subtotal takes the degenerate $0.05 branch",
+            lambda: audit_key._derive_tax(D(0), D(0), D("0.05"), D(0))
+            and not audit_key._derive_tax(D(0), D(0), D("0.04"), D(0)),
+            "with nothing taxable, any tax at or above the floor is a variance",
+        ),
+    )
+
+
 class PolicyTests(unittest.TestCase):
     """Both checks below iterate `known_splits()`, not `dev` alone (D67).
 
@@ -116,18 +194,64 @@ class PolicyTests(unittest.TestCase):
     competes against the policy published with the split it is scored on, so a held-out
     policy that drifted would judge it against a threshold it was never told."""
 
-    def test_matching_policy_publishes_every_rule(self) -> None:
+    def test_matching_policy_declares_every_rule_the_harness_applies(self) -> None:
+        """Every rule the scored implementation applies has a published entry (D119).
+
+        This was `test_matching_policy_publishes_every_rule` and it tested six keyword
+        substrings — `payable`, `materiality`, `price`, `quantity`, `tax`,
+        `cross-multipl`. Its criterion (H13) read *"every generator rule appears in the
+        published policy"*, which the check could not possibly establish: the generator is
+        deny-guarded and out of tree, so nothing in this repository can enumerate its
+        rules. A keyword scan cannot say "every" about a set it cannot see.
+
+        What IS checkable, and is what the criterion now claims: every rule **the shipped
+        implementation applies** has an entry, and (below) that entry describes what the
+        implementation does. `audit_key` is the independent derivation an agent could run,
+        and `audit()` compares it to the generator's output on every split — so binding the
+        policy to it closes the one link that was loose."""
         for split in support.known_splits():
             with self.subTest(split=split.name):
                 policy = support.read_json(split.policy)
-                text = json.dumps(policy).lower()
-                for needle in ("payable", "materiality", "price", "quantity", "tax",
-                               "cross-multipl"):
-                    self.assertIn(needle, text, f"{split.name}: policy omits {needle!r}")
+                missing = [key for key in PUBLISHED_RULE_KEYS if key not in policy]
+                self.assertEqual(
+                    missing, [],
+                    f"{split.name}: the policy omits {missing}. Each names a rule the "
+                    f"harness applies; an agent competes against what it can read, so a "
+                    f"rule with no entry is one it is judged on and never told (D35).",
+                )
                 self.assertEqual(set(policy["categories"]),
                                  {"PRICE_VARIANCE", "QTY_UNDER_SHIPMENT", "QTY_OVER_SHIPMENT",
                                   "QTY_INVOICE_INFLATED", "TAX_VARIANCE"},
                                  f"{split.name}: published categories differ")
+
+    def test_every_published_rule_describes_what_the_code_does(self) -> None:
+        """D53's binding, extended from the three numbers to the rules themselves (D119).
+
+        D53 bound `$0.05`, `$25` and `2%` to `audit_key`'s constants, because a published
+        threshold that drifts judges an agent against a rule it was never told. The *rules*
+        stayed bound by keyword presence — so `_payable` could become `max(...)` in both
+        the generator and the audit, the key would agree with the derivation, the numbers
+        would still match, all six keywords would still be present, and the published rule
+        would be false.
+
+        Each case below exercises the shipped behaviour **and** asserts the policy states
+        it, so the two cannot move apart. The phrase is matched against the entry for that
+        rule, not the whole document, or a word appearing anywhere would satisfy it."""
+        for split in support.known_splits():
+            policy = support.read_json(split.policy)
+            for rule_key, phrase, holds, describe in _rule_bindings():
+                with self.subTest(split=split.name, rule=rule_key, asserts=describe):
+                    self.assertTrue(
+                        holds(),
+                        f"the shipped implementation no longer does what "
+                        f"{rule_key!r} publishes: {describe}",
+                    )
+                    entry = str(policy.get(rule_key, "")).lower()
+                    self.assertIn(
+                        phrase, entry,
+                        f"{split.name}: the {rule_key!r} entry no longer says {phrase!r}, "
+                        f"which is the behaviour the code applies ({describe})",
+                    )
 
     def test_policy_numbers_match_the_shipping_rule_implementation(self) -> None:
         """The published thresholds must equal the ones the shipped code applies (D53).

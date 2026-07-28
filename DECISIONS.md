@@ -4736,13 +4736,111 @@ about. Enforced by `test_verify_mode`'s three summary cases and
 
 ---
 
-## Not checked — as of 0.36.0 @ D118
+## D119 — A criterion promised a comparison this repository cannot perform ✅
+
+**Fork:** The generator's rules were the last item every sweep had carried, on the grounds that a
+self-consistently wrong rule change would pass everything. Sweeping them ran straight into the reason: the
+generator is **deny-guarded by design** — `gen_rules.py`, `generate.py` and `pdf_invoice.py` are covered by a
+directory rule *and* per-filename rules, because D14's assessment is that generators leak worse than the key,
+encoding the rule that plants every discrepancy.
+
+**The guards are not loaded in a parent-rooted session (D91), which is a configuration accident and not
+permission.** Reading them would be routing around a deny that exists by design, would contaminate a session
+that goes on to review this repository, and would need an attestation entry recording that an AI session read
+the secret tier. Not done.
+
+**What the sweep found instead, from in-repo artifacts alone.** Criterion **H13** read:
+
+> Every rule the key generator applies appears in the published matching policy, **verified by comparing the
+> policy against the generator's rule set.**
+
+Nothing in this repository can perform that comparison — the generator is out of tree and denied. The check
+bound to it tested six keyword substrings (`payable`, `materiality`, `price`, `quantity`, `tax`,
+`cross-multipl`) and never looked at the generator, which it could not. A keyword scan cannot say *"every"*
+about a set it cannot see. The criterion promised a method, the method was impossible, and the check that
+stood in its place tested something far weaker without saying so.
+
+**What is genuinely checkable is a chain, and three of its four links already are:**
+
+```
+published policy  <->  audit implementation  <->  answer key  <->  generator
+     (bound for              (diffed by audit() on every split)
+      NUMBERS only)
+```
+
+D53 bound `$0.05`, `$25` and `2%` to `audit_key`'s constants, because a published threshold that drifts judges
+an agent against a rule it was never told. The **rules** stayed bound by keyword presence — so `_payable` could
+become `max(...)` in both the generator and the audit, the key would agree with the derivation, the numbers
+would still match, all six keywords would still be present, and the published rule would be false. That rule is
+the one thing an agent reads in order to compete fairly (D35).
+
+**Decision ✅** — extend D53's binding from the constants to the rules. Every published entry is exercised
+against the shipped implementation *and* asserted to state what that implementation does: the payable quantity
+is the lesser of ordered and received; the threshold's floor, rate and cap each bind in their own range; the
+boundary is inclusive; price variance is judged on the payable extended amount; the three quantity categories
+are told apart by which constraint bound the payable quantity; the tax rate is the PO's applied to the
+invoice's own subtotal; a zero taxable subtotal takes the degenerate floor branch. The phrase is matched
+against **that rule's entry**, not the whole document, or a word appearing anywhere would satisfy it.
+
+H13 is corrected to what is checkable, and the completeness half — an entry exists for every rule the harness
+applies — is split into its own test, because *"the policy is incomplete"* and *"the policy is untrue"* fail
+for different reasons and a reader needs to know which.
+
+**Verified by mutation.** `_payable` was changed to `max(...)` in the shipped source: the binding failed,
+naming the rule, the split and the property (*"payable is the lesser of ordered and received, whichever
+binds"*), and a second rule failed with it because the quantity classification depends on the same value.
+Restored, and the tree is clean. Every published rule was already correct — the finding is that nothing held it
+there.
+
+**What remains out of reach, stated rather than implied.** Two things, and only two. A **dormant generator
+rule** — code whose conditions the current data never triggers, so it never reaches the key and the audit
+cannot see it; this becomes material when `[P3]` expands the dataset. And a **shared misunderstanding** between
+generator and audit, which D35 has always stated is out of reach because the two share an author. Reading the
+generator would address the first and not the second, at the cost above.
+
+**Rule** — **a criterion may not name a verification method the project is unable to perform; if the method is
+out of reach, the criterion states the reachable claim and the gap is recorded, not papered over with a weaker
+check wearing the stronger criterion's name.** Enforced by
+`test_ground_truth.PolicyTests.test_every_published_rule_describes_what_the_code_does` and
+`…test_matching_policy_declares_every_rule_the_harness_applies`.
+
+---
+
+## Not checked — as of 0.37.0 @ D119
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The generator-rules sweep (0.37.0, D119)
+
+Took the last item every sweep had carried, and found the reason it was carried: the
+generator cannot be read from a session that reviews this repository. What could be swept
+was the *chain* around it. It did **not** examine:
+
+- **The generator's source.** *Method: listed `_generators/` by name and size, read the
+  shipped deny rules, and stopped.* `gen_rules.py`, `generate.py` and `pdf_invoice.py` are
+  covered by a directory rule and per-filename rules. The guards are not loaded in a
+  parent-rooted session (D91), which is an accident and not permission. **Deliberately
+  unread, and this is not expected to change**: the two things reading would add are named
+  in D119, and one of them is out of reach anyway.
+- **A dormant generator rule.** *Method: none available.* Generator code whose conditions
+  the shipped data never triggers never reaches the key, so `audit()` cannot see it. It
+  becomes material when `[P3]` expands the dataset — which is the moment to ask the author
+  for a targeted answer rather than a read.
+- **A shared misunderstanding between generator and audit.** *Method: none available; D35
+  states this limit in its own docstring.* Both share an author, so agreement between them
+  is weaker evidence than agreement between strangers. The published policy is now bound to
+  the audit, which narrows it: a misunderstanding would have to be present in the policy
+  text too, where a reader can see it.
+- **`pdf_invoice.py`'s rendering.** *Method: none — deny-covered like the rest.* H14 covers
+  generation-time parse-back as a `MANUAL:` entry and no sweep has revisited that.
+- **Whether the policy is *complete* as against the domain**, rather than as against the
+  code. *Method: compared the policy's entries to the rules `audit_key` implements.* A rule
+  neither implements would be invisible to both — which is what `[P4]`'s compliance
+  categories and D97's "cannot adjudicate" class exist to add.
 
 ### The scorecard-rendering sweep (0.36.0, D118)
 

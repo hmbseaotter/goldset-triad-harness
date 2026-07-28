@@ -106,7 +106,8 @@ REGISTRY: tuple[Claim, ...] = (
         artifact="policy",
         field_name="categories",
         asserts="the closed category enumeration an agent competes against",
-        checks=("test_ground_truth.PolicyTests.test_matching_policy_publishes_every_rule",),
+        checks=("test_ground_truth.PolicyTests.test_matching_policy_declares_every_rule_the_harness_applies",
+            "test_ground_truth.PolicyTests.test_every_published_rule_describes_what_the_code_does"),
     ),
     Claim(
         artifact="policy",

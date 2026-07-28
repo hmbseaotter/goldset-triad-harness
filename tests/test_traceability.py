@@ -44,8 +44,9 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_key_audit.KeyAuditTests.test_corrupted_key_reports_divergence_naming_the_finding"),
     ("H12", "key-audit not invoked by any scoring path",
      "test_key_audit.KeyAuditTests.test_audit_not_imported_by_any_scoring_module"),
-    ("H13", "every generator rule appears in the published policy",
-     "test_ground_truth.PolicyTests.test_matching_policy_publishes_every_rule"),
+    ("H13", "every rule the shipped implementation applies has a published entry, and the "
+            "entry describes what the code does (D119)",
+     "test_ground_truth.PolicyTests.test_every_published_rule_describes_what_the_code_does"),
     ("H14", "generation emits doc+index from one record with parse-back",
      "MANUAL: generation-side (D36); the generator renders each PDF, reads it back and "
      "asserts it matches the index — run during the build, parse-back passed."),
@@ -704,6 +705,11 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code",
     # D116: the project's other stamped marker, which D108's mechanism did not reach.
     "test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current",
+    # D119. H13 carries the criterion — that each published entry describes what the code
+    # does — and this is the other half: that an entry EXISTS for every rule the harness
+    # applies. Split deliberately: "the policy is complete" and "the policy is true" fail
+    # for different reasons and a reader needs to know which.
+    "test_ground_truth.PolicyTests.test_matching_policy_declares_every_rule_the_harness_applies",
     # D118's controls. C92 and C93 carry the criteria; these are the boundaries around
     # them: a correct pair must still read `identical` AND say the summary was compared
     # (otherwise "checked and matched" is indistinguishable from "not checked"); an absent

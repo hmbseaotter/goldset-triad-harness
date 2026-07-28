@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.36.0
+- Spec version: 0.37.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,8 +17,20 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.36.0 @ D118** — the **scorecard-rendering sweep**, taking the oldest untouched surface in the project: `scorecard.py`, carried by five sweeps. Three findings, one decision (D118), and **none in the arithmetic** — per-category counts, the coverage block's claims about the key, and ROUND_HALF_UP at the quantum boundary all held. What did not hold was what *verifies* it: a human summary edited to claim a different score passed as `identical`, because verify examined the JSON and the `.txt` is the half a person actually reads. Also: the per-category columns did not align once a count exceeded one digit, which `[P3]`'s larger dataset makes certain.
-  The prior sweep was **0.35.0 @ D117** — the **key-audit sweep**, which found the cross-multiplied tax test
+- **Last swept: 2026-07-28 @ 0.37.0 @ D119** — the **generator-rules sweep**, taking the last item every prior
+  sweep had carried. It found the reason it had been carried: the generator **cannot be read** from a session
+  that reviews this repository — deny-guarded by a directory rule and per-filename rules, because D14 holds that
+  generators leak worse than the key. The guards are not loaded in a parent-rooted session (D91), which is an
+  accident and not permission, so they were left unread. What the sweep found instead is in the criterion:
+  **H13 promised a verification this repository cannot perform** — *"verified by comparing the policy against the
+  generator's rule set"* — and the check standing in for it tested six keyword substrings. Every published rule
+  turned out to be correctly implemented; nothing held it there but those keywords, D53 having bound the three
+  numbers and stopped. Each rule is now exercised against the shipped implementation and asserted to state what
+  that implementation does (D119).
+  Before it, **0.36.0 @ D118** — the **scorecard-rendering sweep** over `scorecard.py`, carried by five sweeps.
+  Three findings, **none in the arithmetic**: what failed was what *verifies* it, a human summary edited to
+  claim a different score passing as `identical` because verify examined only the JSON.
+  Before that, **0.35.0 @ D117** — the **key-audit sweep**, which found the cross-multiplied tax test
   inverts below zero (so a negative taxable subtotal made the auditor report a variance against a *correct*
   key) and that `taxable`, which decides the tax basis, was validated by neither reader — the audit sharing the
   loader's silent default rather than deriving independently.
@@ -821,8 +833,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] The key-audit command run against a deliberately corrupted answer key reports the divergence and
   names the affected finding; run against the shipped key it reports none.
 - [ ] [P1] The key-audit command is not invoked by any scoring code path.
-- [ ] [P1] Every rule the key generator applies appears in the published matching policy, verified by comparing
-  the policy against the generator's rule set.
+- [ ] [P1] Every rule the **shipped implementation** applies has an entry in the published matching policy, and
+  each entry describes what that implementation does — exercised against `audit_key`, the independent derivation
+  an agent could run, on every split. The generator's own rule set cannot be compared from inside this
+  repository: it is out of tree and deny-guarded (D14, D17), so a criterion promising that comparison promised
+  what nothing here can perform. The generator is reached through the chain instead — the audit derives from the
+  published rules and `audit()` diffs that against the key the generator produced, on every split (D119).
 - [ ] [P1] Generation emits each invoice document and its index entry from one canonical record, and the
   generation-time parse-back confirms the document matches the index for every clean-tier invoice.
 - [ ] [P1] Editing one byte of one input file, leaving the answer key and dataset version untouched, changes
@@ -1295,6 +1311,25 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.37.0 (2026-07-28): **the generator-rules sweep: D119** — the last item every prior sweep had carried, and
+  the reason it was carried turns out to be structural: **the generator cannot be read** from a session that
+  reviews this repository. `gen_rules.py`, `generate.py` and `pdf_invoice.py` are covered by a directory deny
+  rule *and* per-filename rules, because D14 holds that generators leak worse than the key — they encode the
+  rule that plants every discrepancy. A parent-rooted session does not load those guards (D91), which is an
+  accident and not permission, so they were left unread. **The finding is in the criterion.** H13 read *"every
+  rule the key generator applies appears in the published matching policy, verified by comparing the policy
+  against the generator's rule set"* — a comparison nothing in this repository can perform — and the check
+  bound to it tested six keyword substrings and never looked at the generator, which it could not. A keyword
+  scan cannot say *"every"* about a set it cannot see. Every published rule turned out to be **correctly
+  implemented**; what was missing is anything holding it there, D53 having bound the three numbers and stopped:
+  change `_payable` to `max(...)` in both generator and audit and the key agrees with the derivation, the
+  numbers still match, the keywords are still present, and the published rule — the one thing an agent reads to
+  compete fairly — is false. Each rule is now exercised against the shipped implementation and asserted to
+  state what it does, with the phrase matched against that rule's own entry; the completeness half is split out,
+  since *"incomplete"* and *"untrue"* fail for different reasons. Verified by mutation. What stays out of reach
+  is named rather than implied: a dormant generator rule (material when `[P3]` expands the data) and a shared
+  misunderstanding between generator and audit, which D35 has always stated. 319 → 320 tests; pyright 0 errors;
+  H13 corrected, no criteria added.
 - 0.36.0 (2026-07-28): **the scorecard-rendering sweep: three findings, D118**, taking the oldest untouched
   surface in the project — `scorecard.py`, carried by five sweeps. **None of the findings is in the
   arithmetic**, which is the useful result: per-category counts sum to the overall counts on every split, the

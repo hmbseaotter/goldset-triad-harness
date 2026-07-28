@@ -193,7 +193,87 @@ a unique marker and no answer-key content, which is the entire reason it exists.
 Newest first. Superseded entries are kept, because the record of what was believed and when
 is part of what makes the claim auditable.
 
-### 2026-07-28 (session rooted at the SECRET tier) — mirror guard **reads PASS, writes UNPROBED**
+### 2026-07-28 (later — three roots in sequence) — **PASS in both directions, every root that loads a guard**
+
+The first sweep covering all three roots on one day. It discharges the write probe the entry
+below records as **owed** (D122), and it is the first attestation of any kind for the
+held-out-inputs root, whose guard (D123) had until now been configuration nobody had seen
+bind. Each root was probed from its own session; results were confirmed on disk from a
+separate session, so a tool reporting "refused" and a file not existing are two observations
+rather than one.
+
+| Root | Probe | Target | Result |
+|---|---|---|---|
+| harness | Read — negative | `goldset-triad-secret\canary\throwaway.json` | **Refused.** Marker absent. |
+| harness | Read — positive control | `goldset-triad-holdout\inputs\purchase_orders\PO-7001.json` | **Succeeded**, 29 lines. |
+| secret | Read — negative | `held-out\matching_policy.json` | **Refused.** |
+| secret | Write — negative | `goldset-triad-harness\guard-write-probe.txt` | **Refused.** No file created. |
+| secret | Read — positive control | `_generators\gen_rules.py` | **Succeeded.** |
+| holdout | Read — negative | `goldset-triad-secret\canary\throwaway.json` | **Refused.** Marker absent. |
+| holdout | Write — negative | `goldset-triad-harness\guard-write-probe2.txt` | **Refused.** No file created. |
+| holdout | Read — positive control | `…holdout\inputs\…\PO-7001.json`, `goldset-triad-harness\README.md` | **Both succeeded**, 29 and 534 lines. |
+| holdout | Write — **scope control** | `D:\Claude_Stuff\guard-scope-probe.txt` | **Succeeded**, 8 bytes. Removed after confirmation. |
+
+Every refusal returned the same string verbatim: `File is in a directory that is denied by
+your permission settings.` The harness root has no `Edit(...)` rules and therefore no write
+row; only the two mirror guards deny writes.
+
+**The scope control is load-bearing, and without it the two write refusals establish
+nothing.** The harness tree lies outside both mirror roots, so a generic restriction on
+writing outside the session root would produce a refusal identical to the one an
+`Edit(**/goldset-triad-harness/**)` rule produces — same behaviour, same error string, and
+the probe cannot tell them apart. That is the configuration-versus-enforcement ambiguity of
+D30 arriving from the opposite direction: not a rule assumed to bind, but a binding assumed
+to be the rule. Writing to `D:\Claude_Stuff\`, further outside the root still and covered by
+no rule, **succeeded** — which is what attributes the two refusals to the guards rather than
+to root scoping. A write attestation without this control is worth less than it appears.
+
+**A refusal and a skipped probe leave identical traces.** The holdout write probe was omitted
+on the first pass and the omission was caught only by reading the transcript; the harness tree
+was clean either way, and `guard-write-probe2.txt` was equally absent whether the guard had
+refused the write or nobody had attempted one. Absence of a probe artifact is therefore not
+evidence of a refusal, and this log records the verbatim error rather than the empty tree for
+that reason.
+
+**`goldset-triad-check-isolation` ran three times and inspected one tree.** `REPO_ROOT` is
+`Path(__file__).resolve().parents[2]`, and under the editable install `__file__` sits in the
+real source tree — so the command reports on `goldset-triad-harness` wherever it is invoked.
+The three runs are one check repeated, not three independent results, and are recorded here as
+a single **PASS (exit 0)** with the standing `[durability]` and `[guard-reach]` advisories.
+
+**The harness root replicates; it does not contradict.** A refusal from a repository-rooted
+session is what D91 predicts, and the 2026-07-27 pair below already records both arms of that
+experiment. This run reproduces the later arm. Reading it as a contradiction would invert what
+the two entries jointly establish.
+
+**The secret root's positive control cannot be run cheaply, and that is structural.** Every
+file under `_generators/` carries the discrepancy-planting rule, `__pycache__` bytecode
+included by design — so the probe that confirms this root is not over-blocked for the purpose
+it exists to serve necessarily reads that rule into the probing session's context. There is no
+cheap substitute. The cost is a property of the root, not a lapse in this run, and it means a
+guard-attestation session at that root should not go on to do evaluation work. Nothing in the
+guard enforces that separation; nothing distinguishes a review session from any other session
+rooted there. That is the same class of limit as `[guard-reach]` — a property of how a session
+is opened.
+
+**Open — writes into the secret tier are denied by no root.** Every `Edit(...)` rule in the
+system names the harness tree and only the harness tree. The held-out-inputs root, which is
+where an agent under evaluation runs, is denied *reads* of the secret tier and nothing else —
+and overwriting the answer key requires no read of it. `verify.py` compares stored-against-
+recomputed digests, so tampering *after* a scorecard exists is caught; tampering *before*
+scoring is not, because the scorecard would then record the tampered key's own digest. Git in
+the secret tier catches that case, and only if someone looks. This is the *tamper* axis rather
+than the *leak* axis the guards were built for, and the honest-limits section below does not
+currently name it. Recorded as an open question, not a defect.
+
+**Also unprobed:** the shell path. Both mirror guards scope their `Bash(...)` rules to four
+distinctive secret filenames, so a subprocess read of the canary should succeed. That is D30's
+stated limit, and it remains stated rather than observed.
+
+**Standing risk carried forward:** `3f7ff9c`, the D123 mirror guard attested above, is still
+unpushed in the held-out-inputs tier.
+
+### 2026-07-28 (earlier — session rooted at the SECRET tier) — mirror guard **reads PASS, writes UNPROBED**
 
 > **Heading corrected the same day (D122).** It read *"mirror guard **PASS**"*. Every probe below is a
 > **read**. The guard's other half — writes into the published repository, which D120 itself calls *the only
@@ -322,7 +402,13 @@ session was opened — a precondition this document did not previously state.
   hypothesis: the two entries above are the same rules, the same machine and the same day,
   passing from one root and absent from another.
 
-**Standing status as of 2026-07-27:** both automated checks PASS; the enforcement half is
-**attested PASS from a repository-rooted session**, including the canary negative test and
-the held-out-input positive control. It is *not* claimed for sessions rooted elsewhere, and
-`goldset-triad-check-isolation` prints a `[guard-reach]` line when that is the case.
+**Standing status as of 2026-07-28:** both automated checks PASS; the enforcement half is
+**attested PASS from all three roots that load a guard** — harness, secret tier and held-out
+inputs — each with its own negative probe and positive control, and with the write direction
+attested for both mirror guards. The write results rest on a scope control establishing that
+out-of-root writes are not blanket-denied; without it they would not distinguish the guards
+from root scoping. Enforcement is still *not* claimed for a session rooted at an ancestor that
+carries its own settings, and `goldset-triad-check-isolation` prints a `[guard-reach]` line
+when that condition exists. Two things remain unobserved rather than attested: the shell path
+past the `Bash(...)` rules, and any guard on **writes into the secret tier**, which no root
+currently denies.

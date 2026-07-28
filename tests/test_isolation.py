@@ -260,19 +260,35 @@ class SecretTierMirrorGuardTests(unittest.TestCase):
     def test_nothing_can_be_written_into_the_published_repository(self) -> None:
         """The leak route that matters. Reading the harness from a secret-rooted session is
         fine and useful — the published policy lives there. Writing to it is how generator
-        content reaches an artifact that ships."""
-        writes = [r for r in self.deny if r.startswith(("Edit(", "Write("))]
+        content reaches an artifact that ships.
+
+        **The verb is load-bearing, and this check used to get it backwards (D122).** A
+        `Write(path)` deny rule is *not matched by file permission checks* and denies
+        nothing; an `Edit(path)` rule covers every file-editing tool, `Write` included.
+        This check required **both** verbs — asserting the presence of a rule that does
+        nothing, with no way to tell it from the one that works. The guard held only
+        because the pair happened to contain the binding form; had the natural verb for
+        "deny writing" been the only one written, this route would have been wide open and
+        every check in the project still green. Claude Code warns at startup for each
+        `Write(` rule, which is what surfaced it — so an inert rule is now a failure, both
+        for the false assurance and because a guard that nags on every session start is
+        one people switch off (D65)."""
+        binding = [r for r in self.deny
+                   if r.startswith("Edit(") and "goldset-triad-harness" in r]
         self.assertTrue(
-            writes, "the mirror guard denies no writes at all (D120)"
+            binding,
+            "the mirror guard has no Edit( rule covering the harness tree, so a "
+            "secret-rooted session can carry rule content into the published repository "
+            "(D120). Note the verb: only Edit( rules are matched by file permission "
+            "checks, and they cover Write as well (D122).",
         )
-        for verb in ("Edit", "Write"):
-            with self.subTest(verb=verb):
-                self.assertTrue(
-                    any(r.startswith(f"{verb}(") and "goldset-triad-harness" in r
-                        for r in self.deny),
-                    f"{verb} into the harness tree is not denied, so a secret-rooted "
-                    f"session can carry rule content into the published repository (D120)",
-                )
+        inert = [r for r in self.deny if r.startswith("Write(")]
+        self.assertEqual(
+            inert, [],
+            f"{inert} deny nothing — a Write( rule is not matched by file permission "
+            f"checks — and Claude Code prints a startup warning for each one. Use Edit( "
+            f"instead; it covers every file-editing tool (D122).",
+        )
 
     def test_the_generator_itself_is_not_denied(self) -> None:
         """The positive control, and the point of the whole file. A mirror guard that also

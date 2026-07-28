@@ -426,7 +426,8 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_scorecard_legend.SummaryAlignmentTests.test_columns_survive_multi_digit_counts"),
     # The other direction of the guard model (D120).
     ("C94", "a session rooted at the secret tier cannot reach the held-out answer key, and "
-            "cannot write into the published harness (D120)",
+            "cannot write into the published harness — the write denial in the form the "
+            "permission system matches, the ignored form rejected (D120, D122)",
      "test_isolation.SecretTierMirrorGuardTests.test_nothing_can_be_written_into_the_published_repository"),
     ("C95", "every shipped key agrees with an independent re-derivation, on every split "
             "this machine can see — not dev alone (D121)",

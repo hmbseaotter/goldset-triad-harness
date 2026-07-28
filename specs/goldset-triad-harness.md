@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.39.0
+- Spec version: 0.40.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,9 +17,18 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.39.0 @ D121** — the **generator review**, run from the secret tier under the
-  D120 mirror guard by a session that never touched this repository. The guard was attested working first, which
-  makes D120 the rare guard with an enforcement record and not only a configuration one. Acting on the report
+- **Last swept: 2026-07-28 @ 0.40.0 @ D122** — **half the mirror guard was a rule that denies nothing.** Claude
+  Code began warning at startup that a `Write(path)` deny rule is not matched by file permission checks; only
+  `Edit(path)` is, and it covers every file-editing tool. D120 had written each pattern **both** ways, so the
+  binding form was present and the write route — the one D120 calls the only genuine leak route — was closed
+  throughout. By luck: had the natural verb been the only one written, that route would have been open with the
+  test green, `check_isolation` printing PASS, D120 asserting the write denied, and the attestation recording
+  PASS. The check **required** the inert rule and could not tell it from the real one. Now inverted: `Edit(`
+  required, `Write(` a failure, both directions mutation-proven. The attestation's PASS was also narrowed — its
+  three probes were all **reads**, so the write half is `UNPROBED` and the probe is recorded as owed (D122).
+  Before it, **0.39.0 @ D121** — the **generator review**, run from the secret tier under the
+  D120 mirror guard by a session that never touched this repository. Its read guards were attested working
+  first — a fact this sweep had to narrow, since only reads were probed. Acting on the report
   exposed a finding here that the report could not see: **`audit()` — the only mechanism able to detect a wrong
   answer key, since every scoring test asserts the scorer agrees with the key — was asserted on `dev` alone**,
   leaving three splits including **held-out** outside it. All four pass; three were merely unasserted. Found by
@@ -849,6 +858,8 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
 - [ ] [P1] The secret tier carries its own permission settings: a session rooted there cannot read the held-out
   answer key, its index, the discrepancy design or a held-out scorecard, and cannot write into the published
   harness tree — while the generator itself stays readable, since reviewing it is what that root is for (D120).
+  The write denial is expressed in the form the permission system **matches**, and a rule in the form it
+  ignores is a failure rather than a redundancy (D122).
 - [ ] [P1] Every rule the **shipped implementation** applies has an entry in the published matching policy, and
   each entry describes what that implementation does — exercised against `audit_key`, the independent derivation
   an agent could run, on every split. The generator's own rule set cannot be compared from inside this
@@ -1331,9 +1342,24 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.40.0 (2026-07-28): **half the mirror guard was a rule that denies nothing (D122)**. Claude Code began
+  warning at every startup at the secret root that `Write(path)` deny rules are not matched by file permission
+  checks — only `Edit(path)` is, and it covers every file-editing tool. D120 wrote each pattern in both verbs,
+  so the write route was closed the whole time; that is luck, not design, because the author did not know which
+  verb binds. Written the natural way and only the natural way, the route D120 calls *the only genuine leak
+  route in a generator review* would have been wide open while the test passed, `check_isolation` printed
+  `PASS`, D120's text asserted the write denied, and the attestation recorded `mirror guard PASS` — four
+  affirmations, none able to see it. **The check required the inert rule**, treating the verb's presence as the
+  denial, which is D30's configuration-versus-enforcement gap reappearing inside the mechanism built to close
+  it. Inverted now: `Edit(` covering the harness tree is required, any `Write(` rule is a failure — for the
+  false assurance and for the startup noise, since a guard that nags is one people switch off (D65). Both
+  directions mutation-proven (D112). The attestation entry was narrowed from `PASS` to **reads PASS, writes
+  UNPROBED**: its three probes were all reads, and the write direction has no canary, so it can only be
+  attested by attempting one. That probe is recorded as owed. No criterion added; C94 extended to cover the
+  form.
 - 0.39.0 (2026-07-28): **the generator was reviewed, and the review found something here (D121)**. Under the
-  D120 mirror guard — attested working before anything was read, so that guard now has an enforcement record and
-  not merely a configuration one — a secret-rooted session read `_generators/` and answered the questions this
+  D120 mirror guard — its read guards attested working before anything was read, a claim D122 had to narrow
+  because only reads were probed — a secret-rooted session read `_generators/` and answered the questions this
   repository cannot: every rule the generator applies has a published policy entry, and `generator_digest` is
   imported from the harness rather than reimplemented. It also found four generator-side gaps, recorded in D121
   as properties for the author; the sharpest is that **two published entries do not state that variance is

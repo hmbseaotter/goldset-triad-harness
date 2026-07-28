@@ -193,7 +193,16 @@ a unique marker and no answer-key content, which is the entire reason it exists.
 Newest first. Superseded entries are kept, because the record of what was believed and when
 is part of what makes the claim auditable.
 
-### 2026-07-28 (session rooted at the SECRET tier) — mirror guard **PASS**, and a first for this log
+### 2026-07-28 (session rooted at the SECRET tier) — mirror guard **reads PASS, writes UNPROBED**
+
+> **Heading corrected the same day (D122).** It read *"mirror guard **PASS**"*. Every probe below is a
+> **read**. The guard's other half — writes into the published repository, which D120 itself calls *the only
+> genuine leak route in a generator review* — was never attempted, so the unqualified PASS covered the easy
+> half and claimed the hard one. Worse, half of that write rule was **inert**: each pattern was written both
+> as `Edit(` and as `Write(`, and only `Edit(` is matched by file permission checks. The route was closed
+> throughout because the pair contained the binding verb, but nothing here established that, and this entry
+> asserted it. **Owed:** from a session rooted at the secret tier, attempt an edit to any file under
+> `D:\Claude_Stuff\Claude_Desktop_Code_Projects\goldset-triad-harness` and record the refusal verbatim.
 
 The first entry recording a session rooted at `goldset-triad-secret` rather than here. It is
 in this log because it is an isolation result, and it tests the guard D120 added — the one
@@ -211,6 +220,12 @@ from this side and confirm its rules cover the right paths. They cannot confirm 
 **bind** — the same configuration-versus-enforcement distinction this whole document exists
 to keep honest (D30). This is the secret-side counterpart of the canary test, and until it
 was run the mirror guard was configuration nobody had seen work.
+
+**And that argument is exactly why the missing write probe matters.** Having made the case
+that reading a rule is not seeing it work, this entry then generalised from three reads to
+the whole guard. The write direction has no canary — there is nothing to leave on disk that
+a refused write would reveal — so it can only be attested by attempting one. Until that is
+done, the row is absent from the table above rather than assumed into it (D122).
 
 **Scope of the session that produced it.** It read `_generators/` and, read-only, this
 repository's published `datasets/dev/matching_policy.json`. It did not open `held-out/`,

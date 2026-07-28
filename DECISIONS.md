@@ -4839,6 +4839,10 @@ assumed away, and it is deletable after a review.
   and the *published* policy — and the published policy is readable in the harness repo, where reading is fine
   and only writing is denied.
 - **Writes** denied into the harness tree, both by relative and absolute pattern. This is the rule that matters.
+  > **Half of this was inert — see D122.** Each pattern was written twice, once as `Edit(` and once as
+  > `Write(`. Only the `Edit(` form is matched by file permission checks; the `Write(` form denies nothing.
+  > The route was closed the whole time because the pair contained the binding verb, but the sentence above
+  > was true by accident, and the check enforcing it *required* the dead rule. The `Write(` rules are gone.
 - **The generator stays readable**, asserted by a positive control. A mirror guard that also denied
   `_generators/` would make the review it exists to enable impossible — D65's over-blocking class, which is as
   real a failure as under-coverage.
@@ -4943,13 +4947,88 @@ generator half is judgement, and is listed under `## Not checked` until it lands
 
 ---
 
-## Not checked — as of 0.39.0 @ D121
+## D122 — Half the mirror guard was a rule that denies nothing ✅
+
+**Fork:** starting Claude Code at the secret root began printing, for several seconds before the prompt:
+
+```
+Permission deny rule (.claude\settings.json): Write(**/goldset-triad-harness/**) is not matched by file
+permission checks — only Edit(path) rules are. Use Edit(**/goldset-triad-harness/**) instead (Edit rules
+cover all file-editing tools).
+```
+
+Twice, once per pattern. **A `Write(path)` deny rule denies nothing.** `Edit(path)` is the form file
+permission checks match, and it covers every file-editing tool, `Write` included.
+
+**What actually held, and why that is not reassuring.** D120's guard listed **both** verbs for each of the two
+patterns, so the binding form was present and the write route was closed the whole time. That is luck, not
+design: both were written for belt-and-braces by an author who did not know which one binds. Had the file
+carried only `Write(...)` — *the natural verb for "deny writing"*, and the one anybody would reach for first —
+then the route D120 itself calls **"the only genuine leak route in a generator review"** would have been wide
+open, while:
+
+- `test_nothing_can_be_written_into_the_published_repository` passed,
+- `check_isolation` printed `guard-configuration and placement checks PASS`,
+- D120's own text asserted *"**Writes** denied into the harness tree… This is the rule that matters"*,
+- and `ISOLATION_ATTESTATION.md` recorded **mirror guard PASS**.
+
+Four independent affirmations, none of them able to see it. The only thing that could was Claude Code, and it
+had to be started at that root to say so.
+
+**The check required the inert rule.** It asserted that *both* `Edit(` and `Write(` rules naming the harness
+were present — so deleting the dead rules turned the suite red, and the check could not tell a rule that binds
+from one that does not. It treated *the verb appearing in the deny list* as *the write being denied*. That is
+D30's distinction — configuration is not enforcement — reappearing **inside the mechanism written to enforce
+it**, and it is the same shape as D64a: a rule whose enforcement is narrower, or in this case differently
+aimed, than the rule itself. Now inverted: an `Edit(` rule covering the harness tree is **required**, and any
+`Write(` rule is a **failure**, for the false assurance and for the startup noise. Both directions
+mutation-proven — re-adding a `Write(` rule fails the check, and removing the `Edit(` rules fails it (D112).
+
+**The attestation overstated what it had.** The 2026-07-28 entry records three probes, **all of them reads**.
+The write half was never attempted, so `mirror guard PASS` covered the half that was easy to test and not the
+half D120 calls the one that matters. Corrected there, with the exact probe recorded as owed. This project has
+a canary for the read direction (D30) and **nothing equivalent for the write direction** — the read canary
+works because a file with a marker in it can be left where a read would find it, and there is no comparable
+artifact for a write that is supposed to be refused. The probe therefore stays manual.
+
+**The startup warning is also a D65 problem in its own right.** Several seconds of red text before every prompt
+at that root, on every session, forever. A guard that nags is a guard someone eventually switches off — which
+is why the fix removes the dead rules rather than silencing the warning.
+
+**Rule** — **a permission rule is checked for the form that binds, never merely for the verb that reads well.**
+Enforced by `test_isolation.SecretTierMirrorGuardTests.test_nothing_can_be_written_into_the_published_repository`,
+which now rejects the inert form outright. The general case — that this project checks rules *exist* and cannot
+check they *bind*, for anything but reads — is D30's standing limitation, and is listed under `## Not checked`
+rather than pretended away.
+
+---
+
+## Not checked — as of 0.40.0 @ D122
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The inert-rule pass (0.40.0, D122)
+
+- **Whether any deny rule in either guard file *binds*, beyond the read direction.**
+  *Method: none automatable.* D30 already says this and D122 is what it looks like when
+  the gap is load-bearing. The read direction has a canary; the write direction has no
+  equivalent artifact, because there is nothing to leave on disk that a refused write
+  would reveal. **The owed probe:** from a session rooted at the secret tier, attempt an
+  edit to any file under the harness tree and record the refusal verbatim in
+  `ISOLATION_ATTESTATION.md`.
+- **Whether other permission verbs used anywhere here are the binding form.** *Method:
+  partly checked.* `Write(` is now rejected outright and both guard files are otherwise
+  `Read(`, `Edit(` and `Bash(` only — but nothing knows which verbs Claude Code matches;
+  that list lives in the tool, not here, and the only reason this one surfaced is that the
+  tool warned. A verb it silently ignores would look exactly like a working rule.
+- **Whether the harness-side guard has the same class of defect.** *Method: read this
+  pass.* It denies reads and Bash patterns only, and emits no startup warning, so the
+  specific `Write(`/`Edit(` fault cannot be present. That is a narrower statement than
+  "its rules bind", which remains unestablished for the same reason as above.
 
 ### The generator review (0.39.0, D121)
 

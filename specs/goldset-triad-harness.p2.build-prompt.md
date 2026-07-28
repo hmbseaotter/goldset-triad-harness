@@ -167,6 +167,8 @@ Every `[P2]` criterion in the spec, each passing **by execution**:
 - [ ] Every block a published document shows as harness output is reproduced by running the harness and compared
   line for line, with no output-shaped block left unregistered — success output and failure messages alike
   (D30, D102, D112).
+- [ ] Verify mode recomputes the human summary as well as the scored body, reporting an altered `.txt` as its
+  own outcome and an absent one as no difference (D118).
 - [ ] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.

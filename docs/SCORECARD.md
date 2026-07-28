@@ -30,11 +30,11 @@ False positives: 0  (rate 0.0000 per invoice)
 Duplicate-contention flags: 0   Non-existent-target flags: 0   MATCH assertions: 0
 
 Per-category (precision / recall):
-  PRICE_VARIANCE         TP 3  FP 0  FN 1   P 1.0000  R 0.7500
-  QTY_UNDER_SHIPMENT     TP 0  FP 0  FN 1   P n/a  R 0.0000
-  QTY_OVER_SHIPMENT      TP 0  FP 0  FN 1   P n/a  R 0.0000
-  QTY_INVOICE_INFLATED   TP 0  FP 0  FN 2   P n/a  R 0.0000
-  TAX_VARIANCE           TP 0  FP 0  FN 1   P n/a  R 0.0000
+  PRICE_VARIANCE         TP    3  FP    0  FN    1   P 1.0000  R 0.7500
+  QTY_UNDER_SHIPMENT     TP    0  FP    0  FN    1   P n/a     R 0.0000
+  QTY_OVER_SHIPMENT      TP    0  FP    0  FN    1   P n/a     R 0.0000
+  QTY_INVOICE_INFLATED   TP    0  FP    0  FN    2   P n/a     R 0.0000
+  TAX_VARIANCE           TP    0  FP    0  FN    1   P n/a     R 0.0000
 
 COVERAGE: this dataset exercises all 5 categories (9 expected finding(s)).
 

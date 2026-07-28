@@ -4667,13 +4667,105 @@ the sign. Enforced by `test_audit_score_parity.TaxDerivationPreconditionTests`,
 
 ---
 
-## Not checked — as of 0.35.0 @ D117
+## D118 — Verify examined half the pair, and the other half is the one people read ✅
+
+**Fork:** `scorecard.py` had been carried by five sweeps. Reading it turned up nothing wrong with its
+arithmetic — and one thing wrong with what verifies it.
+
+**(a) A tampered human summary passes as `identical`.** Measured, editing only the `.txt`:
+
+```
+tampered the .txt summary; left the .json alone
+  verify exit=0
+  verify says: verify: identical - ... every scored field matches; all four fingerprints agree
+  .txt still claims: ['Overall precision: 0.5000   recall: 1.0000']
+```
+
+**The `.txt` is not a throwaway by this project's own treatment of it.** D49 pins its line endings *because*
+both halves must carry platform-independent bytes; the cross-platform job compares it; D102 binds the copies
+quoted in the documentation. It is also the artifact a person actually reads and acts on — the JSON is for
+machines, which is exactly why a corrupted summary is the version a human would believe. And D10's premise,
+repeated in the legend over "a scorecard" unqualified, is that *a scorecard never has to be trusted, because it
+can be recomputed*.
+
+Closable for nothing: `human_summary` needs the card and the `ScoreResult`, and `_recompute` already produces
+both. It was discarding the second.
+
+- **Ranked last, below the scored body.** With the body intact and the summary differing, the `.txt` was
+  altered after the fact — the score is not wrong. Reporting that as a scoring difference is the misdiagnosis
+  this module has been sharpened against three times (D50, D79).
+- **An absent `.txt` is not a difference.** Keeping only the JSON is legitimate; it is the durable record.
+  Inventing a failure there would break verify on a sound archive.
+- **The identical message now names what it compared**, because "checked and matched" and "not checked" are
+  otherwise indistinguishable to a reader — which is how this gap survived in the first place.
+
+**(b) The per-category table's columns did not line up.** Nothing was width-padded, so `n/a` sat three
+characters left of where `1.0000` put the next column, and any count above one digit shifted everything after
+it:
+
+```
+  PRICE_VARIANCE         TP 137  FP 12  FN 4   P 0.9195  R 0.9716
+  QTY_UNDER_SHIPMENT     TP 0  FP 0  FN 1   P n/a  R 0.0000
+```
+
+The legend calls this table *"the same verdict in a form you can read at a glance"*, and ragged columns are
+precisely what that costs. Today's splits are too small to show it; **D110 has just specified a much larger
+`[P3]` dataset**, which makes multi-digit counts certain rather than hypothetical — so the check is written at
+that scale rather than at the one the data can currently reach.
+
+**(c) One stringly-typed comparison.** `_target_str` tested `finding.scope.value == "DOCUMENT"` where the rest
+of the package compares enum identity. A value rename would have sent every document-scoped finding silently
+down the LINE branch.
+
+**The rendering change proved D102 works.** Padding the columns altered the summary bytes, and
+`test_published_examples` failed on all three documented blocks — README, legend and runbook — on the next run.
+Before D102 those would have drifted silently, which is what they had already done once.
+
+**What the sweep found sound**, since five deferrals had built up an expectation of trouble: per-category
+counts sum to the overall counts on every split; `expected_count` matches the key's real per-category counts
+and its total, which is the D60 coverage block's central claim; `ROUND_HALF_UP` is exact in both directions at
+the quantum boundary; the three COVERAGE branches are exhaustive; `missed` and `false_flags` are
+deterministically ordered; `categories_total` is derived rather than hardcoded. Ratio quantization *can*
+render a near-perfect score as `1.0000`, but it needs roughly one error in twenty thousand flags — unreachable
+at any planned dataset size, and documented accurately in both the legend and the README. Not a finding.
+
+**Rule** — **a tool that emits two artifacts verifies two artifacts.** Verify was built around the JSON because
+the JSON is what recomputation produces; the second file came from the same computation and was never asked
+about. Enforced by `test_verify_mode`'s three summary cases and
+`test_scorecard_legend.SummaryAlignmentTests`.
+
+---
+
+## Not checked — as of 0.36.0 @ D118
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep
 finds, it is the gap a sweep knowingly leaves and never writes down: **D64a existed because "the staleness checks
 iterate only the dev splits" was true, deliberate and unrecorded.** The next reader starts here — and the
 phase-completion sweep did exactly that, taking the list below as its agenda and finding three of its five
 things by walking it.
+
+### The scorecard-rendering sweep (0.36.0, D118)
+
+Targeted `scorecard.py`, carried by five sweeps and named by the last two as the oldest
+untouched surface. Three findings — none of them in the arithmetic, which is the useful
+result. It did **not** examine:
+
+- **The `.txt` beyond what verify now compares.** *Method: read `human_summary` line by
+  line and diffed its output against the documented blocks.* Verify recomputes it and D102
+  binds three quoted copies, but nothing checks it is *legible* — column alignment is now
+  asserted, wording and ordering are not, and prose quality is not a testable property.
+- **`_confidence_str`'s round-tripping.** *Method: read it and confirmed it never
+  quantizes.* An agent submitting `0.80` and one submitting `0.8` produce different
+  scorecard bytes; the findings-artifact fingerprints differ too, so this is consistent —
+  but no test states it, and it is the one place an agent's formatting reaches the scored
+  body.
+- **Whether the legend's prose is still true after this change.** *Method: regenerated the
+  three documented blocks and re-ran D102's comparison.* The blocks match; the paragraphs
+  around them were not re-read against the new rendering.
+- **`scorecard.py` under a non-default decimal context.** *Method: none — C55 covers
+  cross-precision byte-identity for the ratio path and was not re-derived here.*
+- **The generator's rules**, unchanged from every prior sweep. The secret tier has no test
+  suite, and a rule change that is self-consistently wrong still passes.
 
 ### The key-audit sweep (0.35.0, D117)
 

@@ -138,6 +138,12 @@ def run_verify(args: argparse.Namespace) -> int:
             "  This is a shape mismatch, not a scoring difference. Re-score the inputs "
             "with this version of the harness to obtain a comparable scorecard (D66).\n"
         )
+    if result.outcome is Outcome.SUMMARY_DIFFERS:
+        stream.write(
+            "  The JSON scorecard is intact and its numbers recompute exactly; only the "
+            "human summary beside it differs. Re-render it by re-scoring, or treat the "
+            "JSON as authoritative — it is the durable record (D9, D118).\n"
+        )
     if result.outcome is Outcome.DATASET_MISMATCH:
         stream.write(
             "  Nothing about the score was checked. Re-run with --dataset naming the "

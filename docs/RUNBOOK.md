@@ -331,11 +331,11 @@ public `dev-synthetic` split so it can be printed here safely:
 
 ```text
 Per-category (precision / recall):
-  PRICE_VARIANCE         TP 0  FP 0  FN 1   P n/a  R 0.0000
-  QTY_UNDER_SHIPMENT     TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
-  QTY_OVER_SHIPMENT      TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
-  QTY_INVOICE_INFLATED   TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
-  TAX_VARIANCE           TP 0  FP 0  FN 0   P n/a  R n/a   [not exercised by this dataset]
+  PRICE_VARIANCE         TP    0  FP    0  FN    1   P n/a     R 0.0000
+  QTY_UNDER_SHIPMENT     TP    0  FP    0  FN    0   P n/a     R n/a      [not exercised by this dataset]
+  QTY_OVER_SHIPMENT      TP    0  FP    0  FN    0   P n/a     R n/a      [not exercised by this dataset]
+  QTY_INVOICE_INFLATED   TP    0  FP    0  FN    0   P n/a     R n/a      [not exercised by this dataset]
+  TAX_VARIANCE           TP    0  FP    0  FN    0   P n/a     R n/a      [not exercised by this dataset]
 
 COVERAGE: this dataset exercises 1 of 5 categories (1 expected finding(s)). NOT measured: QTY_UNDER_SHIPMENT, QTY_OVER_SHIPMENT, QTY_INVOICE_INFLATED, TAX_VARIANCE. Their null metrics mean the data lacks these cases, NOT that the agent handled them correctly.
 ```

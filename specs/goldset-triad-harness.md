@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.35.0
+- Spec version: 0.36.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -17,8 +17,12 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 - Visibility: private now, public when ready (D11.1). The **entire held-out split** — inputs, answer key,
   generators and discrepancy-design artifact — lives **outside** this repository tree, so publishing never
   exposes it (D14). The dev split ships in full, inputs and key, and is what CI exercises.
-- **Last swept: 2026-07-28 @ 0.35.0 @ D117** — the **key-audit sweep**, targeting `audit_key.py`'s re-derivation: the project's defence against a wrong answer key, and the last major surface no sweep had opened. Three findings, one decision (D117). The cross-multiplied tax test — cross-multiplied precisely to honour D28's no-division rule — inverts below zero, so a purchase order with a negative taxable subtotal made the auditor report a TAX_VARIANCE against a *correct* key; it loaded cleanly, so this was reachable through the real pipeline. And `taxable`, which decides the tax basis, was validated by neither reader: both test it with `is True`, so a truthy `1` or an absent flag silently dropped the line — **and the audit could not catch it, because it shares the default with the loader rather than computing the same answer independently.** Locked at zero; all 42 shipped lines are clean.
-  The prior sweep was **0.34.0 @ D116** — the **scoring-input sweep**, which took the negative-space list as its
+- **Last swept: 2026-07-28 @ 0.36.0 @ D118** — the **scorecard-rendering sweep**, taking the oldest untouched surface in the project: `scorecard.py`, carried by five sweeps. Three findings, one decision (D118), and **none in the arithmetic** — per-category counts, the coverage block's claims about the key, and ROUND_HALF_UP at the quantum boundary all held. What did not hold was what *verifies* it: a human summary edited to claim a different score passed as `identical`, because verify examined the JSON and the `.txt` is the half a person actually reads. Also: the per-category columns did not align once a count exceeded one digit, which `[P3]`'s larger dataset makes certain.
+  The prior sweep was **0.35.0 @ D117** — the **key-audit sweep**, which found the cross-multiplied tax test
+  inverts below zero (so a negative taxable subtotal made the auditor report a variance against a *correct*
+  key) and that `taxable`, which decides the tax basis, was validated by neither reader — the audit sharing the
+  loader's silent default rather than deriving independently.
+  Before it, **0.34.0 @ D116** — the **scoring-input sweep**, which took the negative-space list as its
   agenda and closed the item it had carried three times: D113 (an answer key's *record order* reached the scored
   body — two expectations sharing a match key were accepted, and which one was reported missed depended on their
   order in the file; the metrics never moved, so D26's tie-break reasoning held exactly as written, but
@@ -952,6 +956,9 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   run's scorecard untouched (D114).
 - [ ] [P2] Verify mode on a scorecard whose stored numbers have been altered detects the difference and
   exits non-zero.
+- [ ] [P2] Verify mode recomputes the human summary as well as the scored body: a `.txt` altered beside an
+  intact scorecard is reported as its own outcome, ranked below a scoring difference and saying the body is
+  intact, while an absent `.txt` is not treated as a difference (D118).
 - [ ] [P2] Verify mode pointed at a dataset other than the one a scorecard records reports that as its own
   outcome, naming the stored and the resolved identifier, and compares nothing further — neither fingerprints
   nor scored body, since digests of a different dataset differ for a reason that is not tampering (D79).
@@ -1288,6 +1295,22 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.36.0 (2026-07-28): **the scorecard-rendering sweep: three findings, D118**, taking the oldest untouched
+  surface in the project — `scorecard.py`, carried by five sweeps. **None of the findings is in the
+  arithmetic**, which is the useful result: per-category counts sum to the overall counts on every split, the
+  coverage block's `expected_count` matches the key's real per-category totals, `ROUND_HALF_UP` is exact in
+  both directions at the quantum boundary, and the COVERAGE branches are exhaustive. What did not hold is what
+  *verifies* it. **A human summary edited to claim a different score passed as `identical`** — verify examined
+  the JSON and never the `.txt`, which is the half D49 pins line endings for, the cross-platform job compares,
+  and a person actually reads. It now recomputes both, ranked below a scoring difference (an intact body with a
+  differing summary means the `.txt` was altered, not that the score is wrong) and with an absent `.txt` not
+  treated as a difference, since keeping only the durable record is legitimate. Also: the per-category columns
+  did not align once a count exceeded one digit or a metric read `n/a`, in a table the legend calls something
+  you read *at a glance* — checked at `[P3]` scale, which D110 has just made certain; and one stringly-typed
+  enum comparison that would have sent every document-scoped finding down the wrong branch on a rename.
+  Padding the columns changed the summary bytes and **D102's mechanism failed all three documented blocks on
+  the next run**, which is the drift it was built to catch. 313 → 319 tests; pyright 0 errors; 2 acceptance
+  criteria added.
 - 0.35.0 (2026-07-28): **the key-audit sweep: three findings, D117**, targeting the one surface no prior sweep
   had opened — `audit_key.py`'s independent re-derivation, which exists to catch the failure nothing else can
   (a wrong answer key, against which every scoring test is circular). **Its tax test inverts below zero.** The

@@ -406,6 +406,12 @@ CRITERIA: list[tuple[str, str, str]] = [
     ("C91", "every line's `taxable` flag is a present boolean, on both the purchase-order "
             "and the invoice-index side (D117)",
      "test_audit_score_parity.TaxableFlagShippedStateTests.test_every_shipped_line_declares_a_boolean_taxable_flag"),
+    # The scorecard-rendering sweep (D118).
+    ("C92", "[P2] verify recomputes the human summary too, so a tampered `.txt` beside an "
+            "intact scorecard is reported as its own outcome (D118)",
+     "test_verify_mode.VerifyModeTests.test_a_tampered_human_summary_is_caught"),
+    ("C93", "the per-category table's columns align on every row, at any dataset size",
+     "test_scorecard_legend.SummaryAlignmentTests.test_columns_survive_multi_digit_counts"),
 ]
 
 
@@ -698,6 +704,16 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     "test_isolation.IsolationTests.test_a_newly_added_split_is_publishable_without_editing_code",
     # D116: the project's other stamped marker, which D108's mechanism did not reach.
     "test_traceability.TraceabilityTests.test_the_negative_space_section_is_stamped_current",
+    # D118's controls. C92 and C93 carry the criteria; these are the boundaries around
+    # them: a correct pair must still read `identical` AND say the summary was compared
+    # (otherwise "checked and matched" is indistinguishable from "not checked"); an absent
+    # `.txt` is not a difference, since the JSON is the durable record and keeping only it
+    # is legitimate; today's shipped data must align too, not just the `[P3]`-scale
+    # fixture; and the document-scope branch is chosen by enum identity, not by a string.
+    "test_verify_mode.VerifyModeTests.test_an_untouched_pair_still_verifies_identical",
+    "test_verify_mode.VerifyModeTests.test_an_absent_summary_is_not_a_failure",
+    "test_scorecard_legend.SummaryAlignmentTests.test_columns_align_across_every_row_of_a_real_run",
+    "test_scorecard_legend.SummaryAlignmentTests.test_a_document_scoped_miss_is_labelled_by_enum_not_by_string",
     # D117's controls. C90 and C91 carry the criteria; these are the surrounding cases —
     # a zero-variance invoice must not flag (which is what the inversion broke), a material
     # variance must still flag (so the guard cannot be met by never flagging), and D28's
@@ -741,7 +757,7 @@ EXPECTED_SPEC_P1_CRITERIA = 137
 # ledger, CI-workflow and cross-platform criteria are mapped as their items land" —
 # described a debt that was paid two commits later and then went on describing it, which
 # is the same stale-restatement class the 0.22.0 sweep removed three instances of.
-EXPECTED_SPEC_P2_CRITERIA = 9
+EXPECTED_SPEC_P2_CRITERIA = 10
 
 # The same checksum for `[P3]`, which had none while its criteria went from two to seven.
 #

@@ -22,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 
 from .constants import RATIO_OUTPUT_PLACES, ROUNDING_MODE
-from .schema import Category, Finding
+from .schema import Category, Finding, Scope
 from .scoring import ScoreResult
 
 # Bumped to "2" by D60, which added the `coverage` block and two per-category fields. The
@@ -190,7 +190,11 @@ def deterministic_body(scorecard: dict[str, Any]) -> str:
 
 
 def _target_str(finding: Finding) -> str:
-    if finding.scope.value == "DOCUMENT":
+    # Enum identity, not its value string (D118). `finding.scope.value == "DOCUMENT"`
+    # stood here and would take the LINE branch silently if the enum's value were ever
+    # renamed — the same stringly-typed comparison the rest of the package avoids
+    # (`f.status is Status.MATCH`).
+    if finding.scope is Scope.DOCUMENT:
         return f"{finding.target.document_id} (document)"
     return f"{finding.target.document_id} line {finding.target.line_id}"
 
@@ -238,11 +242,20 @@ def human_summary(scorecard: dict[str, Any], result: ScoreResult) -> str:
         # in the numbers, not a paragraph below it, and nulls on an untested category are
         # exactly what gets misread as a perfect score (D60).
         note = "" if row["exercised_by_dataset"] else "   [not exercised by this dataset]"
+        # Every column is width-padded (D118). Nothing was, so `n/a` shifted the R column
+        # three characters left of where `1.0000` put it, and any count above one digit
+        # shifted everything after it. The legend calls this table something you read "at
+        # a glance", which is exactly what ragged columns cost — and `[P3]`'s larger
+        # dataset makes multi-digit counts certain rather than hypothetical.
+        #
+        # Widths: counts right-aligned so units line up, ratios left-aligned at the width
+        # of `0.0000` so `n/a` pads rather than pulls.
         lines.append(
             f"  {category.value:<22} "
-            f"TP {row['true_positives']}  FP {row['false_positives']}  "
-            f"FN {row['false_negatives']}   "
-            f"P {_display(row['precision'])}  R {_display(row['recall'])}{note}"
+            f"TP {row['true_positives']:>4}  FP {row['false_positives']:>4}  "
+            f"FN {row['false_negatives']:>4}   "
+            f"P {_display(row['precision']):<6}  R {_display(row['recall']):<6}"
+            f"{note}".rstrip()
         )
 
     cov = scorecard["coverage"]

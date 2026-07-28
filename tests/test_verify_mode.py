@@ -355,6 +355,59 @@ class VerifyModeTests(unittest.TestCase):
             self.assertIn(f"{moved} file(s) diverge", joined)
             self.assertIn("further diverging file(s)", joined)
 
+    def test_a_tampered_human_summary_is_caught(self) -> None:
+        """The other half of the pair, which verify did not look at (D118).
+
+        D49 pins LF on both files, the cross-platform job compares both, and the `.txt` is
+        what a person actually reads and acts on — while verify examined only the JSON and
+        reported `identical`. A summary edited to claim a different score passed clean,
+        from the feature whose whole premise is that a scorecard need not be trusted."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            summary = card.with_suffix(".txt")
+            original = summary.read_text(encoding="utf-8")
+            self.assertIn("Overall precision: 1.0000", original, "fixture premise")
+            summary.write_text(
+                original.replace("Overall precision: 1.0000", "Overall precision: 0.5000"),
+                encoding="utf-8", newline="\n",
+            )
+
+            result = self._verify(card, findings)
+            self.assertEqual(result.outcome, Outcome.SUMMARY_DIFFERS)
+            joined = "\n".join(result.causes)
+            self.assertIn("0.5000", joined, "the report names the stored line")
+            self.assertIn("1.0000", joined, "and what it should render as")
+            # Ranked below the body, and the message must say the body is intact —
+            # otherwise a reader audits arithmetic that was never at fault (D50, D79).
+            self.assertIn("scored body matches", joined)
+            rc = main([
+                "verify", "--scorecard", str(card), "--dataset", "dev",
+                "--datasets-root", str(support.DATASETS), "--findings", str(findings),
+            ])
+            self.assertEqual(rc, 1, "a detected difference is exit 1")
+
+    def test_an_untouched_pair_still_verifies_identical(self) -> None:
+        """The positive control. A summary check that fired on a correct pair would be
+        worse than none, and the message must say the summary was compared — otherwise
+        nothing distinguishes 'checked and matched' from 'not checked'."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            result = self._verify(card, findings)
+            self.assertEqual(result.outcome, Outcome.IDENTICAL)
+            self.assertIn("human summary", "\n".join(result.causes))
+
+    def test_an_absent_summary_is_not_a_failure(self) -> None:
+        """A reader may legitimately keep only the JSON — it is the durable record. An
+        absent `.txt` is therefore not a difference, and inventing one would make verify
+        fail on a perfectly sound archive."""
+        with tempfile.TemporaryDirectory() as t:
+            td = Path(t)
+            card, findings = self._scored(td)
+            card.with_suffix(".txt").unlink()
+            self.assertEqual(self._verify(card, findings).outcome, Outcome.IDENTICAL)
+
     def test_an_unreadable_scorecard_is_an_error_not_a_failed_verification(self) -> None:
         """A verification that never happened is not a verification that failed (D50).
         The halt names the cause, and the CLI distinguishes it by exit code."""

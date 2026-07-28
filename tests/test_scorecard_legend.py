@@ -25,12 +25,14 @@ import json
 import re
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 from tests import support
 from goldset_triad import scorecard as sc
 from goldset_triad.dataset import load_dataset
-from goldset_triad.scoring import score
+from goldset_triad.schema import Category
+from goldset_triad.scoring import CategoryMetrics, ScoreResult, score
 
 LEGEND = support.REPO_ROOT / "docs" / "SCORECARD.md"
 
@@ -73,6 +75,81 @@ def _scorecard_with_every_branch() -> dict:
                                loaded.answer_key.sha256, loaded.invoice_index.sha256,
                                loaded.inputs_aggregate_sha256)
     return sc.build_scorecard(result, provenance, sc.RunMetadata("2026-07-28T00:00:00Z", 1, 2, 3))
+
+
+class SummaryAlignmentTests(unittest.TestCase):
+    """The per-category table's columns line up, at any dataset size (D118).
+
+    Nothing was width-padded, so `n/a` sat three characters left of where `1.0000` put the
+    next column, and any count above one digit shifted everything after it. The legend
+    calls this table something you read *at a glance*, which is precisely what ragged
+    columns cost — and `[P3]`'s larger dataset makes multi-digit counts certain rather
+    than hypothetical, so this is checked at that scale rather than at today's."""
+
+    def _rows(self, result: ScoreResult) -> list[str]:
+        card = sc.build_scorecard(
+            result, sc.Provenance("dev", "1.0.0", "f" * 64, "a" * 64, "b" * 64, "c" * 64),
+            sc.RunMetadata("2026-07-28T00:00:00Z", 1, 2, 3),
+        )
+        return [
+            line for line in sc.human_summary(card, result).splitlines()
+            if line.startswith("  ") and "TP " in line
+        ]
+
+    def _columns(self, row: str) -> tuple[int, ...]:
+        """Where each labelled column starts, which is what must not move."""
+        return tuple(row.index(label) for label in ("TP ", "FP ", "FN ", "P ", "R "))
+
+    def test_columns_align_across_every_row_of_a_real_run(self) -> None:
+        loaded = load_dataset("dev", support.DATASETS)
+        expected = loaded.answer_key.expected_findings
+        result = score(expected, expected[:1], loaded.invoice_index.inventory)
+        rows = self._rows(result)
+        self.assertEqual(len(rows), 5, "every category is rendered, always")
+        positions = {self._columns(row) for row in rows}
+        self.assertEqual(
+            len(positions), 1,
+            "the labelled columns must start at the same offset on every row; got "
+            + "\n".join(rows),
+        )
+
+    def test_columns_survive_multi_digit_counts(self) -> None:
+        """A row is built directly at `[P3]` scale — three-digit true positives beside a
+        single-digit row — because the shipped splits are too small to show the break."""
+        wide = ScoreResult(
+            category_metrics=tuple(
+                CategoryMetrics(
+                    category=c,
+                    true_positives=137 if i == 0 else 0,
+                    false_positives=12 if i == 0 else 0,
+                    false_negatives=4 if i == 0 else 0,
+                    precision=Decimal("0.9195") if i == 0 else None,
+                    recall=Decimal("0.9716") if i == 0 else None,
+                )
+                for i, c in enumerate(Category)
+            ),
+            overall_precision=Decimal("0.9195"), overall_recall=Decimal("0.9716"),
+            false_positive_count=12, false_positive_rate=Decimal("0.16"),
+            duplicate_contention_count=0, nonexistent_target_count=0, match_status_count=0,
+            missed=(), false_flags=(), invoice_count=75, finding_count=149,
+        )
+        positions = {self._columns(row) for row in self._rows(wide)}
+        self.assertEqual(
+            len(positions), 1,
+            "a 137-count row must not shift the columns of the rows beside it — this is "
+            "the case `[P3]` makes certain and today's data cannot show",
+        )
+
+    def test_a_document_scoped_miss_is_labelled_by_enum_not_by_string(self) -> None:
+        """`_target_str` compared `finding.scope.value == "DOCUMENT"` (D118). It now
+        compares enum identity, like the rest of the package — a value rename would have
+        silently sent every document-scoped finding down the LINE branch."""
+        rendered = sc._target_str(support.document(Category.TAX_VARIANCE, "INV-2003"))
+        self.assertEqual(rendered, "INV-2003 (document)")
+        self.assertEqual(
+            sc._target_str(support.line(Category.PRICE_VARIANCE, "INV-2001", "2")),
+            "INV-2001 line 2",
+        )
 
 
 class ScorecardLegendTests(unittest.TestCase):

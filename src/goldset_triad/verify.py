@@ -35,7 +35,14 @@ that applies and stops:
    arithmetic when the answer is that they scored different data (D50).
 4. **The scored body differs** on identical inputs. This is the real discrepancy:
    same inputs, different numbers.
-5. **Identical.**
+5. **The human summary differs** while the scored body matches (D118). The `.txt`
+   is the other half of the pair — D49 pins its line endings too and the
+   cross-platform job compares it — and it is what a person actually reads. Verify
+   examined only the JSON, so a summary edited to claim a different score passed
+   as "identical". Ranked last on purpose: with the body intact, the summary was
+   altered after the fact, and calling that a scoring difference would be the
+   misdiagnosis this module keeps being sharpened against.
+6. **Identical.**
 
 Every one of those is a halt naming a specific cause, never a diff dump — which is
 why differences are reported as `metrics.per_category.PRICE_VARIANCE.recall:
@@ -65,14 +72,15 @@ from .dataset import (
     load_findings_artifact,
     per_file_digests,
 )
-from .jsonio import read_json_object
+from .jsonio import read_json_object, read_text_file
 from .scorecard import (
     SCORECARD_SCHEMA_VERSION,
     Provenance,
     RunMetadata,
     build_scorecard,
+    human_summary,
 )
-from .scoring import score
+from .scoring import ScoreResult, score
 
 #: How many named differences to print before summarising the rest. A halt names its
 #: cause; a hundred lines of them is the diff dump the requirement rules out.
@@ -114,6 +122,7 @@ class Outcome(Enum):
     DATASET_MISMATCH = "dataset-mismatch"
     FINGERPRINT_MISMATCH = "fingerprint-mismatch"
     SCORE_DIFFERS = "score-differs"
+    SUMMARY_DIFFERS = "summary-differs"
 
 
 def _bounded(causes: list[str], noun: str) -> list[str]:
@@ -283,7 +292,7 @@ def _inputs_diagnosis(inputs_dir: Path, baseline_inputs: Path | None) -> list[st
 
 def _recompute(
     dataset_ref: str, findings_path: Path, search_root: Path
-) -> tuple[dict[str, Any], LoadedDataset]:
+) -> tuple[dict[str, Any], LoadedDataset, ScoreResult]:
     """Score again, through exactly the code the original run went through.
 
     `load_findings_artifact` is shared with `cli.run_score` rather than reimplemented
@@ -304,7 +313,10 @@ def _recompute(
         invoice_index_sha256=loaded.invoice_index.sha256,
         inputs_aggregate_sha256=loaded.inputs_aggregate_sha256,
     )
-    return build_scorecard(result, provenance, _UNUSED_RUN_METADATA), loaded
+    # The `ScoreResult` travels back too: `human_summary` needs it as well as the card
+    # (D118), and recomputing the score twice to get it would be a second implementation
+    # of the thing this module exists to compare against.
+    return build_scorecard(result, provenance, _UNUSED_RUN_METADATA), loaded, result
 
 
 def verify(
@@ -365,7 +377,7 @@ def verify(
             ),
         )
 
-    recomputed, loaded = _recompute(dataset_ref, findings_path, search_root)
+    recomputed, loaded, result = _recompute(dataset_ref, findings_path, search_root)
 
     # 2. Whether this is even the dataset the scorecard scored (D79). The scorecard
     #    records the identifier and version, verify holds both before it compares a
@@ -450,10 +462,69 @@ def verify(
             ),
         )
 
+    # 5. The human summary, which is the other half of the pair (D118). D49 pins LF on
+    #    BOTH files, the cross-platform job compares both, and the `.txt` is the one a
+    #    person actually reads and acts on — while verify examined only the JSON and said
+    #    "identical". A summary edited to claim a different score passed clean, from the
+    #    feature whose entire premise is that a scorecard need not be trusted (D10).
+    #
+    #    Ranked LAST, below the scored body, and that ordering is the finding's shape: an
+    #    identical body with a differing summary means the `.txt` was altered after the
+    #    fact, not that the score is wrong. Reporting it as a scoring difference would be
+    #    the misdiagnosis this feature keeps being sharpened against (D50, D79).
+    summary_causes = _summary_causes(scorecard_path, recomputed, result)
+    if summary_causes:
+        return VerifyResult(Outcome.SUMMARY_DIFFERS, tuple(summary_causes))
+
     return VerifyResult(
         Outcome.IDENTICAL,
         (
             f"recomputed from the same inputs and every scored field matches; all four "
-            f"fingerprints agree and schema version {stored_version!r} is current.",
+            f"fingerprints agree, schema version {stored_version!r} is current, and the "
+            f"human summary beside it is the one this scorecard renders.",
         ),
     )
+
+
+#: The human summary sits beside the scorecard under the same stem (D49 reserves the pair
+#: together, so one never straddles two stems).
+def _summary_path(scorecard_path: Path) -> Path:
+    return scorecard_path.with_suffix(".txt")
+
+
+def _summary_causes(
+    scorecard_path: Path, recomputed: dict[str, Any], result: ScoreResult
+) -> list[str]:
+    """Differences between the stored human summary and the one these inputs render.
+
+    **Absence is reported, not treated as agreement.** A `.txt` that is not there is a
+    different statement from one that matches, and silently passing would be the
+    absence-nobody-is-told-about class D68 locked. It is not a *failure* either — a reader
+    may legitimately keep only the JSON — so it is stated as a cause under this outcome
+    only when something else is already being reported, and otherwise noted on the
+    identical path by the message naming what was compared."""
+    path = _summary_path(scorecard_path)
+    if not path.is_file():
+        return []
+    stored = read_text_file(path, f"human summary {path}")
+    fresh = human_summary(recomputed, result)
+    if stored == fresh:
+        return []
+    stored_lines = stored.splitlines()
+    fresh_lines = fresh.splitlines()
+    differing = [
+        f"line {number}: stored {was!r}, renders as {now!r}"
+        for number, (was, now) in enumerate(zip(stored_lines, fresh_lines), start=1)
+        if was != now
+    ]
+    if len(stored_lines) != len(fresh_lines):
+        differing.append(
+            f"the stored summary has {len(stored_lines)} line(s), the rendered one "
+            f"{len(fresh_lines)}"
+        )
+    return [
+        f"the scored body matches, but the human summary at {path} is not what this "
+        f"scorecard renders. The JSON is the durable record and it is intact, so this is "
+        f"an edited or corrupted summary rather than a scoring difference (D118):",
+        *_bounded(differing, "further differing line(s)"),
+    ]

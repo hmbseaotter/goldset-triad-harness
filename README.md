@@ -13,6 +13,7 @@ structurally unable to enter the agent's context.
 | Start here | What it covers |
 |---|---|
 | **[docs/RUNBOOK.md](docs/RUNBOOK.md)** | **Step-by-step for a first-time user.** Prerequisites, the three repositories and which is which, every everyday command in **PowerShell and bash**, the held-out workflow end to end, regenerating the datasets, and the errors you will actually hit. |
+| **[docs/SCORECARD.md](docs/SCORECARD.md)** | **Every scorecard field, defined.** What each value is, and — for the ones whose obvious reading is the wrong one — what that wrong reading would be. Read this before drawing a conclusion from a scorecard you did not produce. |
 | [A worked example](#a-worked-example-what-you-give-it-and-what-you-get-back) | A real findings artifact and the real scorecard it produces — both halves, annotated. |
 | [docs/example-findings.json](docs/example-findings.json) | That artifact, shipped, so you can reproduce the documented output in one command. |
 | [ISOLATION_ATTESTATION.md](ISOLATION_ATTESTATION.md) | What is verified by code, what is attested by a human, and what neither can verify. |
@@ -451,6 +452,13 @@ would otherwise enlarge its own denominator and understate its own variance rati
 ---
 
 ## Reading a scorecard
+
+**Field-by-field reference: [docs/SCORECARD.md](docs/SCORECARD.md).** Every emitted field, with
+the misreading each subtle one invites — that `false_positive_rate` is per *invoice*, that
+`precision: null` and `precision: "0.0000"` are different verdicts, that the three
+false-positive counters are diagnostics rather than alternatives, and that `missed[].reasoning`
+is the answer key's note rather than the agent's. What follows here is the reasoning behind the
+shape; the reference is the thing to keep open beside a scorecard.
 
 The scorecard is emitted twice — machine-readable JSON and a human summary — and the summary
 names every missed finding and every false flag individually, not just totals.

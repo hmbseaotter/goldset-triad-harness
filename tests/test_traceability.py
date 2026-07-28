@@ -374,6 +374,16 @@ CRITERIA: list[tuple[str, str, str]] = [
      "test_claim_coverage.PublishedGuaranteeTests.test_every_invoice_line_resolves_to_one_purchase_order_line"),
     ("C80", "each split's inputs directory resolves from its manifest and holds documents",
      "test_claim_coverage.PublishedGuaranteeTests.test_the_inputs_directory_resolves_on_every_split"),
+    # The scorecard legend (D100).
+    ("C81", "every field the scorecard emits is documented in the legend, and no documented "
+            "field has stopped being emitted",
+     "test_scorecard_legend.ScorecardLegendTests.test_every_emitted_field_is_documented"),
+    ("C82", "the summary's TP/FP/FN/P/R and n/a abbreviations are all defined",
+     "test_scorecard_legend.ScorecardLegendTests.test_the_summary_abbreviations_are_defined"),
+    ("C83", "the legend states the misreading each subtle field invites, not just its name",
+     "test_scorecard_legend.ScorecardLegendTests.test_the_subtle_distinctions_are_stated_not_merely_listed"),
+    ("C84", "the legend is referenced from both entry documents",
+     "test_scorecard_legend.ScorecardLegendTests.test_the_legend_is_referenced_from_the_entry_documents"),
 ]
 
 
@@ -582,6 +592,9 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
     # Converses and premises for the D67/D68 locks; each names the criterion it supports.
     "test_claim_coverage.ClaimDiscoveryTests.test_registry_has_no_stale_entries",
     "test_claim_coverage.PublishedGuaranteeTests.test_the_policy_publishes_both_guarantees",
+    # Premise and converse for the legend checks.
+    "test_scorecard_legend.ScorecardLegendTests.test_the_fixture_exercises_both_element_shapes",
+    "test_scorecard_legend.ScorecardLegendTests.test_the_legend_documents_no_field_that_is_not_emitted",
     "test_claim_coverage.ClaimDiscoveryTests.test_every_registered_check_resolves",
     "test_claim_coverage.ClaimDiscoveryTests.test_partial_coverage_states_a_reason",
     "test_claim_coverage.ClaimSymmetryTests.test_every_claim_is_checked_on_every_known_split",
@@ -610,7 +623,7 @@ EXEMPT_TESTS: frozenset[str] = frozenset({
 # established when a SHALL count caught nine silently duplicated requirements. The map
 # below is a parallel list, so nothing otherwise notices a criterion added to the spec
 # with no entry here. Raising this number is the deliberate act that forces the entry.
-EXPECTED_SPEC_P1_CRITERIA = 129
+EXPECTED_SPEC_P1_CRITERIA = 132
 
 # The same checksum for `[P2]`, added when phase 2 began producing criteria of its own.
 # It was missing for the same reason D64a's gap existed and D69's after it: the rule

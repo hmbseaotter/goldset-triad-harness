@@ -4,7 +4,7 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.29.0
+- Spec version: 0.30.0
 - Status: READY-FOR-BUILD
 - Last updated: 2026-07-26
 - Author(s): Saso Gale
@@ -397,6 +397,17 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   SHALL NOT fail, because a suite that is red on every clone is a suite nobody reads (D58, D14).
 - [P1] The staleness stamp SHALL live in the manifest, which sits outside the inputs directory, so re-stamping
   SHALL NOT alter the aggregate inputs digest and SHALL NOT invalidate any scorecard already emitted (D58, D27).
+
+*Scorecard legibility (D100)*
+- [P1] Every field the scorecard emits SHALL be defined in a field legend, and every abbreviation the human
+  summary prints SHALL be defined there too, because a verdict a reader cannot interpret is not a verdict (D100).
+- [P1] The legend SHALL state, for each field whose plain reading is wrong, what that wrong reading would be —
+  because a table of names satisfies a completeness check while leaving every misreading intact (D100).
+- [P1] The legend SHALL be checked against the emitted scorecard in both directions, so it can neither fall behind
+  a new field nor outlive a removed one (D100, D59).
+- [P1] The harness SHALL NOT report a blended precision-recall score, because combining them discards the
+  distinction the per-category table exists to show, and over-flagging a clean dataset is measured by the
+  false-positive rate instead (D100).
 
 *Published contract completeness (D96)*
 - [P1] The published matching policy SHALL state what the dataset guarantees as well as how to compute with it,
@@ -1019,6 +1030,12 @@ the `non-functional` block's labelled `- Security: [P1] …` form that the origi
   policy states that guarantee (D96).
 - [ ] [P1] Each split's inputs directory resolves from its manifest and holds documents, so a loop over inputs
   cannot pass by having looked in a directory that does not exist (D96).
+- [ ] [P1] Every field the scorecard emits appears in the field legend, and every scorecard-shaped name in the
+  legend is still emitted, so the document can neither fall behind the schema nor outlive a removed field (D100).
+- [ ] [P1] Every abbreviation the human summary prints — `TP`, `FP`, `FN`, `P`, `R`, `n/a` — is defined in the
+  legend, and the four misreadings the subtle fields invite are stated rather than merely listed (D100).
+- [ ] [P1] The legend is referenced from both entry documents, and its fixture exercises a false flag as well as a
+  miss, so the false-flag `reason` field cannot be checked by never having been produced (D100, D92).
 - [ ] [P2] Deleting the JSONL ledger and regenerating it from the scorecard directory reproduces identical
   contents.
 - [ ] [P2] The CI workflow runs the pyright gate and the full test suite on push and fails on any error.
@@ -1169,6 +1186,27 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.30.0 (2026-07-28): **the port is verified, and the verdict becomes legible (D100, D101)** — the first
+  scorecard produced by something that is not a test fixture. Findings for `INV-2001` were derived from the
+  invoice PDF, the purchase order, the goods receipts and `matching_policy.json` alone, with the answer key and
+  invoice index deliberately unopened though both were readable: **precision 1.0000, recall 0.3333, zero false
+  positives** — 3 of 3 on the invoice processed, the six misses all on invoices left untouched. D1's ports-and-
+  adapters claim, that the harness never runs the agent and only ingests a payload, is verified rather than
+  asserted; both materiality boundary pairs (`H25a`, `H25b`) were reproduced from the policy text rather than
+  copied from the key. **D100** adds `docs/SCORECARD.md`, because interpreting that scorecard required knowledge
+  that existed only as inline comments in a README example: every field defined, the summary's `TP`/`FP`/`FN`/`P`/
+  `R`/`n/a` defined for the first time anywhere, and for four fields the wrong reading spelled out —
+  `false_positive_rate` is per *invoice*, `precision: null` differs from `"0.0000"`, the three false-positive
+  counters are diagnostics rather than alternatives, and `missed[].reasoning` is the key's note rather than the
+  agent's. Checked in both directions so the legend can neither fall behind a new field nor outlive a removed one,
+  with a fixture that produces a false flag as well as a miss so the `reason` field cannot be checked by never
+  appearing. **D101** records that the ambiguity threshold for concluding an inferred purchase-order match belongs
+  in the published policy, not the agent's discretion: a fuzzy match can succeed ambiguously, a wrong inferred
+  match is worse than an escalation, and without a published threshold the harness cannot tell a correct
+  escalation from giving up too easily. The smoke also found that **the invoice renders no item description and
+  the index carries none either**, so all 16 correspondence rows are ordinally positional — D22 rejected both SKU
+  and positional matching against data that does not exist yet, which is now recorded for `[P3]`.
+  3 acceptance criteria added; 269 tests.
 - 0.29.0 (2026-07-27): **the published contract says what the data guarantees, and the cut dimensions are
   scheduled (D96–D99)** — preparation for building the consumer agent, whose rule layer will be deterministic
   Python implemented *from* `matching_policy.json`. That choice exposed a fair-test hole: `payable_quantity`

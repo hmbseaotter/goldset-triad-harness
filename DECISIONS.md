@@ -3878,6 +3878,82 @@ by this entry being cited from the `[P3]` and `[P4]` phase blocks, so plan and r
 
 ---
 
+## D100 — Every scorecard field is documented, and the legend is checked against the schema ✅
+
+**Fork:** The scorecard emits some forty fields, several of whose obvious reading is the wrong one. Where should
+that be written down, and how does it stay true?
+
+**Found by trying to read one.** The port smoke produced a real scorecard, and interpreting it needed knowledge
+that existed only as inline `//` comments inside an illustrative JSON block in the README — readable there, and
+useless to someone looking at *their own* scorecard. The README's "Reading a scorecard" section explained the
+`null` semantics and the coverage block, which is rationale, not a reference.
+
+**Four fields whose plain reading is wrong**, and the reason a legend is not merely tidy:
+
+- `false_positive_rate` is **per invoice**, not per finding — the denominator is `invoice_count`.
+- `precision: null` and `precision: "0.0000"` are **different verdicts**: nothing submitted, versus everything
+  submitted being wrong. Reading the first as the second is the misjudgement D25 was written to prevent.
+- `duplicate_contention_count` and `nonexistent_target_count` are **not alternatives** to
+  `false_positive_count` — they are diagnostics partitioning part of it, and they mean different defects (D26,
+  D55).
+- `missed[].reasoning` is the **answer key's own note**, not the agent's — which is why a held-out scorecard is
+  answer-key content (D93).
+
+**And the summary's abbreviations were defined nowhere at all.** The `.txt` file prints `TP`, `FP`, `FN`, `P`, `R`
+and `n/a`. `P` and `R` are not guessable, and `n/a` is not zero. They are the first thing a reader meets.
+
+**Decision ✅** — `docs/SCORECARD.md`: every emitted field with its type and meaning, the human summary's
+abbreviations with what each counts and which question it answers, and for each subtle field the wrong reading it
+invites. Referenced from both entry documents, because a reference nobody is pointed at is a reference nobody
+reads (D92).
+
+**Why it needed a check, not just writing.** The coverage block was added by D60 and the README's example updated
+by hand; nothing connected the two, so the next field added would have gone silently undocumented — D59's shape
+exactly, a claim ("the legend describes the scorecard") that nothing compares to reality.
+`ScorecardLegendTests` runs both directions: every emitted field must appear in the legend, and every
+scorecard-shaped name in the legend must still be emitted, so the document cannot outlive a removed field either.
+
+**The fixture is built to exercise both element shapes** — one correct finding and one aimed at a nonexistent
+line — because an all-correct submission leaves `false_flags` empty, and the check would then pass by never having
+seen its `reason` field. A vacuous pass of the kind this project keeps finding.
+
+**No F-score, stated as a decision rather than an omission.** Blending precision and recall into one number
+discards the distinction the per-category table exists to show, and the zero-defect control is scored on
+`false_positive_rate` precisely because over-flagging a clean dataset is the failure a blended score conceals.
+
+**Rule** — **an abbreviation or a field name is a claim about meaning, so it gets a definition and the
+definition gets a check.** Enforced by `tests/test_scorecard_legend.py`, both directions plus the
+subtle-distinction assertions.
+
+---
+
+## D101 — When inference may conclude is published policy, not agent discretion ⏭️
+
+**Fork:** An invoice with no resolvable purchase-order reference can sometimes still be matched — by item
+description, quantity, or amount. When is an agent permitted to *conclude* such a match, and when must it escalate?
+
+**Why this cannot be left to the agent.** A fuzzy match can succeed **ambiguously**: two purchase orders may both
+fit. A wrong inferred match is worse than an escalation, because it produces confident findings against the wrong
+order — every downstream number is then precise and meaningless. And if each implementation picks its own
+threshold, two agents disagree about when to give up, and the harness cannot distinguish **a correct escalation
+from giving up too easily**. Both would appear as the same absence of findings.
+
+**Decision ⏭️** — the ambiguity threshold is published in `matching_policy.json` alongside D97's outcome class:
+inference may conclude only when exactly one candidate matches within tolerance on the stated fields; two or more
+candidates, or none, means escalate. Deferred with D97 because an escalation that cannot be *expressed* cannot be
+scored, so the outcome class has to land first.
+
+**A scoring consequence worth recording now:** once escalation is an outcome, the answer key must declare, for
+each such case, that escalation was the **correct** answer and for which reason. That is what makes D97 a schema
+change rather than a sixth category — the key gains an expected outcome that is not a discrepancy.
+
+**Rule** — **if an agent is scored on when it declines to act, the threshold for declining belongs in the
+published rulebook.** Anything left to the agent's discretion cannot be marked right or wrong. Judgment, not
+checkable until D97 exists; `test_ground_truth.PolicyTests` is the check that extends to cover the published
+threshold.
+
+---
+
 ## Not checked — as of 0.25.0 @ D90
 
 What each pass deliberately did **not** examine. Recorded because the recurring cost is not the defect a sweep

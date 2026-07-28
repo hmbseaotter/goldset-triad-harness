@@ -120,6 +120,13 @@ goldset-triad score --dataset dev --findings ./findings.json --out ./scorecards
 
 You should see a summary printed, ending with the path of the scorecard it wrote.
 
+**To read what it says, keep [docs/SCORECARD.md](SCORECARD.md) open beside it.** That is the
+field-by-field reference: what `TP`, `FP`, `FN`, `P` and `R` stand for, what each JSON field
+means, and — for the handful whose obvious reading is the wrong one — what the wrong reading
+would be. Two worth knowing before you draw any conclusion: `false_positive_rate` is per
+*invoice*, not per finding; and `P n/a` is not the same as `P 0.0000` — the first means the
+agent flagged nothing in that category, the second means everything it flagged was wrong.
+
 ### 1.4 Confirm the harness is honest about itself
 
 Re-score the same inputs and check the result can be reproduced:

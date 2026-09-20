@@ -85,18 +85,45 @@ def _tax_against_nothing_taxable(root: Path) -> None:
     _write(path, po)
 
 
+#: The dev split's fully taxable purchase order. The two mutations below name it, as
+#: every sibling above names its own file, rather than taking whichever one a glob
+#: yielded first. Directory order is alphabetical on Windows but arbitrary on the CI
+#: runners, and the split's PO-3004 is fully exempt: when the glob drew that one there
+#: was nothing taxable to corrupt, so the mutation quietly did nothing, the dataset
+#: stayed valid, and `score` accepted it because there was no longer anything to refuse.
+#: The parity assertion then read that as the scorer waving through a malformation it
+#: had never been shown — a green-or-red coin flip per run, on data that was fine.
+_A_FULLY_TAXABLE_PURCHASE_ORDER = "PO-3001.json"
+
+
+def _taxable_lines_of(path: Path, po: dict) -> list:
+    """The lines a tax mutation can corrupt — never an empty list.
+
+    Naming the file fixes the failure above; this keeps it fixed. A mutation with
+    nothing to act on does not fail, it evaporates, and the assertion it was feeding
+    goes on to report the reader as broken. If the fixtures are ever reshaped so that
+    this purchase order stops carrying taxable lines, that must surface here, as a
+    statement about the data, and not three layers away as a libel against `score`."""
+    lines = [line for line in po["lines"] if line.get("taxable") is True]
+    if not lines:
+        raise AssertionError(
+            f"{path.name} carries no taxable line, so this mutation would leave the "
+            f"dataset valid and the parity check would assert nothing"
+        )
+    return lines
+
+
 def _negative_taxable_subtotal(root: Path) -> None:
     """A PO whose taxable subtotal goes below zero, with tax kept exactly consistent.
 
     The variance is zero, so a correct derivation raises nothing — and before D117 the
     cross-multiplied tax test inverted below zero and flagged it anyway."""
-    path = next((root / "inputs" / "purchase_orders").glob("*.json"))
+    path = root / "inputs" / "purchase_orders" / _A_FULLY_TAXABLE_PURCHASE_ORDER
     po = json.loads(path.read_text(encoding="utf-8"))
     subtotal = Decimal(0)
-    for line in po["lines"]:
-        if line.get("taxable") is True:
-            line["extended"] = "-" + str(line["extended"]).lstrip("-")
-            subtotal += Decimal(str(line["extended"]))
+    for line in _taxable_lines_of(path, po):
+        line["extended"] = "-" + str(line["extended"]).lstrip("-")
+        subtotal += Decimal(str(line["extended"]))
     po["tax"] = str((subtotal * Decimal("0.08")).quantize(Decimal("0.01")))
     _write(path, po)
 
@@ -106,12 +133,9 @@ def _taxable_flag_is_not_a_bool(root: Path) -> None:
 
     Both readers test the flag with `is True`, so this silently drops the line from the
     tax basis in each of them *identically*: the audit cannot catch what it shares."""
-    path = next((root / "inputs" / "purchase_orders").glob("*.json"))
+    path = root / "inputs" / "purchase_orders" / _A_FULLY_TAXABLE_PURCHASE_ORDER
     po = json.loads(path.read_text(encoding="utf-8"))
-    for line in po["lines"]:
-        if line.get("taxable") is True:
-            line["taxable"] = 1
-            break
+    _taxable_lines_of(path, po)[0]["taxable"] = 1
     _write(path, po)
 
 

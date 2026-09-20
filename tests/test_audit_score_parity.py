@@ -114,17 +114,24 @@ def _taxable_lines_of(path: Path, po: dict) -> list:
 
 
 def _negative_taxable_subtotal(root: Path) -> None:
-    """A PO whose taxable subtotal goes below zero, with tax kept exactly consistent.
+    """A PO whose taxable subtotal goes below zero, at the rate the split already bills.
 
-    The variance is zero, so a correct derivation raises nothing — and before D117 the
-    cross-multiplied tax test inverted below zero and flagged it anyway."""
+    The tax is negated alongside the lines rather than recomputed, so the PO keeps its
+    own rate to the cent and the *sign* of the subtotal is the only thing this mutation
+    changes. That is what makes the sentence below true: the variance against the
+    invoice stays the one the clean pair has, far beneath the flagging threshold, so a
+    correct derivation flags nothing — and before D117 the cross-multiplied tax test
+    inverted below zero and flagged it anyway.
+
+    Recomputing at a hardcoded `0.08` was the older shape, and it drifted: the split
+    bills 8.7%, so it quietly moved the purchase order to a rate the invoice did not
+    share and left a variance of 23.77 against a threshold of 25. The illustration still
+    held, by 1.23 — on a constant no one would think to check when tuning a threshold."""
     path = root / "inputs" / "purchase_orders" / _A_FULLY_TAXABLE_PURCHASE_ORDER
     po = json.loads(path.read_text(encoding="utf-8"))
-    subtotal = Decimal(0)
     for line in _taxable_lines_of(path, po):
         line["extended"] = "-" + str(line["extended"]).lstrip("-")
-        subtotal += Decimal(str(line["extended"]))
-    po["tax"] = str((subtotal * Decimal("0.08")).quantize(Decimal("0.01")))
+    po["tax"] = "-" + str(po["tax"]).lstrip("-")
     _write(path, po)
 
 

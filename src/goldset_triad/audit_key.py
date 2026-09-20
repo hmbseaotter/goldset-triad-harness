@@ -100,8 +100,9 @@ def _derive_tax(
     `po_taxable > 0`. Zero is handled above; below zero the right-hand side goes negative
     and `left`, an absolute value, is always greater, so **every invoice flags**. Measured
     end to end: a purchase order with a taxable subtotal of `-3312.51` and a tax of
-    `-265.00` — exactly consistent, zero variance — loaded cleanly and made this function
-    report a TAX_VARIANCE that is not there. The auditor crying wolf about the answer key
+    `-288.19` — the split's own 8.7% rate, a variance of 0.0011 against a threshold of 25
+    — loaded cleanly and made this function report a TAX_VARIANCE that is not there. The
+    auditor crying wolf about the answer key
     is the alarming-direction misdiagnosis D50 ranks worse than silence, from the one tool
     whose value is being trusted about the key.
 

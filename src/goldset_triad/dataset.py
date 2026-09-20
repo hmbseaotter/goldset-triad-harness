@@ -99,8 +99,9 @@ def validate_taxable_subtotal(subtotal: Decimal, where: str) -> None:
     inequality, so `left` (an absolute value) is always greater and *every* invoice flags.
 
     Reached through the real pipeline, not just the function: a purchase order with a
-    taxable subtotal of `-3312.51` and a tax of `-265.00` — exactly consistent, zero
-    variance — loaded cleanly and made the auditor report a TAX_VARIANCE that is not there.
+    taxable subtotal of `-3312.51` and a tax of `-288.19` — the split's own 8.7% rate, a
+    variance of 0.0011 against a threshold of 25 — loaded cleanly and made the auditor
+    report a TAX_VARIANCE that is not there.
     The auditor crying wolf about the answer key is the alarming-direction misdiagnosis
     D50 ranks worse than silence, in the one tool whose whole value is being trusted about
     the key.

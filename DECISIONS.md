@@ -4665,6 +4665,16 @@ of the check.** Cross-multiplying is the standard way to honour D28; nothing had
 the sign. Enforced by `test_audit_score_parity.TaxDerivationPreconditionTests`,
 `…TaxableFlagShippedStateTests`, and three new entries in the validity-parity `MALFORMATIONS` list.
 
+**Addendum (2026-09-19).** The illustration above was measured at the wrong rate. The mutation producing it
+recomputed the purchase order's tax at a hardcoded 8%, while every shipped split bills **8.7%** — so `-265.00`
+on `-3312.51` was *internally* 8%, but it was not "zero variance" against an invoice billing 8.7%. The real
+figure was **23.77 against a threshold of 25**: the inversion this entry identifies was real and the flag it
+produced was still spurious, but the demonstration cleared the bar by **1.23**, on a constant nobody adjusting
+`_RATE`, `_CAP` or `_FLOOR` would have thought to re-derive. The mutation now negates the shipped tax rather
+than recomputing it, so the purchase order keeps its own rate to the cent and the sign of the subtotal is the
+only thing it changes: `-288.19` on `-3312.51`, a variance of **0.0011**. The entry above is left as written;
+what it concluded is unchanged.
+
 ---
 
 ## D118 — Verify examined half the pair, and the other half is the one people read ✅

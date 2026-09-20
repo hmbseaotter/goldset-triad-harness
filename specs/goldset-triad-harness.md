@@ -4,9 +4,9 @@ A held-out golden-dataset harness that scores an AP document-matching agent's 3-
 (PO / invoice / goods-receipt) findings against hand-audited ground truth.
 
 ## metadata
-- Spec version: 0.41.0
+- Spec version: 0.42.0
 - Status: READY-FOR-BUILD
-- Last updated: 2026-07-26
+- Last updated: 2026-09-19
 - Author(s): Saso Gale
 - Target type: library/service (CLI evaluation harness)
 - Build class: build-required
@@ -1359,6 +1359,18 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
 ---
 
 ## changelog
+- 0.42.0 (2026-09-19): **the D117 illustration was billed at a rate the split does not use (D117)**. The
+  negative-subtotal mutation in `tests/test_audit_score_parity.py` recomputed the purchase order's tax at a
+  hardcoded 8%, while every shipped split bills **8.7%**. So the figure this spec, `DECISIONS.md` and both
+  reader docstrings recorded — a tax of `-265.00`, called exactly consistent and zero-variance — was neither:
+  against an invoice billing 8.7% it left a variance of **23.77 against a threshold of 25**. D117's conclusion
+  held, but by **1.23**, on a constant nobody adjusting the threshold would have thought to re-derive. The
+  mutation now negates the shipped tax instead of recomputing it, so the purchase order keeps its own rate to
+  the cent and the *sign* of the subtotal is the only thing it changes: `-288.19` on `-3312.51`, a variance of
+  0.0011. Corrected here and in both docstrings; D117's own entry keeps what it said, with an addendum. The
+  same commit names the purchase order those mutations corrupt, which a glob had been choosing by directory
+  order — alphabetical on Windows, arbitrary on the CI runners, and on the exempt PO-3004 a silent no-op that
+  failed both `tests` jobs on main.
 - 0.41.0 (2026-07-28): **the third root, argued away by a claim about reads (D123)**. D122's startup probe, run
   at all three roots to confirm the fix, returned no warning anywhere — a clean result for the harness and the
   secret tier, and a **vacuous** one for `goldset-triad-holdout`, which carries no `.claude/` directory, so the
@@ -1466,8 +1478,9 @@ n/a (build-required — see `specs/goldset-triad-harness.build-prompt.md`)
   comparison is cross-multiplied precisely to honour D28's no-division rule, and multiplying through by
   `po_taxable` preserves the inequality only while that is positive; the zero case was handled and the negative
   case was not, so `left` — an absolute value — is always the greater and *every* invoice flags. Reached
-  through the real pipeline: a purchase order with a taxable subtotal of `-3312.51` and a tax of `-265.00`,
-  exactly consistent and zero-variance, loaded cleanly and produced `DERIVED-BUT-ABSENT: TAX_VARIANCE` against
+  through the real pipeline: a purchase order with a taxable subtotal of `-3312.51` and a tax of `-288.19` —
+  the split's own 8.7% rate, a variance of 0.0011 against a threshold of 25 — loaded cleanly and produced
+  `DERIVED-BUT-ABSENT: TAX_VARIANCE` against
   a correct key — the auditor crying wolf about the key, which is D50's alarming-direction misdiagnosis from
   the tool whose whole value is being trusted about it. **And `taxable` — the field deciding the tax basis —
   was validated by neither reader**: both test `is True`, so `taxable: 1` moved PO-3001's subtotal from

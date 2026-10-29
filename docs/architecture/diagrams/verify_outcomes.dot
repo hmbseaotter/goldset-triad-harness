@@ -1,0 +1,22 @@
+digraph G {
+  rankdir=TB; nodesep=0.3; ranksep=0.25;
+  node [shape=box, style="rounded,filled", fillcolor="#EEF2F7", fontname="Helvetica", fontsize=10];
+  edge [fontname="Helvetica", fontsize=9];
+  s [label="verify --scorecard --dataset --findings", fillcolor="#DDEBF7"];
+  q1 [label="Schema version recognized?", shape=diamond, fillcolor="#FFFFFF"];
+  r [label="Load, validate and re-score\nthe named dataset and findings"];
+  q2 [label="Same split as recorded?", shape=diamond, fillcolor="#FFFFFF"];
+  q3 [label="All four fingerprints match?", shape=diamond, fillcolor="#FFFFFF"];
+  q4 [label="Recomputed body identical?", shape=diamond, fillcolor="#FFFFFF"];
+  q5 [label="Human summary identical?\n(a missing summary is not a difference)", shape=diamond, fillcolor="#FFFFFF"];
+  o0 [label="no verdict (exit 2)", fillcolor="#F3E9D2"];
+  o1 [label="schema-unrecognised (exit 1)", fillcolor="#F6E3E3"]; o2 [label="dataset-mismatch (exit 1)", fillcolor="#F6E3E3"];
+  o3 [label="fingerprint-mismatch (exit 1)", fillcolor="#F6E3E3"]; o4 [label="score-differs (exit 1)", fillcolor="#F6E3E3"];
+  o5 [label="summary-differs (exit 1)", fillcolor="#F6E3E3"]; o6 [label="identical (exit 0)", fillcolor="#E8F3E8"];
+  s -> q1; q1 -> o1 [label="no"]; q1 -> r [label="yes"];
+  s -> o0 [label="unreadable or malformed\nscorecard", style=dashed];
+  r -> o0 [label="inputs fail validation", style=dashed]; r -> q2;
+  q2 -> o2 [label="no"]; q2 -> q3 [label="yes"];
+  q3 -> o3 [label="no"]; q3 -> q4 [label="yes"]; q4 -> o4 [label="no"]; q4 -> q5 [label="yes"];
+  q5 -> o5 [label="no"]; q5 -> o6 [label="yes"];
+}

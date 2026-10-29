@@ -1,0 +1,18 @@
+digraph G {
+  rankdir=TB; nodesep=0.3; ranksep=0.28;
+  node [shape=box, style="rounded,filled", fillcolor="#EEF2F7", fontname="Helvetica", fontsize=10];
+  edge [fontname="Helvetica", fontsize=9];
+  a [label="1. Resolve dataset\n(identifier or manifest path)"];
+  b [label="2. Validate everything\nkey, index, POs, receipts, cross-references"];
+  halt [label="Halt: named cause, exit 2,\nno scorecard", fillcolor="#F6E3E3"];
+  c [label="3. Parse findings.json\nstrict schema v1"];
+  d [label="4. Set aside MATCH entries;\nlabel non-existent targets"];
+  e [label="5. Group by match key\n(status, category, scope, document, line)"];
+  f [label="6. Pair 1:1, contenders sorted by content\nTP / missed / false flag + reason"];
+  g [label="7. Metrics: precision, recall,\nFP rate per invoice, null rules, coverage"];
+  h [label="8. Fingerprints + serialize\n(exact strings, sorted keys, LF)"];
+  i [label="9. Exclusive write of .json + .txt\n(ordinal if same second)"];
+  j [label="10. Append ledger record\n(failure only warns)"];
+  a -> b; b -> halt [label="any defect", style=dashed]; c -> halt [style=dashed];
+  b -> c -> d -> e -> f -> g -> h -> i -> j;
+}

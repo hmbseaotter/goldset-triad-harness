@@ -1,0 +1,26 @@
+digraph G {
+  rankdir=TB; nodesep=0.3; ranksep=0.4; compound=true;
+  node [shape=box, style="rounded,filled", fillcolor="#EEF2F7", fontname="Helvetica", fontsize=11];
+  edge [fontname="Helvetica", fontsize=9];
+  agent [label="Agent under test\n(runs separately)", fillcolor="#FFF4E0"];
+  findings [label="findings.json\n(the port)", shape=note, fillcolor="#FFFFFF"];
+  subgraph cluster_ds { label="Dataset (a split)"; style="rounded"; color="#9AA8B8"; fontname="Helvetica"; fontsize=10;
+    manifest [label="manifest.json"]; inputs [label="inputs/\nPOs, receipts, invoice PDFs"];
+    key [label="answer key\n+ correspondence"]; index [label="invoice index"]; policy [label="matching_policy.json"]; }
+  subgraph cluster_path { label="Scoring path (goldset-triad score)"; style="rounded"; color="#2E6DB4"; fontname="Helvetica"; fontsize=10;
+    loader [label="dataset.py + jsonio.py\nresolve and validate"]; schema [label="schema.py\nparse findings"];
+    engine [label="scoring.py\nmatch and count\n(no domain rule)", fillcolor="#DDEBF7"];
+    card [label="scorecard.py\nJSON + summary"]; ledger [label="ledger.py\nrun-ledger.jsonl"]; }
+  out [label="scorecard pair\n(.json, .txt)", shape=note, fillcolor="#FFFFFF"];
+  verify [label="verify.py\nrecompute and compare"];
+  audit [label="audit_key.py\nindependent re-derivation", fillcolor="#E8F3E8"];
+  iso [label="check_isolation.py\nguards and placement", fillcolor="#E8F3E8"];
+  gen [label="Generator\n(secret tier, out of tree)", fillcolor="#F6E3E3"];
+  agent -> findings; inputs -> agent [style=dashed, label="reads"];
+  findings -> schema; manifest -> loader; key -> loader; index -> loader; inputs -> loader [label="validates JSON;\nPDFs digested only"];
+  loader -> engine; schema -> engine; engine -> card -> out; card -> ledger;
+  out -> verify; findings -> verify [style=dotted];
+  index -> verify [ltail=cluster_ds, style=dotted, label="re-loads, validates,\nre-scores"];
+  key -> audit [ltail=cluster_ds, label="loads and validates,\nthen re-derives"];
+  gen -> manifest [style=dashed, label="writes every split"]; gen -> policy [style=dashed];
+}

@@ -1,0 +1,18 @@
+digraph G {
+  rankdir=LR; nodesep=0.35; ranksep=0.5;
+  node [shape=record, style="rounded,filled", fillcolor="#EEF2F7", fontname="Helvetica", fontsize=10];
+  edge [fontname="Helvetica", fontsize=9];
+  man [label="{manifest.json|identifier, version|generator_sha256}"];
+  key [label="{answer key|expected_findings[]|correspondence[]}"];
+  ef [label="{expected finding|status, category, scope|target: invoice + line}"];
+  corr [label="{correspondence row|invoice_id, invoice_line_id|po_number, po_line_no|grns[]}"];
+  idx [label="{invoice index entry|invoice_id, tax, lines[]|line_id, qty, price, taxable}"];
+  po [label="{purchase order|po_number, tax|lines: line_no, qty, price}"];
+  grn [label="{goods receipt|grn_number, po_number|lines: po_line_no, qty_received}"];
+  pdf [label="{invoice PDF|rendered from the\nsame record as the index}"];
+  pol [label="{matching_policy.json|published rules}"];
+  man -> key; man -> idx; man -> po [label="inputs_dir"]; man -> pol [style=dotted, arrowhead=none, label="same folder,\nby convention"];
+  key -> ef; key -> corr; ef -> idx [label="target must exist"];
+  corr -> idx [label="invoice line"]; corr -> po [label="one PO line"]; corr -> grn [label="receipts"];
+  idx -> pdf [style=dashed, label="agrees by construction"];
+}

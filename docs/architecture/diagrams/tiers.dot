@@ -1,0 +1,21 @@
+digraph G {
+  rankdir=LR; nodesep=0.4; ranksep=0.6; compound=true;
+  node [shape=box, style="rounded,filled", fillcolor="#EEF2F7", fontname="Helvetica", fontsize=11];
+  edge [fontname="Helvetica", fontsize=9];
+  subgraph cluster_h { label="goldset-triad-harness (publishable)"; style="rounded,filled"; fillcolor="#F3F8FD"; color="#2E6DB4"; fontname="Helvetica"; fontsize=10;
+    code [label="scorer, tests,\npublic dev splits"]; deny [label=".claude/settings.json\n29 deny rules"]; iso [label="check_isolation\nconfiguration + placement"]; }
+  subgraph cluster_ho { label="goldset-triad-holdout (never published)"; style="rounded,filled"; fillcolor="#FFF8EC"; color="#C9A050"; fontname="Helvetica"; fontsize=10;
+    hin [label="held-out inputs\nPO, receipt, invoice PDF"]; hguard [label="mirror guard\n(denies secret reads,\nharness writes)"]; }
+  subgraph cluster_s { label="goldset-triad-secret (agent-denied; writes into it unguarded)"; style="rounded,filled"; fillcolor="#FBEFEF"; color="#B05050"; fontname="Helvetica"; fontsize=10;
+    hk [label="held-out answer key\n+ invoice index"]; gens [label="generators\n+ discrepancy plan"]; canary [label="canary\n(decoy)"]; sguard [label="guard template\n+ mirror guard"]; }
+  agent [label="Agent under test", fillcolor="#FFF4E0"];
+  human [label="Human attestation\n(ISOLATION_ATTESTATION.md)", fillcolor="#E8F3E8"];
+  agent -> hin [label="must read"];
+  agent -> hk [label="denied", color="#B05050", fontcolor="#B05050", style=dashed];
+  deny -> hk [label="refuses Read;\nBash only for listed\ncommands and filenames", color="#B05050", style=dotted];
+  gens -> code [label="writes dev splits", style=dashed];
+  gens -> hin [label="writes inputs", style=dashed];
+  sguard -> deny [label="stamped copy", style=dashed];
+  human -> canary [label="probes", style=dotted];
+  iso -> deny [label="checks", style=dotted];
+}
